@@ -243,10 +243,15 @@ class ReaderDeviceTest {
     }
     @Test fun paddleRecognizerRunsLocallyOnFrenchLineAndReleasesSession(){
         val c=InstrumentationRegistry.getInstrumentation().targetContext
-        val image=Bitmap.createBitmap(1100,90,Bitmap.Config.ARGB_8888);image.eraseColor(Color.WHITE)
-        Canvas(image).drawText("Une lecture locale à Grenoble : 50 000 logements.",12f,62f,Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.BLACK;textSize=38f;typeface=Typeface.SERIF})
+        val phrase="Une lecture locale à Grenoble : 50 000 logements."
+        val paint=Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.BLACK;textSize=38f;typeface=Typeface.SERIF}
+        val ink=Rect();paint.getTextBounds(phrase,0,phrase.length,ink)
+        // Recognizer input is a tight text line, as it is in the Tesseract-line flow.
+        val image=Bitmap.createBitmap(kotlin.math.ceil(paint.measureText(phrase)).toInt()+12,ink.height()+8,Bitmap.Config.ARGB_8888);image.eraseColor(Color.WHITE)
+        Canvas(image).drawText(phrase,6f,4f-ink.top,paint)
+        File(File(c.getExternalFilesDir(null),"screenshots").apply{mkdirs()},"paddle-synthetic-input.png").outputStream().use{image.compress(Bitmap.CompressFormat.PNG,100,it)}
         val box=Box(.1f,.2f,.8f,.23f);val start=android.os.SystemClock.elapsedRealtime();val before=android.os.Debug.getNativeHeapAllocatedSize()
-        PaddleLineRecognizer(c).use{engine->val result=engine.recognize(image,box)!!;assertTrue("Paddle must recognize French words",result.text.contains("lecture")&&result.text.contains("logements"));assertTrue(result.text.contains("50 000"));assertEquals(box,result.source);assertTrue(result.confidence>.5f);assertNull(engine.recognize(image,box){true})}
+        PaddleLineRecognizer(c).use{engine->val result=engine.recognize(image,box)!!;assertTrue("Paddle must recognize French words: ${result.text}",result.text.contains("lecture")&&result.text.contains("logements"));assertTrue("Expected number spacing: ${result.text}",result.text.contains("50 000"));assertEquals(box,result.source);assertTrue(result.confidence>.5f);assertNull(engine.recognize(image,box){true})}
         println("Second recognizer synthetic line: ${android.os.SystemClock.elapsedRealtime()-start}ms; native heap delta ${android.os.Debug.getNativeHeapAllocatedSize()-before} bytes (not peak or phone timing)")
         image.recycle()
     }
