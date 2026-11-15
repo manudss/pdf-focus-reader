@@ -31,6 +31,11 @@ class SplitUiTest{
    call(a,"showSplit",z,vertical);d=ShadowDialog.getLatestDialog();val root=d.window!!.decorView;shot(a,d,if(vertical)"split-v" else  "split-h");val view=preview(root)!!
    val old=view.fraction;val h=view.handlePoint();fun event(action:Int,x:Float,y:Float){val e=MotionEvent.obtain(0,20,action,x,y,0);view.dispatchTouchEvent(e);e.recycle()}
    event(0,h.x,h.y);event(2,h.x+if(vertical)45f else 0f,h.y+if(vertical)0f else 45f);event(1,h.x,h.y);assertTrue(view.fraction!=old)
+   // Real two-pointer gesture: zoom must not commit or move the split fraction.
+   val beforePinch=view.fraction;val beforeZoom=view.zoom
+   fun multi(action:Int,spread:Float){val props=Array(2){idx->MotionEvent.PointerProperties().apply{id=idx;toolType=MotionEvent.TOOL_TYPE_FINGER}};val coords=Array(2){idx->MotionEvent.PointerCoords().apply{x=view.width/2f+(if(idx==0)-spread else spread);y=view.height/2f;pressure=1f;size=1f}};val e=MotionEvent.obtain(0,100+spread.toLong(),action,2,props,coords,0,0,1f,1f,0,0,android.view.InputDevice.SOURCE_TOUCHSCREEN,0);view.dispatchTouchEvent(e);e.recycle()}
+   event(MotionEvent.ACTION_DOWN,view.width/2f-40,view.height/2f);multi(MotionEvent.ACTION_POINTER_DOWN or (1 shl MotionEvent.ACTION_POINTER_INDEX_SHIFT),40f);multi(MotionEvent.ACTION_MOVE,180f);multi(MotionEvent.ACTION_MOVE,280f);multi(MotionEvent.ACTION_MOVE,340f);multi(MotionEvent.ACTION_POINTER_UP or (1 shl MotionEvent.ACTION_POINTER_INDEX_SHIFT),340f);event(MotionEvent.ACTION_UP,view.width/2f,view.height/2f)
+   assertTrue(view.zoom>beforeZoom);assertEquals(beforePinch,view.fraction,0f)
    view.setZoom(2f);val f=view.fraction;button(root,if(vertical)"À gauche" else  "Monter")!!.performClick();assertTrue(view.fraction<f);shot(a,d,if(vertical)"split-v-zoom" else  "split-h-zoom")
    button(root,"Annuler")!!.performClick();assertEquals(original,get(a,"zones"));assertEquals(listOf(4,2),get(a,"order"))
    call(a,"showSplit",z,vertical);d=ShadowDialog.getLatestDialog();val r=d.window!!.decorView;preview(r)!!.setFraction(.63f);button(r,"Confirmer la séparation")!!.performClick();assertEquals(listOf(4,2,5),get(a,"order"));assertEquals(3,(get(a,"zones")as List<*>).size)
