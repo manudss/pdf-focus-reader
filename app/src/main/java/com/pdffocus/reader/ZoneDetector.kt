@@ -7,7 +7,12 @@ import kotlin.math.*
 
 /** Bundled local OCR. Raw words never leave memory or enter logs. */
 class ZoneDetector(private val context:Context) {
-    fun detect(bitmap:Bitmap,cancelled:()->Boolean):List<Zone> {
+    private val lifecycle=Any()
+    private var active:TessBaseAPI?=null
+    @Volatile private var stopped=false
+    fun cancel(){stopped=true;synchronized(lifecycle){active?.stop()}}
+    fun detect(bitmap:Bitmap,obsolete:()->Boolean):List<Zone> {
+        val cancelled={stopped||obsolete()}
         val root=File(context.filesDir,"ocr");val data=File(root,"tessdata").apply{mkdirs()}
         for(lang in listOf("fra","eng")) {
             val target=File(data,"$lang.traineddata")
@@ -22,6 +27,7 @@ class ZoneDetector(private val context:Context) {
         try {
             check(api.init(root.absolutePath,"fra+eng")){"Le moteur OCR n'a pas pu démarrer"}
             api.setPageSegMode(TessBaseAPI.PageSegMode.PSM_AUTO)
+            synchronized(lifecycle){if(cancelled())return emptyList();active=api}
             api.setImage(bitmap);api.getHOCRText(0)
             if(cancelled())return emptyList()
             val w=bitmap.width.toFloat();val h=bitmap.height.toFloat();val text=mutableListOf<Zone>()
@@ -42,13 +48,13 @@ class ZoneDetector(private val context:Context) {
             val lineIterator=api.resultIterator
             if(lineIterator!=null)try{
                 lineIterator.begin()
-                do{val r=lineIterator.getBoundingRect(TessBaseAPI.PageIteratorLevel.RIL_TEXTLINE);if(r.height()>0)lines+=Box(r.left/w,r.top/h,r.right/w,r.bottom/h) to r.bottom/h}while(lineIterator.next(TessBaseAPI.PageIteratorLevel.RIL_TEXTLINE)&&!cancelled())
+                do{val r=lineIterator.getBoundingRect(TessBaseAPI.PageIteratorLevel.RIL_TEXTLINE);val value=lineIterator.getUTF8Text(TessBaseAPI.PageIteratorLevel.RIL_TEXTLINE).orEmpty();if(r.height()>0&&value.any{it.isLetterOrDigit()})lines+=Box(r.left/w,r.top/h,r.right/w,r.bottom/h) to r.bottom/h}while(lineIterator.next(TessBaseAPI.PageIteratorLevel.RIL_TEXTLINE)&&!cancelled())
             }finally{lineIterator.delete()}
-            val withLines=text.map{z->z.copy(lineBottoms=lines.filter{(b,_)->z.box.intersect(b)>b.area*.8f}.map{it.second}.sorted())}
+            val withLines=TextCoverage.includeLines(text,lines.map{it.first}).map{it.copy(box=TextCoverage.safeTextBox(bitmap,it.box))}
             val pictures=pictureCandidates(bitmap,text.map{it.box},cancelled)
-            return (TextGrouping.merge(withLines)+pictures.mapIndexed{i,b->Zone(text.size+i+1,b,Kind.IMAGE)})
+            return (TextGrouping.merge(withLines)+pictures.mapIndexed{i,b->Zone((withLines.maxOfOrNull{it.id}?:0)+i+1,b,Kind.IMAGE)})
                 .sortedWith(compareBy<Zone>{(it.box.top*35).toInt()}.thenBy{it.box.left}).mapIndexed{i,z->z.copy(id=i+1)}
-        }finally{api.recycle()}
+        }finally{synchronized(lifecycle){active=null;api.recycle()}}
     }
     /** Candidate heuristic, not semantic article or image recognition. */
     internal fun pictureCandidates(bitmap:Bitmap,text:List<Box>,cancelled:()->Boolean):List<Box> {
