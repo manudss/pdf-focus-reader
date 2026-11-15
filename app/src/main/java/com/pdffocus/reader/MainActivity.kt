@@ -40,7 +40,7 @@ class MainActivity:Activity() {
         root.setOnApplyWindowInsetsListener{v,insets->v.setPadding(insets.systemWindowInsetLeft,insets.systemWindowInsetTop,insets.systemWindowInsetRight,insets.systemWindowInsetBottom);insets}
         val header=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL;setPadding(dp(14),dp(3),dp(6),0)}
         val names=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL}
-        title=text("PDF Focus Reader",21,true);info=text("Lecture privée, sans compte et hors ligne",12)
+        title=text("PDF Focus Reader",21,true).apply{maxLines=1;ellipsize=android.text.TextUtils.TruncateAt.END};info=text("Lecture privée, sans compte et hors ligne",12)
         names.addView(title);names.addView(info);header.addView(names,LinearLayout.LayoutParams(0,-2,1f))
         header.addView(button("⋮",false){menu()},LinearLayout.LayoutParams(dp(48),dp(48)));root.addView(header)
         status=text("Ouvrez un PDF pour préparer votre parcours.",13).apply{setPadding(dp(16),dp(8),dp(16),dp(8));accessibilityLiveRegion=View.ACCESSIBILITY_LIVE_REGION_POLITE}
@@ -70,7 +70,7 @@ class MainActivity:Activity() {
     }
     private fun row(vararg buttons:Button){val row=LinearLayout(this);buttons.forEach{row.addView(it,LinearLayout.LayoutParams(0,dp(50),1f))};controls.addView(row)}
     private fun updateControls(){
-        controls.removeAllViews();pages.removeAllViews()
+        controls.removeAllViews();controls.isEnabled=true;pages.removeAllViews()
         if(count==0){
             row(button("Ouvrir un PDF",true){pickPdf()})
             row(button("Essayer un exemple fictif"){demo()})
@@ -119,19 +119,18 @@ class MainActivity:Activity() {
         openDocument(name){target->contentResolver.openInputStream(uri)?.use{input->target.outputStream().use{output->val b=ByteArray(64*1024);var bytes=0L;while(true){val n=input.read(b);if(n<0)break;bytes+=n;require(bytes<=250L*1024*1024){"Ce prototype accepte les PDF jusqu'à 250 Mo."};output.write(b,0,n)}}}?:error("Fichier inaccessible")}
     }
     private fun openDocument(name:String,write:(File)->Unit){
-        val token=++generation;busy=true;reading=false;status.text="Ouverture du document…";updateControls()
+        val token=++generation;busy=true;reading=false;canvas.reading=false;canvas.image=preview;status.text="Ouverture du document…";updateControls()
         worker.execute{
             val temp=File(cacheDir,"import-$token.pdf")
             try{
                 write(temp)
                 require(temp.length()>4){"Fichier vide"}
                 if(token!=generation)return@execute
-                val candidate=PdfDocument(temp)
-                if(candidate.count==0){candidate.close();error("Aucune page dans ce PDF")}
+                PdfDocument(temp).use{require(it.count>0){"Aucune page dans ce PDF"}}
                 document?.close();document=null
                 val current=File(filesDir,"current.pdf")
-                check(temp.copyTo(current,overwrite=true).length()==temp.length()){"Copie du document impossible"}
-                candidate.close();document=PdfDocument(current)
+                java.nio.file.Files.move(temp.toPath(),current.toPath(),java.nio.file.StandardCopyOption.REPLACE_EXISTING,java.nio.file.StandardCopyOption.ATOMIC_MOVE)
+                document=PdfDocument(current)
                 val total=document!!.count
                 val digest=MessageDigest.getInstance("SHA-256");current.inputStream().use{input->val b=ByteArray(65536);while(true){val n=input.read(b);if(n<0)break;digest.update(b,0,n)}}
                 val key=digest.digest().joinToString(""){"%02x".format(it)}
