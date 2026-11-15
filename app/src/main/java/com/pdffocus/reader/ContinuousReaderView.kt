@@ -52,7 +52,7 @@ class ContinuousReaderView(context:Context):View(context){
         override fun onScroll(a:MotionEvent?,b:MotionEvent,dx:Float,dy:Float):Boolean{horizontal=if(ocrTexts!=null)0f else (horizontal+dx).coerceIn(-max(0f,(width*magnification-width)/2),max(0f,(width*magnification-width)/2));move(offset+dy);return true}
         override fun onFling(a:MotionEvent?,b:MotionEvent,vx:Float,vy:Float):Boolean{scroller.fling(0,offset.roundToInt(),0,(-vy).roundToInt(),0,0,0,max(0f,totalHeight-height).roundToInt());postInvalidateOnAnimation();return true}
     })
-    init{setBackgroundColor(Color.rgb(245,243,240));isFocusable=true;contentDescription="Lecture continue. Glissez verticalement pour lire les blocs dans votre ordre."}
+    init{setBackgroundColor(Color.WHITE);isFocusable=true;contentDescription="Lecture continue. Glissez verticalement pour lire les blocs dans votre ordre."}
     fun setDocument(zones:List<Zone>,pageWidth:Int,pageHeight:Int,position:Int=0){clear();bands=ContinuousLayout.bands(zones);pw=pageWidth;ph=pageHeight;offset=position.toFloat();rebuild()}
     fun zoomBy(f:Float){if(ocrTexts!=null){val fraction=if(totalHeight>0)offset/totalHeight else 0f;fontSize=(fontSize*f).coerceIn(14f,38f);rebuild();move(fraction*totalHeight);return};val fraction=if(totalHeight>0)offset/totalHeight else 0f;magnification=(magnification*f).coerceIn(1f,2f);val limit=max(0f,(width*magnification-width)/2);horizontal=horizontal.coerceIn(-limit,limit);rebuild();move(fraction*totalHeight)}
     fun clear(){ocrPlan=null;exposed.clear();streamLoading=false;ocrTexts=null;textItems=emptyList();revision++;pending.clear();failed.clear();bitmaps.evictAll();tiles=emptyList();bands=emptyList();offset=0f;horizontal=0f;magnification=1f;totalHeight=0f;scroller.forceFinished(true);invalidate()}
@@ -63,7 +63,7 @@ class ContinuousReaderView(context:Context):View(context){
     fun showOcr(texts:Map<Int,String>?){ocrPlan=null;exposed.clear();streamLoading=false;val fraction=if(totalHeight>0)offset/totalHeight else 0f;ocrTexts=texts;horizontal=0f;rebuild();move(fraction*totalHeight)}
     fun reprocess(){rebuild()}
     fun currentPosition()=offset.roundToInt()
-    override fun onSizeChanged(w:Int,h:Int,oldw:Int,oldh:Int){super.onSizeChanged(w,h,oldw,oldh);if(w>0&&h>0)rebuild()}
+    override fun onSizeChanged(w:Int,h:Int,oldw:Int,oldh:Int){val atEnd=oldh>0&&totalHeight>oldh&&offset>=totalHeight-oldh-2f;super.onSizeChanged(w,h,oldw,oldh);if(w>0&&h>0){rebuild();if(atEnd)move(totalHeight-h)}}
     private fun rebuild(){
         revision++;pending.clear();failed.clear();bitmaps.evictAll();if(width<=0)return
         val out=mutableListOf<Tile>();val textOut=mutableListOf<TextItem>();val done=mutableSetOf<Int>();var y=0f;var last=-1
@@ -72,13 +72,13 @@ class ContinuousReaderView(context:Context):View(context){
             val recognized=ocrTexts?.get(b.zoneId)
             if(b.kind==Kind.TEXT&&!recognized.isNullOrBlank()){
                 if(!done.add(b.zoneId))continue
-                if(last>=0&&last!=b.ordinal)y+=12*density;last=b.ordinal
+                if(last>=0&&last!=b.ordinal)y+=6*density;last=b.ordinal
                 textPaint.textSize=fontSize*resources.displayMetrics.scaledDensity
                 val layout=StaticLayout.Builder.obtain(recognized,0,recognized.length,textPaint,max(1,width-32*density.toInt())).setAlignment(Layout.Alignment.ALIGN_NORMAL).setIncludePad(true).setLineSpacing(4*density,1.12f).build()
                 textOut+=TextItem(layout,y,b.ordinal,b.zoneId);y+=layout.height
                 continue
             }
-            if(b.ordinal!=last){if(last>=0&&last!=b.ordinal)y+=12*density;last=b.ordinal}
+            if(b.ordinal!=last){if(last>=0&&last!=b.ordinal)y+=6*density;last=b.ordinal}
             var scale=(width-16*density)/(b.original.width*pw)*if(b.kind==Kind.TEXT)magnification else 1f
             if(b.kind==Kind.IMAGE)scale=min(scale,max(300f,height*.9f)/(b.original.height*ph))
             val bandHeight=(b.bottom-b.top)*ph*scale;val fullWidth=b.original.width*pw*scale;val left=(width-fullWidth)/2
@@ -97,7 +97,7 @@ class ContinuousReaderView(context:Context):View(context){
             y+=bandHeight
         }
         streamTail=y;if(streamLoading)y+=72*density
-        textItems=textOut;tiles=out;totalHeight=y;move(offset);invalidate()
+        textItems=textOut;tiles=out;totalHeight=y+24*density;move(offset);invalidate()
     }
     private fun move(value:Float){offset=value.coerceIn(0f,max(0f,totalHeight-height));val ordinal=(tiles.filter{it.rect.bottom>=offset}.map{it.rect.top to it.ordinal}+textItems.filter{it.top+it.layout.height>=offset}.map{it.top to it.ordinal}).minByOrNull{it.first}?.second?:0;onProgress?.invoke(ordinal,offset.roundToInt());invalidate()}
     override fun onDraw(c:Canvas){

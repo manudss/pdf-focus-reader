@@ -57,6 +57,7 @@ class MainActivity:Activity() {
     private var mergeIds=setOf<Int>()
     private var pendingNew:Zone?=null
     private var adjusting:Int?=null
+    private var editDialog:Dialog?=null
     private var adding=false;private var replaceId:Int?=null
     private var documentTitle="PDF Focus Reader"
     private val green=Color.rgb(50,109,93);private val ink=Color.rgb(37,31,33)
@@ -107,7 +108,7 @@ class MainActivity:Activity() {
         label.startsWith("Page ›")||label=="Suivante"->"next"
         label.startsWith("Texte −")||label=="Dézoomer"->"minus"
         label.startsWith("Texte +")||label=="Zoomer"||label.startsWith("Ajouter")->"add"
-        label.startsWith("Valider")->"check"
+        label.startsWith("Valider")||label.startsWith("Confirmer")->"check"
         label.startsWith("Annuler dernier")->"undo"
         label.startsWith("Annuler")||label.startsWith("Effacer")||label=="Fermer"->"close"
         label.startsWith("Lire")||label.startsWith("Essayer")->"book"
@@ -117,6 +118,8 @@ class MainActivity:Activity() {
         label.startsWith("Réglages")->"settings"
         label.startsWith("Ordre")->"order"
         label.startsWith("Fusion")->"merge"
+        label=="À gauche"||label=="Monter"->"minus"
+        label=="À droite"||label=="Descendre"->"add"
         label.startsWith("Recentrer")->"center"
         else->"more"
     }
@@ -304,7 +307,7 @@ class MainActivity:Activity() {
         if(order.isEmpty()||busy)return
         val p=preview?:return;readingSettings=false;currentOrdinal=frameIndex;reading=true;canvas.visibility=View.GONE;reader.visibility=View.VISIBLE
         val chosen=BlockSeams.align(p,ReadingLayout.ordered(zones,order).map{z->if(z.kind==Kind.TEXT&&!z.manual)z.copy(box=TextCoverage.safeTextBox(p,z.box))else z})
-        reader.setDocument(chosen,p.width,p.height,scrollPosition);if(ocrReading)prepareOcr();updateControls()
+        reader.setDocument(chosen.map{ReadingWhitespace.trim(p,it)},p.width,p.height,scrollPosition);if(ocrReading)prepareOcr();updateControls()
     }
     private fun selectMode(mode:Int){
         ocrReading=mode==2;cleanReading=mode!=0
@@ -399,18 +402,75 @@ class MainActivity:Activity() {
     }
     private fun editZone(z:Zone){
         frameIndex=0
-        AlertDialog.Builder(this).setTitle("Corriger le bloc").setItems(arrayOf("Redessiner le cadre","Traiter comme ${if(z.kind==Kind.TEXT)"image" else "texte"}","Couper en deux verticalement","Couper en deux horizontalement","Choisir les blocs à fusionner","Supprimer ce bloc","Ajuster le cadre")){_,which->
-            when(which){
+        val panel=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(20),dp(12),dp(20),dp(14));background=shape(Color.WHITE,24)}
+        val dialog=android.app.Dialog(this)
+        editDialog=dialog;dialog.setOnDismissListener{if(editDialog===dialog)editDialog=null}
+        val heading=LinearLayout(this).apply{gravity=Gravity.CENTER_VERTICAL;isBaselineAligned=false}
+        heading.addView(text("Corriger le bloc",25).apply{typeface=Typeface.create("serif",Typeface.NORMAL)},LinearLayout.LayoutParams(0,-2,1f))
+        heading.addView(button("Fermer"){dialog.dismiss()}.apply{background=null},LinearLayout.LayoutParams(dp(90),dp(48)))
+        panel.addView(heading);panel.addView(text("Bloc de ${if(z.kind==Kind.TEXT)"texte" else "type image"} · page ${page+1}",12))
+        val scroll=ScrollView(this).apply{isFillViewport=false};val list=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL};scroll.addView(list);panel.addView(scroll,LinearLayout.LayoutParams(-1,0,1f))
+        fun section(label:String){list.addView(text(label,11,true).apply{setTextColor(Color.rgb(88,82,84));setPadding(0,dp(17),0,dp(5))})}
+        fun action(label:String,detail:String,icon:String,which:Int,highlight:Boolean=false,danger:Boolean=false){
+            val color=if(danger)Color.rgb(170,61,67)else green
+            val row=LinearLayout(this).apply{gravity=Gravity.CENTER_VERTICAL;isBaselineAligned=false;minimumHeight=dp(68);setPadding(dp(8),dp(9),dp(8),dp(9));background=android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(Color.argb(25,50,109,93)),shape(if(highlight)Color.rgb(238,244,240)else Color.WHITE,12),shape(Color.WHITE,12));isClickable=true;isFocusable=true;contentDescription="$label. $detail"}
+            row.addView(ImageView(this).apply{setImageDrawable(ActionIcon(icon,color))},LinearLayout.LayoutParams(dp(25),dp(25)).apply{marginEnd=dp(16)})
+            val words=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL};words.addView(text(label,15,true).apply{if(danger)setTextColor(color)});words.addView(text(detail,12).apply{setTextColor(Color.rgb(88,82,84))});row.addView(words,LinearLayout.LayoutParams(0,-2,1f))
+            row.addView(text("›",22).apply{setTextColor(Color.rgb(140,135,137))},LinearLayout.LayoutParams(dp(12),-2))
+            row.setOnClickListener{dialog.dismiss();editZoneAction(z,which)};list.addView(row,LinearLayout.LayoutParams(-1,-2))
+            if(!highlight&&!danger)list.addView(View(this).apply{setBackgroundColor(Color.rgb(234,233,234))},LinearLayout.LayoutParams(-1,dp(1)))
+        }
+        section("MODIFIER LE CADRE")
+        action("Ajuster le cadre","Déplacez le bloc ou ses poignées.","crop",6,true)
+        action("Redessiner le cadre","Tracez un nouveau rectangle à sa place.","draw",0)
+        section("ORGANISER LE CONTENU")
+        action("Séparer gauche / droite","Placez la ligne, puis confirmez les deux blocs.","splitv",2)
+        action("Séparer haut / bas","Placez la ligne, puis confirmez les deux blocs.","splith",3)
+        action("Fusionner avec d'autres blocs","Choisissez les blocs à réunir dans un seul cadre.","merge",4)
+        section("AFFICHAGE DU BLOC")
+        action("Traiter comme ${if(z.kind==Kind.TEXT)"image" else "texte"}",if(z.kind==Kind.TEXT)"Conserve le bloc en image, même en mode OCR." else "Permet la reconnaissance du texte en mode OCR.",if(z.kind==Kind.TEXT)"image" else "text",1)
+        action("Supprimer le bloc","Retire la zone et sa place dans le parcours.","trash",5,danger=true)
+        panel.addView(text("Le PDF original reste inchangé. Fermez ce panneau pour revenir sans modifier le bloc.",11).apply{setTextColor(Color.rgb(88,82,84));setPadding(0,dp(10),0,0)})
+        dialog.setContentView(panel);dialog.window?.apply{setBackgroundDrawableResource(android.R.color.transparent);setGravity(Gravity.BOTTOM);addFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND);setDimAmount(.35f)}
+        dialog.show();dialog.window?.setLayout(resources.displayMetrics.widthPixels-dp(16),(resources.displayMetrics.heightPixels*.85f).toInt())
+    }
+    private fun editZoneAction(z:Zone,which:Int){
+        when(which){
                 0->{replaceId=z.id;adding=true;canvas.drawMode=true}
                 1->{zones=zones.map{if(it.id==z.id)it.copy(kind=if(it.kind==Kind.TEXT)Kind.IMAGE else Kind.TEXT)else it}}
-                2,3->{val b=z.box;val a:Box;val c:Box;if(which==2){val x=(b.left+b.right)/2;a=Box(b.left,b.top,x,b.bottom);c=Box(x,b.top,b.right,b.bottom)}else{val y=(b.top+b.bottom)/2;a=Box(b.left,b.top,b.right,y);c=Box(b.left,y,b.right,b.bottom)};val id=(zones.maxOfOrNull{it.id}?:0)+1;zones=zones.filterNot{it.id==z.id}+z.copy(box=a,manual=true)+Zone(id,c,z.kind,manual=true);val i=order.indexOf(z.id);if(i>=0)order=order.toMutableList().apply{add(i+1,id)}}
+                2,3->{showSplit(z,which==2);return}
                 4->{beginMerge(z)}
 
                 5->{zones=zones.filterNot{it.id==z.id};order=order.filterNot{it==z.id}}
                 6->{beginAdjustment(z)}
             };sync(adjusting==null&&!merging)
-        }.setNegativeButton("Annuler",null).show()
     }
+
+    private fun showSplit(z:Zone,vertical:Boolean){
+        val image=preview?:return
+        val dialog=Dialog(this)
+        editDialog=dialog;dialog.setOnDismissListener{if(editDialog===dialog)editDialog=null}
+        val panel=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(16),dp(12),dp(16),dp(12));setBackgroundColor(Color.rgb(250,249,246))}
+        panel.addView(text("Séparer ${if(vertical)"gauche / droite" else "haut / bas"}",25).apply{typeface=Typeface.create("serif",Typeface.NORMAL)})
+        panel.addView(text("Glissez la ligne ${if(vertical)"horizontalement" else "verticalement"}.",13))
+        val view=SplitPreview(this,image,z.box,vertical);panel.addView(view,LinearLayout.LayoutParams(-1,0,1f))
+        val zoomLabel=text("Pincez pour zoomer · glissez ailleurs pour déplacer la vue",12).apply{gravity=Gravity.CENTER};panel.addView(zoomLabel)
+        fun row(vararg items:Button){val r=LinearLayout(this).apply{gravity=Gravity.CENTER_VERTICAL};items.forEachIndexed{i,it->r.addView(it,LinearLayout.LayoutParams(0,dp(48),1f).apply{if(i>0)marginStart=dp(6)})};panel.addView(r,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=dp(6)})}
+        row(button("Dézoomer"){view.setZoom(view.zoom/1.5f)},button("Zoomer"){view.setZoom(view.zoom*1.5f)},button("Recentrer"){view.setZoom(1f)})
+        row(button(if(vertical)"À gauche" else "Monter"){view.nudge(-1)},button(if(vertical)"À droite" else "Descendre"){view.nudge(1)})
+        val position=text("",12).apply{gravity=Gravity.CENTER};panel.addView(position)
+        view.onChange={position.text="${(view.fraction*100).roundToInt()} % · zoom ${String.format(java.util.Locale.FRANCE,"%.1f",view.zoom)}× · pas de 1 pixel aperçu"};view.onChange?.invoke()
+        val actions=LinearLayout(this)
+        actions.addView(button("Annuler"){dialog.dismiss()},LinearLayout.LayoutParams(0,dp(54),.85f))
+        actions.addView(button("Confirmer la séparation",true){
+            val result=BlockSplit.apply(zones,order,z.id,vertical,view.fraction);zones=result.zones;order=result.order
+            ocrRun++;detector?.cancel();ocrLoading=false;chunkPlan=emptyList();rawChunks.clear();improvedChunks.clear();scrollPosition=0
+            dialog.dismiss();sync()
+        },LinearLayout.LayoutParams(0,dp(54),1.6f))
+        panel.addView(actions);dialog.setContentView(panel);dialog.show()
+        dialog.window?.apply{setBackgroundDrawableResource(android.R.color.transparent);setLayout(-1,-1)}
+    }
+
     private fun goToPage(){if(documentLoading)return;val input=EditText(this).apply{inputType=android.text.InputType.TYPE_CLASS_NUMBER;hint="1 à $count"};AlertDialog.Builder(this).setTitle("Aller à la page").setView(input).setPositiveButton("Ouvrir"){_,_->val p=input.text.toString().toIntOrNull();if(p!=null&&p in 1..count)loadPage(p-1)else toast("Numéro de page invalide")}.setNegativeButton("Annuler",null).show()}
     private fun menu(){val items=arrayOf("Ouvrir un autre PDF","Réessayer la détection","Confidentialité et aide","Supprimer le document local","Licences des composants")
         AlertDialog.Builder(this).setItems(items){_,which->when(which){0->pickPdf();1->if(count>0&&!busy)AlertDialog.Builder(this).setMessage("Remplacer les blocs et le parcours de cette page ?").setPositiveButton("Remplacer"){_,_->loadPage(page,true)}.setNegativeButton("Annuler",null).show();2->AlertDialog.Builder(this).setTitle("PDF Focus Reader · prototype").setMessage("Le PDF, les zones et les parcours restent sur cet appareil. Aucune permission Internet, publicité ou compte. Une copie privée du dernier PDF est conservée pour reprendre la lecture.\n\nLa détection peut manquer ou fusionner des zones. + Bloc permet de cadrer à la main ; un appui long modifie, divise ou fusionne les blocs. Pincez pour zoomer et faites glisser la page agrandie.\n\nLe zoom ne recrée pas les détails d'un scan flou. Ce prototype n'a pas encore été testé sur votre téléphone.").setPositiveButton("Fermer",null).show();3->clearDocument();4->showLicenses()}}.show()}
@@ -423,5 +483,5 @@ class MainActivity:Activity() {
         paint.color=Color.rgb(84,153,130);c.drawRect(40f,880f,660f,960f,paint);paint.color=Color.WHITE;paint.textSize=22f;c.drawText("Illustration fictive · aucun document personnel",65f,927f,paint);pdf.finishPage(p);target.outputStream().use{pdf.writeTo(it)};pdf.close()}}
     @Deprecated("Activity back callback")
     override fun onBackPressed(){if(merging)finishMerge(false)else if(adjusting!=null)finishAdjustment(false)else if(reading)exitReader()else if(adding){adding=false;replaceId=null;canvas.drawMode=false;sync()}else super.onBackPressed()}
-    override fun onDestroy(){main.removeCallbacks(saveProgress);if(pageReady)saveSession();reader.clear();++generation;detector?.cancel();detectionWorker.shutdown();super.onDestroy();worker.execute{document?.close();document=null};worker.shutdown()}
+    override fun onDestroy(){editDialog?.dismiss();main.removeCallbacks(saveProgress);if(pageReady)saveSession();reader.clear();++generation;detector?.cancel();detectionWorker.shutdown();super.onDestroy();worker.execute{document?.close();document=null};worker.shutdown()}
 }

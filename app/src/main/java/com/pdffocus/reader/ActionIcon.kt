@@ -21,6 +21,11 @@ class ActionIcon(private val name:String,private val tint:Int):Drawable(){
    "document"->line(5f,3f,14f,3f,19f,8f,19f,21f,5f,21f,5f,3f,14f,3f,14f,8f,19f,8f)
    "merge"->{line(5f,3f,5f,8f,12f,14f,19f,8f,19f,3f);line(12f,14f,12f,21f);line(8f,17f,12f,21f,16f,17f)}
    "order"->{line(6f,3f,6f,21f);line(3f,18f,6f,21f,9f,18f);line(13f,5f,21f,5f);line(13f,11f,19f,11f);line(13f,17f,17f,17f)}
+   "splitv"->{line(3f,3f,21f,3f,21f,21f,3f,21f,3f,3f);line(12f,3f,12f,21f)}
+   "splith"->{line(3f,3f,21f,3f,21f,21f,3f,21f,3f,3f);line(3f,12f,21f,12f)}
+   "image"->{line(3f,4f,21f,4f,21f,20f,3f,20f,3f,4f);line(3f,16f,9f,10f,13f,14f,16f,11f,21f,16f)}
+   "trash"->{line(3f,6f,21f,6f);line(9f,6f,9f,3f,15f,3f,15f,6f);line(5f,6f,6f,21f,18f,21f,19f,6f);line(10f,10f,10f,17f);line(14f,10f,14f,17f)}
+   "draw"->{line(3f,17f,3f,21f,7f,21f,21f,7f,17f,3f,3f,17f);line(14f,6f,18f,10f)}
    "crop"->{line(7f,3f,7f,17f,21f,17f);line(3f,7f,17f,7f,17f,21f)}
    "undo"->{line(8f,4f,3f,9f,8f,14f);val path=Path();path.moveTo(3f,9f);path.lineTo(14f,9f);path.cubicTo(23f,9f,23f,21f,14f,21f);c.drawPath(path,p)}
    "center"->{c.drawCircle(12f,12f,6f,p);line(12f,2f,12f,6f);line(12f,18f,12f,22f);line(2f,12f,6f,12f);line(18f,12f,22f,12f)}

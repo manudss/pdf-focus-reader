@@ -150,6 +150,39 @@ class ReaderDeviceTest {
         ZoneDetector(context).recognizeChunks(plan,image,false,{stop}){chunk,_->cancelled+=chunk.key;stop=true}
         assertEquals(listOf(1),cancelled);image.recycle()
     }
+    @Test fun adjustableSplitDialogGesturesCancelAndConfirm(){
+        val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext
+        File(c.filesDir,"current.pdf").delete();SessionStore(c).clear()
+        ActivityScenario.launch<MainActivity>(Intent(c,MainActivity::class.java)).use{scenario->
+            val original=listOf(Zone(3,Box(.04f,.04f,.96f,.96f),Kind.TEXT),Zone(8,Box(.1f,.1f,.2f,.2f),Kind.IMAGE))
+            var dialog:android.app.Dialog?=null
+            fun set(a:MainActivity,n:String,v:Any){MainActivity::class.java.getDeclaredField(n).apply{isAccessible=true}.set(a,v)}
+            fun get(a:MainActivity,n:String)=MainActivity::class.java.getDeclaredField(n).apply{isAccessible=true}.get(a)
+            fun invoke(a:MainActivity,n:String,vararg args:Any){MainActivity::class.java.declaredMethods.first{it.name==n}.apply{isAccessible=true}.invoke(a,*args)}
+            fun view(v:View):SplitPreview?{if(v is SplitPreview)return v;if(v is ViewGroup)for(k in 0 until v.childCount)view(v.getChildAt(k))?.let{return it};return null}
+            fun capture(name:String){i.waitForIdleSync();scenario.onActivity{a->val root=dialog!!.window!!.decorView;val bitmap=Bitmap.createBitmap(root.width,root.height,Bitmap.Config.ARGB_8888);root.draw(Canvas(bitmap));File(File(a.getExternalFilesDir(null),"screenshots").apply{mkdirs()},"$name.png").outputStream().use{bitmap.compress(Bitmap.CompressFormat.PNG,100,it)};bitmap.recycle()}}
+            // The WindowManager view is returned by each show operation, avoiding test-only app state.
+            fun latestDialog(a:MainActivity):android.app.Dialog {
+                val field=MainActivity::class.java.getDeclaredField("editDialog").apply{isAccessible=true};return field.get(a)as android.app.Dialog
+            }
+            scenario.onActivity{a->
+                val bitmap=Bitmap.createBitmap(1000,1500,Bitmap.Config.ARGB_8888);bitmap.eraseColor(Color.WHITE);val cc=Canvas(bitmap);val p=Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.BLACK;textSize=25f}
+                for(line in 0..45){cc.drawText("Lire un journal à son rythme.",40f,60f+line*30,p);cc.drawText("Une autre colonne de texte.",540f,60f+line*30,p)}
+                set(a,"preview",bitmap);set(a,"zones",original);set(a,"order",listOf(8,3));set(a,"count",1);invoke(a,"editZone",original[0]);dialog=latestDialog(a)
+            };capture("block-menu");scenario.onActivity{dialog!!.dismiss()}
+            for(vertical in listOf(false,true)){
+                scenario.onActivity{a->invoke(a,"showSplit",original[0],vertical);dialog=latestDialog(a)};capture(if(vertical)"split-v" else "split-h")
+                scenario.onActivity{a->val root=dialog!!.window!!.decorView;val v=view(root)!!;val initial=v.fraction;val h=v.handlePoint();val now=android.os.SystemClock.uptimeMillis()
+                    fun touch(action:Int,x:Float,y:Float){val event=MotionEvent.obtain(now,now+20,action,x,y,0);v.dispatchTouchEvent(event);event.recycle()}
+                    touch(0,h.x,h.y);touch(2,h.x+if(vertical)60f else 0f,h.y+if(vertical)0f else 60f);touch(1,h.x,h.y);assertNotEquals(initial,v.fraction)
+                    findButton(root,"Zoomer")!!.performClick();assertTrue(v.zoom>1f);val before=v.fraction;findButton(root,if(vertical)"À gauche" else "Monter")!!.performClick();assertTrue(v.fraction<before)
+                };capture(if(vertical)"split-v-zoom" else "split-h-zoom")
+                scenario.onActivity{a->findButton(dialog!!.window!!.decorView,"Annuler")!!.performClick();assertEquals(original,get(a,"zones"));assertEquals(listOf(8,3),get(a,"order"));invoke(a,"showSplit",original[0],vertical);dialog=latestDialog(a)}
+                i.waitForIdleSync()
+                scenario.onActivity{a->val root=dialog!!.window!!.decorView;view(root)!!.setFraction(.63f);findButton(root,"Confirmer la séparation")!!.performClick();assertEquals(listOf(8,3,9),get(a,"order"));val result=get(a,"zones")as List<Zone>;assertEquals(3,result.size);if(vertical)assertEquals(.04f+.92f*.63f,result[0].box.right,.00001f)else assertEquals(.04f+.92f*.63f,result[0].box.bottom,.00001f);set(a,"zones",original);set(a,"order",listOf(8,3))}
+            }
+        }
+    }
     private fun findText(v:View,value:String):Boolean{if(v is TextView&&v.text.toString().contains(value))return true;if(v is ViewGroup)for(j in 0 until v.childCount)if(findText(v.getChildAt(j),value))return true;return false}
     private fun findButton(v:View,label:String):Button? {if(v is Button&&v.text.toString().startsWith(label))return v;if(v is ViewGroup)for(i in 0 until v.childCount)findButton(v.getChildAt(i),label)?.let{return it};return null}
     private fun findReader(v:View):ContinuousReaderView?{if(v is ContinuousReaderView)return v;if(v is ViewGroup)for(i in 0 until v.childCount)findReader(v.getChildAt(i))?.let{return it};return null}
