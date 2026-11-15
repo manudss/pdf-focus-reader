@@ -10,7 +10,9 @@ class ZoneDetector(private val context:Context) {
     private val lifecycle=Any()
     private var active:TessBaseAPI?=null
     @Volatile private var stopped=false
-    fun cancel(){stopped=true;synchronized(lifecycle){active?.stop()}}
+    // Native stop/recycle can contend; never wait for that lock on the UI thread.
+    fun cancel(){stopped=true;stopWorker.execute{synchronized(lifecycle){active?.stop()}}}
+    companion object { private val stopWorker=java.util.concurrent.Executors.newSingleThreadExecutor() }
     fun detect(bitmap:Bitmap,obsolete:()->Boolean):List<Zone> {
         val cancelled={stopped||obsolete()}
         val root=File(context.filesDir,"ocr");val data=File(root,"tessdata").apply{mkdirs()}

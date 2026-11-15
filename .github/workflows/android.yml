@@ -55,14 +55,16 @@ jobs:
             adb install -r app/build/outputs/apk/debug/app-x86_64-debug.apk
             adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
             adb shell am instrument -w -r com.pdffocus.reader.test/androidx.test.runner.AndroidJUnitRunner | tee device-tests.txt
+            adb logcat -d > device-logcat.txt
+            adb pull /sdcard/Android/data/com.pdffocus.reader/files/screenshots app/build/device-screenshots || true
             grep -q 'OK (4 tests)' device-tests.txt
-            adb pull /sdcard/Android/data/com.pdffocus.reader/files/screenshots app/build/device-screenshots
       - uses: actions/upload-artifact@v5
         if: always()
         with:
           name: android-device-test-results
           path: |
             device-tests.txt
+            device-logcat.txt
             app/build/reports/androidTests/
             app/build/outputs/androidTest-results/
             app/build/device-screenshots/

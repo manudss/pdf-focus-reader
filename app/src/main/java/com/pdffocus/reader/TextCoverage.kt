@@ -21,7 +21,7 @@ object TextCoverage {
         val w=bitmap.width;val h=bitmap.height
         val x0=floor(box.left*w).toInt().coerceIn(0,w-1);val x1=ceil(box.right*w).toInt().coerceIn(x0+1,w)
         val y0=floor(box.top*h).toInt().coerceIn(0,h-1);val y1=ceil(box.bottom*h).toInt().coerceIn(y0+1,h)
-        val limit=max(4,(h*.012f).toInt());val row=IntArray(x1-x0)
+        val limit=max(4,(h*.02f).toInt());val row=IntArray(x1-x0)
         fun blank(y:Int):Boolean{
             bitmap.getPixels(row,0,row.size,x0,y,row.size,1)
             return row.count{p->val r=(p shr 16)and 255;val g=(p shr 8)and 255;val b=p and 255;minOf(r,g,b)<185}<=max(1,row.size/120)
