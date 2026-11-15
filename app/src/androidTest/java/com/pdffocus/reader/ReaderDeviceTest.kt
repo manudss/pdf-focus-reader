@@ -59,7 +59,7 @@ class ReaderDeviceTest {
         val i=InstrumentationRegistry.getInstrumentation();i.waitForIdleSync()
         // Use shell capture: UiAutomation.takeScreenshot may return null on API 35.
         val command="mkdir -p /data/local/tmp/pdffocus-screenshots; screencap -p /data/local/tmp/pdffocus-screenshots/$name.png; ls -l /data/local/tmp/pdffocus-screenshots/$name.png"
-        val result=android.os.ParcelFileDescriptor.AutoCloseInputStream(i.uiAutomation.executeShellCommand(command)).bufferedReader().use{it.readText()}
+        val result=android.os.ParcelFileDescriptor.AutoCloseInputStream(i.uiAutomation.executeShellCommand("sh -c '$command'")).bufferedReader().use{it.readText()}
         assertTrue("Screen capture must be produced: $result",result.contains("$name.png"))
     }
 }
