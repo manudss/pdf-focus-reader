@@ -29,6 +29,7 @@ class MainActivity:Activity() {
     private var repair:OcrEnhancer?=null
     private var ocrNotice=""
     private var readingSettings=false
+    private var currentOrdinal=0
 
     private var recognizedWords:List<OcrWord>?=null
     private var scrollPosition=0
@@ -45,6 +46,9 @@ class MainActivity:Activity() {
     private lateinit var info:TextView
     private lateinit var status:TextView
     private lateinit var controls:LinearLayout
+    private lateinit var header:LinearLayout
+    private lateinit var menuButton:Button
+    private lateinit var progress:ProgressBar
     private lateinit var pages:LinearLayout
     private var count=0;private var page=0;private var zones=listOf<Zone>();private var order=listOf<Int>()
     private var preview:Bitmap?=null;private var readingBitmap:Bitmap?=null
@@ -63,11 +67,12 @@ class MainActivity:Activity() {
         super.onCreate(savedInstanceState);store=SessionStore(this);cleanReading=getPreferences(0).getBoolean("cleanReading",true)
         val root=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setBackgroundColor(Color.rgb(250,249,246))}
         root.setOnApplyWindowInsetsListener{v,insets->v.setPadding(insets.systemWindowInsetLeft,insets.systemWindowInsetTop,insets.systemWindowInsetRight,insets.systemWindowInsetBottom);insets}
-        val header=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL;setBackgroundColor(Color.WHITE);setPadding(dp(16),dp(4),dp(12),dp(2))}
+        header=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL;setBackgroundColor(Color.WHITE);setPadding(dp(16),dp(4),dp(12),dp(2))}
         val names=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL}
         title=text("PDF Focus Reader",18,true).apply{maxLines=1;ellipsize=android.text.TextUtils.TruncateAt.END};info=text("Lecture privée, sans compte et hors ligne",12)
         names.addView(title);names.addView(info);header.addView(names,LinearLayout.LayoutParams(0,-2,1f))
-        header.addView(button("Menu",false){menu()},LinearLayout.LayoutParams(dp(82),dp(48)));root.addView(header)
+        menuButton=button("Menu",false){menu()};header.addView(menuButton,LinearLayout.LayoutParams(dp(72),dp(48)));root.addView(header)
+        progress=ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal).apply{max=1000;progressTintList=android.content.res.ColorStateList.valueOf(green);progressBackgroundTintList=android.content.res.ColorStateList.valueOf(Color.rgb(226,231,226));visibility=View.GONE};root.addView(progress,LinearLayout.LayoutParams(-1,dp(3)))
         status=text("Ouvrez un PDF pour préparer votre parcours.",13).apply{setPadding(dp(16),dp(4),dp(16),dp(4));accessibilityLiveRegion=View.ACCESSIBILITY_LIVE_REGION_POLITE}
         root.addView(status)
         pages=LinearLayout(this).apply{gravity=Gravity.CENTER_VERTICAL;setPadding(dp(10),0,dp(10),dp(4))};root.addView(pages)
@@ -75,7 +80,7 @@ class MainActivity:Activity() {
         canvas=PageCanvas(this);viewport.addView(canvas,android.widget.FrameLayout.LayoutParams(-1,-1))
         reader=ContinuousReaderView(this).apply{visibility=View.GONE};viewport.addView(reader,android.widget.FrameLayout.LayoutParams(-1,-1))
         reader.onRequest={tile,revision->val token=generation;val targetPage=page;val cleanup=cleanReading&&!ocrReading&&tile.kind==Kind.TEXT;worker.execute{var image:Bitmap?=null;try{if(token==generation&&!reader.needsRender(tile,revision)){main.post{reader.skipRequest(tile,revision)};return@execute};if(token==generation)image=document?.readingRegion(targetPage,tile.source,max(1,ceil(tile.rect.width()).toInt()),max(1,ceil(tile.rect.height()).toInt()),cleanup)}catch(_:Exception){};main.post{if(token==generation&&reading)reader.accept(tile,revision,image)else image?.recycle()}}}
-        reader.onProgress={ordinal,position->scrollPosition=position;status.text=if(ocrReading)"OCR ${if(enhancedOcr)"amélioré" else "brut"} · ${if(ocrLoading)"suite en préparation" else "erreurs possibles"} · bloc ${ordinal+1} / ${order.size}${ocrNotice}" else "Lecture continue · bloc ${ordinal+1} / ${order.size} · glissez pour la suite";if(reading&&pageReady){main.removeCallbacks(saveProgress);main.postDelayed(saveProgress,400)}}
+        reader.onProgress={ordinal,position->currentOrdinal=ordinal;scrollPosition=position;if(reading){info.text="Page ${page+1} sur $count · bloc ${ordinal+1} sur ${order.size}";progress.progress=((ordinal+1)*1000/maxOf(1,order.size))};status.text=if(ocrReading)"OCR ${if(enhancedOcr)"amélioré" else "brut"} · erreurs possibles${if(ocrLoading)" · suite en cours" else ""}${ocrNotice}" else "Lecture continue · bloc ${ordinal+1} / ${order.size} · glissez pour la suite";if(reading&&pageReady){main.removeCallbacks(saveProgress);main.postDelayed(saveProgress,400)}}
         controls=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(12),dp(8),dp(12),dp(10));background=shape(Color.WHITE,22);elevation=dp(5).toFloat()};root.addView(controls)
         setContentView(root)
         detectionWorker.execute{try{val local=loadRepair();main.post{if(!isDestroyed)repair=local}}catch(_:Exception){}}
@@ -138,10 +143,20 @@ class MainActivity:Activity() {
     }
     private fun updateControls(){
         controls.removeAllViews();controls.isEnabled=true;pages.removeAllViews();pages.visibility=if(reading||adjusting!=null||merging||adding)View.GONE else View.VISIBLE
-        title.text=when{reading->"Lecture";merging->"Fusionner des blocs";adjusting!=null->"Ajuster le cadre";count>0->"Préparer ma lecture";else->"PDF Focus Reader"}
+        title.text=when{reading&&ocrReading->"Texte OCR";reading->"Lecture";merging->"Fusionner des blocs";adjusting!=null->"Ajuster le cadre";count>0->"Préparer ma lecture";else->"PDF Focus Reader"}
         info.text=if(count>0)"Page ${page+1} sur $count" else "Lecture privée, hors ligne"
         title.typeface=Typeface.create(if(reading)"sans-serif-medium" else "serif",Typeface.NORMAL)
         title.textSize=if(reading)18f else 21f
+        status.visibility=if(reading&&!ocrReading)View.GONE else View.VISIBLE
+        status.textSize=if(reading)11f else 13f
+        status.setPadding(dp(16),dp(if(reading)1 else 4),dp(16),dp(if(reading)1 else 4))
+        if(reading&&ocrReading)status.text="OCR ${if(enhancedOcr)"amélioré" else "brut"} · erreurs possibles"
+        progress.visibility=if(reading)View.VISIBLE else View.GONE
+        if(reading){info.text="Page ${page+1} sur $count · bloc ${currentOrdinal+1} sur ${order.size}";progress.progress=(currentOrdinal+1)*1000/maxOf(1,order.size)}
+        menuButton.background=if(reading)null else shape(Color.WHITE,12,Color.rgb(226,231,226))
+        controls.setPadding(dp(if(reading)12 else 12),dp(if(reading)0 else 8),dp(12),dp(if(reading)6 else 10))
+        controls.background=shape(Color.WHITE,if(reading)0 else 22)
+        controls.elevation=dp(if(reading)1 else 5).toFloat()
         status.maxLines=if(reading)1 else 2;status.ellipsize=android.text.TextUtils.TruncateAt.END
         if(count==0){
             row(button("Ouvrir un PDF",true){pickPdf()})
@@ -164,14 +179,16 @@ class MainActivity:Activity() {
             return
         }
         if(reading){
-            row(button("Vue page"){exitReader()},button(if(readingSettings)"Fermer" else "Réglages"){readingSettings=!readingSettings;updateControls()})
-            row(button(if(!ocrReading&&!cleanReading)"Original ✓" else "Original"){selectMode(0)},button(if(!ocrReading&&cleanReading)"Nettoyé ✓" else "Nettoyé"){selectMode(1)},button(if(ocrReading)"Texte OCR ✓" else "Texte OCR"){selectMode(2)})
+            fun flat(label:String,action:()->Unit)=button(label,false,action).apply{background=null}
+            fun compactRow(vararg buttons:Button){val r=LinearLayout(this).apply{isBaselineAligned=false};buttons.forEach{r.addView(it,LinearLayout.LayoutParams(0,dp(48),1f))};controls.addView(r,LinearLayout.LayoutParams(-1,dp(48)))}
+            compactRow(flat("Vue page"){exitReader()},flat(if(readingSettings)"Fermer" else "Réglages"){readingSettings=!readingSettings;updateControls()})
+            fun segment(vararg buttons:Button){val r=LinearLayout(this).apply{isBaselineAligned=false;setPadding(dp(3),0,dp(3),0);background=shape(Color.rgb(244,245,241),12)};buttons.forEach{b->val active=b.text.toString().endsWith("✓");b.background=if(active)shape(Color.WHITE,9)else null;b.setPadding(dp(5),0,dp(5),0);b.compoundDrawablePadding=dp(4);r.addView(b,LinearLayout.LayoutParams(0,dp(48),1f))};controls.addView(r,LinearLayout.LayoutParams(-1,dp(48)))}
+            segment(button(if(!ocrReading&&!cleanReading)"Original ✓" else "Original"){selectMode(0)},button(if(!ocrReading&&cleanReading)"Nettoyé ✓" else "Nettoyé"){selectMode(1)},button(if(ocrReading)"Texte OCR ✓" else "Texte OCR"){selectMode(2)})
             if(readingSettings){
                 if(ocrReading){
-                    row(button(if(!enhancedOcr)"OCR brut ✓" else "OCR brut"){enhancedOcr=false;prepareOcr(true)},button(if(enhancedOcr)"OCR amélioré ✓" else "OCR amélioré"){enhancedOcr=true;prepareOcr(true)})
-                    row(button("Texte −"){reader.zoomBy(.9f)},button("Texte +"){reader.zoomBy(1.1f)})
-                    controls.addView(text("Taille conservée · texte déjà affiché stable",11))
-                }else controls.addView(text("Pincez pour zoomer. Glissez pour lire la suite. Original reste toujours accessible.",12))
+                    segment(button(if(!enhancedOcr)"OCR brut ✓" else "OCR brut"){enhancedOcr=false;prepareOcr(true)},button(if(enhancedOcr)"OCR amélioré ✓" else "OCR amélioré"){enhancedOcr=true;prepareOcr(true)})
+                    compactRow(flat("Texte −"){reader.zoomBy(.9f)},flat("Texte +"){reader.zoomBy(1.1f)})
+                }else controls.addView(text("Pincez pour zoomer · Glissez pour lire",12))
             }
 
         }else if(adding){
@@ -275,7 +292,7 @@ class MainActivity:Activity() {
     private val saveProgress=Runnable{if(reading&&pageReady)saveSession()}
     private fun startReader(){
         if(order.isEmpty()||busy)return
-        val p=preview?:return;readingSettings=false;reading=true;canvas.visibility=View.GONE;reader.visibility=View.VISIBLE
+        val p=preview?:return;readingSettings=false;currentOrdinal=frameIndex;reading=true;canvas.visibility=View.GONE;reader.visibility=View.VISIBLE
         val chosen=BlockSeams.align(p,ReadingLayout.ordered(zones,order).map{z->if(z.kind==Kind.TEXT&&!z.manual)z.copy(box=TextCoverage.safeTextBox(p,z.box))else z})
         reader.setDocument(chosen,p.width,p.height,scrollPosition);if(ocrReading)prepareOcr();updateControls()
     }
