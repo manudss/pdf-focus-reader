@@ -183,6 +183,25 @@ class ReaderDeviceTest {
             }
         }
     }
+    @Test fun sweepSelectionAndArticlePreviewAreReversible(){
+        val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext;File(c.filesDir,"current.pdf").delete();SessionStore(c).clear()
+        ActivityScenario.launch<MainActivity>(Intent(c,MainActivity::class.java)).use{scenario->
+            fun set(a:MainActivity,n:String,v:Any){MainActivity::class.java.getDeclaredField(n).apply{isAccessible=true}.set(a,v)}
+            fun get(a:MainActivity,n:String)=MainActivity::class.java.getDeclaredField(n).apply{isAccessible=true}.get(a)
+            fun call(a:MainActivity,n:String,vararg args:Any){MainActivity::class.java.declaredMethods.first{it.name==n}.apply{isAccessible=true}.invoke(a,*args)}
+            val zones=listOf(Zone(1,Box(.1f,.1f,.8f,.3f),Kind.TEXT),Zone(2,Box(.1f,.35f,.8f,.55f),Kind.TEXT),Zone(3,Box(.1f,.6f,.8f,.8f),Kind.TEXT))
+            scenario.onActivity{a->val image=Bitmap.createBitmap(700,1000,Bitmap.Config.ARGB_8888);image.eraseColor(Color.WHITE);val cc=Canvas(image);val paint=Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.BLACK;textSize=23f};for(j in 0..23)cc.drawText("Lire à son rythme, bloc après bloc.",80f,120f+j*27,paint);set(a,"preview",image);set(a,"count",1);set(a,"zones",zones);set(a,"order",emptyList<Int>());val page=findCanvas(a.window.decorView)!!;page.image=image;call(a,"sync",false)}
+            i.waitForIdleSync();screenshot(scenario,"gesture-before")
+            var down=0L;var start=PointF();var end=PointF()
+            fun event(action:Int,p:PointF){scenario.onActivity{a->val v=findCanvas(a.window.decorView)!!;val e=MotionEvent.obtain(down,android.os.SystemClock.uptimeMillis(),action,p.x,p.y,0);v.dispatchTouchEvent(e);e.recycle()}}
+            scenario.onActivity{a->val v=findCanvas(a.window.decorView)!!;val m=PageCanvas::class.java.getDeclaredField("matrix").apply{isAccessible=true}.get(v)as Matrix;val pts=floatArrayOf(220f,180f,220f,700f);m.mapPoints(pts);start=PointF(pts[0],pts[1]);end=PointF(pts[2],pts[3]);down=android.os.SystemClock.uptimeMillis()}
+            event(0,start);Thread.sleep(750);event(2,end);event(2,start);event(1,start);Thread.sleep(350)
+            scenario.onActivity{a->assertEquals(listOf(1,2,3),get(a,"order"))};screenshot(scenario,"gesture-selected")
+            scenario.onActivity{a->call(a,"beginMerge",zones[0]);val v=findCanvas(a.window.decorView)!!;v.onZoneSweep!!.invoke(zones[1]);v.onZoneSweep!!.invoke(zones[2]);assertEquals(listOf(1,2,3),get(a,"order"))};screenshot(scenario,"gesture-merge")
+            scenario.onActivity{a->call(a,"finishMerge",false);assertEquals(zones,get(a,"zones"));call(a,"beginArticle",zones[0]);assertNotNull(get(a,"articleIds"))};screenshot(scenario,"article-preview")
+            scenario.onActivity{a->val v=findCanvas(a.window.decorView)!!;v.onZoneTap!!.invoke(zones[2]);assertEquals(listOf(1,2,3),get(a,"order"));call(a,"finishArticle",false);assertEquals(listOf(1,2,3),get(a,"order"));call(a,"beginArticle",zones[0]);call(a,"finishArticle",true);assertEquals(listOf(1,2,3),get(a,"order"));assertEquals(zones,get(a,"zones"))}
+        }
+    }
     private fun findText(v:View,value:String):Boolean{if(v is TextView&&v.text.toString().contains(value))return true;if(v is ViewGroup)for(j in 0 until v.childCount)if(findText(v.getChildAt(j),value))return true;return false}
     private fun findButton(v:View,label:String):Button? {if(v is Button&&v.text.toString().startsWith(label))return v;if(v is ViewGroup)for(i in 0 until v.childCount)findButton(v.getChildAt(i),label)?.let{return it};return null}
     private fun findReader(v:View):ContinuousReaderView?{if(v is ContinuousReaderView)return v;if(v is ViewGroup)for(i in 0 until v.childCount)findReader(v.getChildAt(i))?.let{return it};return null}

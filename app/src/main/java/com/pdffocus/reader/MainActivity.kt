@@ -53,6 +53,8 @@ class MainActivity:Activity() {
     private var count=0;private var page=0;private var zones=listOf<Zone>();private var order=listOf<Int>()
     private var preview:Bitmap?=null;private var readingBitmap:Bitmap?=null
     private var frameIndex=0;private var reading=false;private var busy=false
+    private var articleIds:List<Int>?=null
+    private var articleReason=""
     private var merging=false
     private var mergeIds=setOf<Int>()
     private var pendingNew:Zone?=null
@@ -85,8 +87,9 @@ class MainActivity:Activity() {
         controls=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(12),dp(8),dp(12),dp(10));background=shape(Color.WHITE,22);elevation=dp(5).toFloat()};root.addView(controls)
         setContentView(root)
         detectionWorker.execute{try{val local=loadRepair();main.post{if(!isDestroyed)repair=local}}catch(_:Exception){}}
-        canvas.onZoneTap={z->if(!busy&&!reading){if(merging){mergeIds=if(z.id in mergeIds)mergeIds-z.id else mergeIds+z.id;canvas.mergeIds=mergeIds;updateControls()}else{order=ReadingLayout.toggle(order,z.id);frameIndex=0;scrollPosition=0;sync()}}}
-        canvas.onZoneLongPress={z->if(!busy&&!reading&&!merging&&adjusting==null)editZone(z)}
+        canvas.onZoneTap={z->if(!busy&&!reading){if(articleIds!=null){articleIds=ReadingLayout.toggle(articleIds!!,z.id);canvas.selection=articleIds!!;updateControls()}else if(merging){mergeIds=if(z.id in mergeIds)mergeIds-z.id else mergeIds+z.id;canvas.mergeIds=mergeIds;updateControls()}else{order=ReadingLayout.toggle(order,z.id);frameIndex=0;scrollPosition=0;sync()}}}
+        canvas.onZoneSweep={z->if(!busy&&!reading&&adjusting==null&&!adding){if(articleIds!=null){if(z.id !in articleIds!!){articleIds=articleIds!!+z.id;canvas.selection=articleIds!!;updateControls()}}else if(merging){mergeIds=mergeIds+z.id;canvas.mergeIds=mergeIds;updateControls()}else if(z.id !in order){order=order+z.id;frameIndex=0;scrollPosition=0;sync()}}}
+        canvas.onZoneLongPress={z->if(!busy&&!reading&&!merging&&articleIds==null&&adjusting==null)editZone(z)}
         canvas.onRectangle={b->
             if(!busy){
                 val id=replaceId?:((zones.maxOfOrNull{it.id}?:0)+1)
@@ -146,8 +149,8 @@ class MainActivity:Activity() {
         action("Recentrer"){canvas.resetZoom()};action("Fermer"){};dialog.show()
     }
     private fun updateControls(){
-        controls.removeAllViews();controls.isEnabled=true;pages.removeAllViews();pages.visibility=if(reading||adjusting!=null||merging||adding)View.GONE else View.VISIBLE
-        title.text=when{reading&&ocrReading->"Texte OCR";reading->"Lecture";merging->"Fusionner des blocs";adjusting!=null->"Ajuster le cadre";count>0->"Préparer ma lecture";else->"PDF Focus Reader"}
+        controls.removeAllViews();controls.isEnabled=true;pages.removeAllViews();pages.visibility=if(reading||adjusting!=null||merging||articleIds!=null||adding)View.GONE else View.VISIBLE
+        title.text=when{reading&&ocrReading->"Texte OCR";reading->"Lecture";articleIds!=null->"Article proposé";merging->"Fusionner des blocs";adjusting!=null->"Ajuster le cadre";count>0->"Préparer ma lecture";else->"PDF Focus Reader"}
         info.text=if(count>0)"Page ${page+1} sur $count" else "Lecture privée, hors ligne"
         title.typeface=Typeface.create(if(reading)"sans-serif-medium" else "serif",Typeface.NORMAL)
         title.textSize=if(reading)18f else 21f
@@ -168,9 +171,17 @@ class MainActivity:Activity() {
             controls.addView(text("Aucun fichier n'est envoyé sur Internet. L'analyse et les parcours restent sur cet appareil.",12))
             setEnabledRecursive(controls,!busy);return
         }
+        if(articleIds!=null){
+            val ids=articleIds!!;status.text="Article proposé · ${ids.size} blocs · à vérifier"
+            controls.addView(text(articleReason,12))
+            controls.addView(text("Touchez pour ajouter/retirer. Rien n'est appliqué au parcours.",12))
+            row(button("Modifier l'ordre"){editArticleOrder()},button("Annuler"){finishArticle(false)})
+            row(button("Ajouter au parcours (${ids.count{it !in order}})",true){finishArticle(true)}.apply{isEnabled=ids.isNotEmpty()})
+            return
+        }
         if(merging){
             status.text="Fusion · ${mergeIds.size} blocs en violet · ordre conservé"
-            controls.addView(text("Touchez les blocs à fusionner. Pointillé : aperçu. L'ordre de lecture est en pause.",12))
+            controls.addView(text("Touchez ou maintenez puis glissez pour choisir. Pointillé : aperçu. L'ordre de lecture est en pause.",12))
             val place=BlockMerge.position(order,mergeIds)
             controls.addView(text(if(place!=null)"Le nouveau bloc prendra la place ${place+1}, celle du premier bloc fusionné." else "Aucun bloc choisi ne figure encore dans le parcours.",12))
             row(button("Annuler"){finishMerge(false)},button("Fusionner",true){confirmMerge()}.apply{isEnabled=mergeIds.size>=2})
@@ -211,7 +222,7 @@ class MainActivity:Activity() {
             val read=button("Lire (${order.size})",true){startReader()}.apply{isEnabled=order.isNotEmpty()&&!busy}
             row(button("Ajouter"){adding=true;canvas.drawMode=true;updateControls()},button("Ordre"){showOrder()},button("Fusionner"){(order.firstOrNull()?.let{id->zones.find{it.id==id}}?:zones.firstOrNull())?.let{beginMerge(it)}}.apply{isEnabled=zones.isNotEmpty()})
             row(read)
-            controls.addView(text("Touchez dans votre ordre · Appui long pour ajuster",11))
+            controls.addView(text("Maintenez-glissez pour choisir · Double tap pour corriger",11))
             val prev=button("Précédente"){loadPage(page-1)}.apply{isEnabled=page>0&&!documentLoading}
             val next=button("Suivante"){loadPage(page+1)}.apply{isEnabled=page<count-1&&!documentLoading}
             pages.addView(prev,LinearLayout.LayoutParams(0,dp(44),1f))
@@ -222,7 +233,7 @@ class MainActivity:Activity() {
     }
     private fun setEnabledRecursive(v:View,enabled:Boolean){v.isEnabled=v.isEnabled&&enabled;if(v is android.view.ViewGroup)for(i in 0 until v.childCount)setEnabledRecursive(v.getChildAt(i),enabled)}
     private fun sync(save:Boolean=true){
-        canvas.zones=zones;canvas.selection=order
+        canvas.zones=zones;canvas.selection=articleIds?:order
         info.text="Page ${page+1} sur $count"
         title.text=documentTitle
         if(!reading&&!busy)status.text=if(adding)"Cadrage manuel" else "${zones.size} blocs proposés · ${order.size} choisis dans votre ordre"
@@ -268,6 +279,7 @@ class MainActivity:Activity() {
         worker.execute{try{document=PdfDocument(File(filesDir,"current.pdf"));val total=document!!.count;main.post{if(token==generation&&!isDestroyed){documentLoading=false;count=total;page=store.page.coerceIn(0,total-1);documentTitle=getPreferences(0).getString("title","Document PDF")!!;busy=false;loadPage(page)}}}catch(_:Exception){main.post{if(token==generation&&!isDestroyed){documentLoading=false;busy=false;status.text="Choisissez un PDF pour commencer.";updateControls()}}}}
     }
     private fun loadPage(index:Int,force:Boolean=false){
+        articleIds=null;articleReason=""
         if(index !in 0 until count)return
         if(pageReady)saveSession()
         pendingNew=null;merging=false;mergeIds=emptySet();canvas.mergeMode=false;canvas.mergeIds=emptySet();adjusting=null;canvas.adjustingZone=null;canvas.editBox=null;detector?.cancel();ocrRun++;chunkPlan=emptyList();rawChunks.clear();improvedChunks.clear();ocrNotice="";detecting=false;pageReady=false;recognizedWords=null;ocrLoading=false
@@ -426,6 +438,7 @@ class MainActivity:Activity() {
         section("ORGANISER LE CONTENU")
         action("Séparer gauche / droite","Placez la ligne, puis confirmez les deux blocs.","splitv",2)
         action("Séparer haut / bas","Placez la ligne, puis confirmez les deux blocs.","splith",3)
+        action("Proposer cet article","Suggère les blocs de cette page, à vérifier avant ajout.","book",7)
         action("Fusionner avec d'autres blocs","Choisissez les blocs à réunir dans un seul cadre.","merge",4)
         section("AFFICHAGE DU BLOC")
         action("Traiter comme ${if(z.kind==Kind.TEXT)"image" else "texte"}",if(z.kind==Kind.TEXT)"Conserve le bloc en image, même en mode OCR." else "Permet la reconnaissance du texte en mode OCR.",if(z.kind==Kind.TEXT)"image" else "text",1)
@@ -443,9 +456,28 @@ class MainActivity:Activity() {
 
                 5->{zones=zones.filterNot{it.id==z.id};order=order.filterNot{it==z.id}}
                 6->{beginAdjustment(z)}
+                7->{beginArticle(z);return}
             };sync(adjusting==null&&!merging)
     }
 
+    private fun beginArticle(z:Zone){
+        val proposal=ArticleProposal.propose(zones,z.id,recognizedWords.orEmpty())
+        articleIds=proposal.ids;articleReason=proposal.reason;canvas.selection=proposal.ids;updateControls()
+    }
+    private fun finishArticle(apply:Boolean){
+        if(apply)order=ArticleProposal.append(order,articleIds.orEmpty())
+        articleIds=null;articleReason="";sync(apply)
+    }
+    private fun editArticleOrder(){
+        val dialog=Dialog(this);val panel=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(16),dp(12),dp(16),dp(12));setBackgroundColor(Color.WHITE)}
+        panel.addView(text("Ordre proposé",24));panel.addView(text("Les places du parcours existant ne changent pas.",12))
+        val list=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL};val scroll=ScrollView(this).apply{addView(list)};panel.addView(scroll,LinearLayout.LayoutParams(-1,0,1f))
+        fun refresh(){list.removeAllViews();val ids=articleIds.orEmpty();ids.forEachIndexed{i,id->val r=LinearLayout(this).apply{gravity=Gravity.CENTER_VERTICAL};r.addView(text("${i+1} · bloc $id${if(id in order)" · déjà choisi" else ""}",14),LinearLayout.LayoutParams(0,-2,1f))
+            fun shift(delta:Int){val next=ids.toMutableList();java.util.Collections.swap(next,i,i+delta);articleIds=next;canvas.selection=next;updateControls();refresh()}
+            r.addView(button("Monter"){shift(-1)}.apply{isEnabled=i>0},LinearLayout.LayoutParams(dp(84),dp(48)));r.addView(button("Descendre"){shift(1)}.apply{isEnabled=i<ids.lastIndex},LinearLayout.LayoutParams(dp(94),dp(48)));list.addView(r)
+        }}
+        refresh();panel.addView(button("Fermer"){dialog.dismiss()});dialog.setContentView(panel);dialog.show();dialog.window?.setLayout(resources.displayMetrics.widthPixels-dp(16),(resources.displayMetrics.heightPixels*.8f).toInt())
+    }
     private fun showSplit(z:Zone,vertical:Boolean){
         val image=preview?:return
         val dialog=Dialog(this)
@@ -473,7 +505,7 @@ class MainActivity:Activity() {
 
     private fun goToPage(){if(documentLoading)return;val input=EditText(this).apply{inputType=android.text.InputType.TYPE_CLASS_NUMBER;hint="1 à $count"};AlertDialog.Builder(this).setTitle("Aller à la page").setView(input).setPositiveButton("Ouvrir"){_,_->val p=input.text.toString().toIntOrNull();if(p!=null&&p in 1..count)loadPage(p-1)else toast("Numéro de page invalide")}.setNegativeButton("Annuler",null).show()}
     private fun menu(){val items=arrayOf("Ouvrir un autre PDF","Réessayer la détection","Confidentialité et aide","Supprimer le document local","Licences des composants")
-        AlertDialog.Builder(this).setItems(items){_,which->when(which){0->pickPdf();1->if(count>0&&!busy)AlertDialog.Builder(this).setMessage("Remplacer les blocs et le parcours de cette page ?").setPositiveButton("Remplacer"){_,_->loadPage(page,true)}.setNegativeButton("Annuler",null).show();2->AlertDialog.Builder(this).setTitle("PDF Focus Reader · prototype").setMessage("Le PDF, les zones et les parcours restent sur cet appareil. Aucune permission Internet, publicité ou compte. Une copie privée du dernier PDF est conservée pour reprendre la lecture.\n\nLa détection peut manquer ou fusionner des zones. + Bloc permet de cadrer à la main ; un appui long modifie, divise ou fusionne les blocs. Pincez pour zoomer et faites glisser la page agrandie.\n\nLe zoom ne recrée pas les détails d'un scan flou. Ce prototype n'a pas encore été testé sur votre téléphone.").setPositiveButton("Fermer",null).show();3->clearDocument();4->showLicenses()}}.show()}
+        AlertDialog.Builder(this).setItems(items){_,which->when(which){0->pickPdf();1->if(count>0&&!busy)AlertDialog.Builder(this).setMessage("Remplacer les blocs et le parcours de cette page ?").setPositiveButton("Remplacer"){_,_->loadPage(page,true)}.setNegativeButton("Annuler",null).show();2->AlertDialog.Builder(this).setTitle("PDF Focus Reader · prototype").setMessage("Le PDF, les zones et les parcours restent sur cet appareil. Aucune permission Internet, publicité ou compte. Une copie privée du dernier PDF est conservée pour reprendre la lecture.\n\nLa détection peut manquer ou fusionner des zones. + Bloc permet de cadrer à la main ; un double tap ouvre la correction. Maintenez et glissez pour choisir plusieurs blocs. Pincez pour zoomer et faites glisser la page agrandie.\n\nLe zoom ne recrée pas les détails d'un scan flou. Ce prototype n'a pas encore été testé sur votre téléphone.").setPositiveButton("Fermer",null).show();3->clearDocument();4->showLicenses()}}.show()}
     private fun clearDocument(){if(busy){toast("Attendez la fin de l’analyse avant de supprimer.");return};AlertDialog.Builder(this).setTitle("Supprimer la copie locale ?").setMessage("Le fichier original n'est pas modifié. Le parcours enregistré sera effacé.").setPositiveButton("Supprimer"){_,_->++generation;main.removeCallbacks(saveProgress);reader.clear();reader.visibility=View.GONE;canvas.visibility=View.VISIBLE;pageReady=false;worker.execute{document?.close();document=null;File(filesDir,"current.pdf").delete()};count=0;store.clear();preview?.recycle();preview=null;readingBitmap?.recycle();readingBitmap=null;canvas.image=null;canvas.zones=emptyList();canvas.selection=emptyList();reading=false;busy=false;title.text="PDF Focus Reader";info.text="Sans compte et hors ligne";status.text="Document local supprimé.";updateControls()}.setNegativeButton("Annuler",null).show()}
     private fun showLicenses(){val names=assets.list("licenses").orEmpty();AlertDialog.Builder(this).setTitle("Licences").setItems(names){_,which->val view=TextView(this).apply{text=assets.open("licenses/"+names[which]).bufferedReader().use{it.readText()};setPadding(dp(16),dp(12),dp(16),dp(12));textSize=12f};val scroll=ScrollView(this).apply{addView(view)};AlertDialog.Builder(this).setTitle(names[which]).setView(scroll).setPositiveButton("Fermer",null).show()}.setNegativeButton("Fermer",null).show()}
     private fun toast(message:String)=Toast.makeText(this,message,Toast.LENGTH_SHORT).show()
@@ -482,6 +514,6 @@ class MainActivity:Activity() {
         for(col in 0..1)for(i in 0 until 28)c.drawText(lines[i%lines.size],40f+col*330f,170f+i*25f,paint)
         paint.color=Color.rgb(84,153,130);c.drawRect(40f,880f,660f,960f,paint);paint.color=Color.WHITE;paint.textSize=22f;c.drawText("Illustration fictive · aucun document personnel",65f,927f,paint);pdf.finishPage(p);target.outputStream().use{pdf.writeTo(it)};pdf.close()}}
     @Deprecated("Activity back callback")
-    override fun onBackPressed(){if(merging)finishMerge(false)else if(adjusting!=null)finishAdjustment(false)else if(reading)exitReader()else if(adding){adding=false;replaceId=null;canvas.drawMode=false;sync()}else super.onBackPressed()}
+    override fun onBackPressed(){if(articleIds!=null)finishArticle(false)else if(merging)finishMerge(false)else if(adjusting!=null)finishAdjustment(false)else if(reading)exitReader()else if(adding){adding=false;replaceId=null;canvas.drawMode=false;sync()}else super.onBackPressed()}
     override fun onDestroy(){editDialog?.dismiss();main.removeCallbacks(saveProgress);if(pageReady)saveSession();reader.clear();++generation;detector?.cancel();detectionWorker.shutdown();super.onDestroy();worker.execute{document?.close();document=null};worker.shutdown()}
 }

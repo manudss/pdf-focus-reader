@@ -23,6 +23,11 @@ class PageCanvas(context:Context):View(context) {
     private fun handles(rect:RectF)=listOf(-1 to -1,0 to -1,1 to -1,-1 to 0,1 to 0,-1 to 1,0 to 1,1 to 1).map{h->h to PointF(if(h.first<0)rect.left else if(h.first>0)rect.right else rect.centerX(),if(h.second<0)rect.top else if(h.second>0)rect.bottom else rect.centerY())}
     var onZoneTap:((Zone)->Unit)?=null
     var onZoneLongPress:((Zone)->Unit)?=null
+    var onZoneSweep:((Zone)->Unit)?=null
+    private var sweeping=false
+    private var sweepLast:PointF?=null
+    private val swept=mutableSetOf<Int>()
+    private var multiTouch=false
     var onRectangle:((Box)->Unit)?=null
     var onViewportReady:(()->Unit)?=null
     private val matrix=Matrix();private val inverse=Matrix();private val paint=Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
@@ -33,13 +38,14 @@ class PageCanvas(context:Context):View(context) {
         override fun onScale(d:ScaleGestureDetector):Boolean {zoom=(zoom*d.scaleFactor).coerceIn(1f,6f);invalidate();return true}
     })
     private val gestures=GestureDetector(context,object:GestureDetector.SimpleOnGestureListener(){
-        override fun onDown(e:android.view.MotionEvent)=true
+        override fun onDown(e:android.view.MotionEvent):Boolean{multiTouch=false;return true}
         override fun onScroll(a:MotionEvent?,b:MotionEvent,dx:Float,dy:Float):Boolean {if(zoom>1f){panX-=dx;panY-=dy;invalidate()};return true}
         override fun onSingleTapConfirmed(e:MotionEvent):Boolean {if(!reading&&editBox==null){point(e)?.let{p->ReadingLayout.smallestHit(zones,p.x,p.y)?.let{onZoneTap?.invoke(it)}}};return true}
-        override fun onLongPress(e:MotionEvent){if(!reading&&editBox==null)point(e)?.let{p->ReadingLayout.smallestHit(zones,p.x,p.y)?.let{onZoneLongPress?.invoke(it)}}}
-        override fun onDoubleTap(e:MotionEvent):Boolean{if(zoom>1f)resetZoom()else{zoom=2f;invalidate()};return true}
+        override fun onLongPress(e:MotionEvent){if(!reading&&editBox==null&&!drawMode&&!multiTouch)point(e)?.let{p->ReadingLayout.smallestHit(zones,p.x,p.y)?.let{z->sweeping=true;sweepLast=p;swept.clear();swept+=z.id;parent?.requestDisallowInterceptTouchEvent(true);performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);onZoneSweep?.invoke(z)}}}
+        override fun onDoubleTap(e:MotionEvent):Boolean{if(!reading&&editBox==null&&!drawMode&&!mergeMode)point(e)?.let{p->ReadingLayout.smallestHit(zones,p.x,p.y)?.let{onZoneLongPress?.invoke(it)}};return true}
+
     })
-    init {setBackgroundColor(Color.rgb(245,243,240));contentDescription="Page PDF. Pincez pour zoomer ; touchez les blocs dans l'ordre. Appui long pour corriger.";isFocusable=true}
+    init {setBackgroundColor(Color.rgb(245,243,240));contentDescription="Page PDF. Pincez pour zoomer ; touchez les blocs dans l'ordre. Maintenez puis glissez pour sélectionner. Double tap pour corriger.";isFocusable=true}
     fun resetZoom(){zoom=1f;panX=0f;panY=0f;invalidate()}
     fun zoomBy(f:Float){zoom=(zoom*f).coerceIn(1f,6f);invalidate()}
     override fun onSizeChanged(w:Int,h:Int,oldw:Int,oldh:Int){super.onSizeChanged(w,h,oldw,oldh);if(w>0&&h>0&&(w!=oldw||h!=oldh))post{onViewportReady?.invoke()}}
@@ -112,8 +118,15 @@ class PageCanvas(context:Context):View(context) {
                 MotionEvent.ACTION_CANCEL->{start=null;draft=null;invalidate()}
             };return true
         }
-        scale.onTouchEvent(e);if(!scale.isInProgress)gestures.onTouchEvent(e)
-        if(e.action==MotionEvent.ACTION_UP)performClick()
+        if(e.pointerCount>1){multiTouch=true;sweeping=false;sweepLast=null;swept.clear()}
+        scale.onTouchEvent(e)
+        if(sweeping){
+            if(e.actionMasked==MotionEvent.ACTION_MOVE){point(e)?.let{p->val previous=sweepLast?:p;for(z in SweepSelection.crossed(zones,previous.x,previous.y,p.x,p.y))if(swept.add(z.id))onZoneSweep?.invoke(z);sweepLast=p}}
+            if(e.actionMasked==MotionEvent.ACTION_UP||e.actionMasked==MotionEvent.ACTION_CANCEL){sweeping=false;sweepLast=null;swept.clear();parent?.requestDisallowInterceptTouchEvent(false);performClick()}
+            return true
+        }
+        if(!scale.isInProgress&&!multiTouch)gestures.onTouchEvent(e)
+        if(e.actionMasked==MotionEvent.ACTION_UP||e.actionMasked==MotionEvent.ACTION_CANCEL){multiTouch=false;performClick()}
         return true
     }
     override fun performClick():Boolean{super.performClick();return true}
