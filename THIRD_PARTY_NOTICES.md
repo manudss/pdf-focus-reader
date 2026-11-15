@@ -15,3 +15,5 @@ The application uses the following components under their own licenses. No third
 Test-only components include JUnit (EPL-1.0), Robolectric (MIT), and AndroidX Test (Apache-2.0). They are not application features.
 
 Model files are bundled to avoid a first-use network download. Their SHA-256 hashes are recorded in MODEL_CHECKSUMS.txt. License texts for runtime native components are included in app/src/main/assets/licenses/ and accessible from the application help menu.
+
+Le modèle français précis et son lexique dérivé proviennent de tessdata_best (Apache-2.0) : https://github.com/tesseract-ocr/tessdata_best. Le lexique compressé est extrait de fra.lstm-word-dawg ; aucune donnée de document utilisateur ne le complète.

@@ -21,6 +21,14 @@ class MainActivity:Activity() {
     private var cleanReading=true
     private var ocrReading=false
     private var ocrLoading=false
+    private var enhancedOcr=false
+    @Volatile private var ocrRun=0
+    private var chunkPlan=listOf<OcrChunk>()
+    private val rawChunks=mutableMapOf<Int,List<OcrWord>>()
+    private val improvedChunks=mutableMapOf<Int,List<OcrWord>>()
+    private var repair:OcrEnhancer?=null
+    private var ocrNotice=""
+
     private var recognizedWords:List<OcrWord>?=null
     private var scrollPosition=0
     private var documentLoading=false
@@ -45,6 +53,7 @@ class MainActivity:Activity() {
     private val green=Color.rgb(57,126,108);private val ink=Color.rgb(37,31,33)
     private fun dp(v:Int)=(v*resources.displayMetrics.density).roundToInt()
 
+    private fun loadRepair()=java.util.zip.GZIPInputStream(assets.open("tessdata_best/fra-words.txt.gz")).bufferedReader().use{OcrEnhancer(it.readLines())}
     override fun onCreate(savedInstanceState:Bundle?) {
         super.onCreate(savedInstanceState);store=SessionStore(this);cleanReading=getPreferences(0).getBoolean("cleanReading",true)
         val root=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setBackgroundColor(Color.WHITE)}
@@ -61,9 +70,10 @@ class MainActivity:Activity() {
         canvas=PageCanvas(this);viewport.addView(canvas,android.widget.FrameLayout.LayoutParams(-1,-1))
         reader=ContinuousReaderView(this).apply{visibility=View.GONE};viewport.addView(reader,android.widget.FrameLayout.LayoutParams(-1,-1))
         reader.onRequest={tile,revision->val token=generation;val targetPage=page;val cleanup=cleanReading&&!ocrReading&&tile.kind==Kind.TEXT;worker.execute{var image:Bitmap?=null;try{if(token==generation)image=document?.readingRegion(targetPage,tile.source,max(1,ceil(tile.rect.width()).toInt()),max(1,ceil(tile.rect.height()).toInt()),cleanup)}catch(_:Exception){};main.post{if(token==generation&&reading)reader.accept(tile,revision,image)else image?.recycle()}}}
-        reader.onProgress={ordinal,position->scrollPosition=position;status.text=if(ocrLoading&&ocrReading)"Préparation du texte OCR local…" else if(ocrReading)"Texte OCR · erreurs possibles · bloc ${ordinal+1} / ${order.size}" else "Lecture continue · bloc ${ordinal+1} / ${order.size} · glissez pour la suite";if(reading&&pageReady){main.removeCallbacks(saveProgress);main.postDelayed(saveProgress,400)}}
+        reader.onProgress={ordinal,position->scrollPosition=position;status.text=if(ocrReading)"OCR ${if(enhancedOcr)"amélioré" else "brut"} · ${if(ocrLoading)"suite en préparation" else "erreurs possibles"} · bloc ${ordinal+1} / ${order.size}${ocrNotice}" else "Lecture continue · bloc ${ordinal+1} / ${order.size} · glissez pour la suite";if(reading&&pageReady){main.removeCallbacks(saveProgress);main.postDelayed(saveProgress,400)}}
         controls=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(10),dp(6),dp(10),dp(6))};root.addView(controls)
         setContentView(root)
+        detectionWorker.execute{try{val local=loadRepair();main.post{if(!isDestroyed)repair=local}}catch(_:Exception){}}
         canvas.onZoneTap={z->if(!busy&&!reading){order=ReadingLayout.toggle(order,z.id);frameIndex=0;scrollPosition=0;sync()}}
         canvas.onZoneLongPress={z->if(!busy&&!reading)editZone(z)}
         canvas.onRectangle={b->
@@ -95,6 +105,8 @@ class MainActivity:Activity() {
         if(reading){
             row(button("Vue page"){exitReader()},button("Texte −"){reader.zoomBy(.9f)},button("Texte +"){reader.zoomBy(1.1f)})
             row(button(if(!ocrReading&&!cleanReading)"Original ✓" else "Original"){selectMode(0)},button(if(!ocrReading&&cleanReading)"Nettoyé ✓" else "Nettoyé"){selectMode(1)},button(if(ocrReading)"Texte OCR ✓" else "Texte OCR"){selectMode(2)})
+            if(ocrReading){row(button(if(!enhancedOcr)"OCR brut ✓" else "OCR brut"){enhancedOcr=false;prepareOcr(true)},button(if(enhancedOcr)"OCR amélioré ✓" else "OCR amélioré"){enhancedOcr=true;prepareOcr(true)})}
+
         }else if(adding){
             controls.addView(text("Tracez un rectangle autour du bloc. Pincez avant d'activer ce mode pour mieux cadrer.",12))
             row(button("Annuler le cadrage"){adding=false;replaceId=null;canvas.drawMode=false;sync()})
@@ -162,7 +174,7 @@ class MainActivity:Activity() {
     private fun loadPage(index:Int,force:Boolean=false){
         if(index !in 0 until count)return
         if(pageReady)saveSession()
-        detector?.cancel();detecting=false;pageReady=false;recognizedWords=null;ocrLoading=false
+        detector?.cancel();ocrRun++;chunkPlan=emptyList();rawChunks.clear();improvedChunks.clear();ocrNotice="";detecting=false;pageReady=false;recognizedWords=null;ocrLoading=false
         val savedSession=if(force)null else store.get(index)
         reader.clear();reader.visibility=View.GONE;canvas.visibility=View.VISIBLE;scrollPosition=0
         val token=++generation;page=index;reading=false;adding=false;canvas.drawMode=false;canvas.reading=false
@@ -175,7 +187,7 @@ class MainActivity:Activity() {
                     if(token!=generation||isDestroyed){image.recycle();return@post}
                     val old=preview;preview=image;canvas.image=image;old?.recycle();readingBitmap?.recycle();readingBitmap=null
                     info.text="Page ${index+1} sur $count";title.text=documentTitle
-                    if(savedSession!=null){zones=savedSession.zones;order=savedSession.order.filter{id->zones.any{it.id==id}};frameIndex=savedSession.frame;scrollPosition=savedSession.scroll;pageReady=true;busy=false;sync()}
+                    if(savedSession!=null){zones=TextCoverage.bridgeColumnGaps(savedSession.zones);order=savedSession.order.filter{id->zones.any{it.id==id}};frameIndex=savedSession.frame;scrollPosition=savedSession.scroll;pageReady=true;busy=false;sync()}
                     else{
                         busy=true;detecting=true;status.text="Détection locale en cours. Vous pouvez changer de page.";updateControls()
                         val ocrImage=image.copy(Bitmap.Config.ARGB_8888,false)
@@ -185,7 +197,7 @@ class MainActivity:Activity() {
                                 val engine=ZoneDetector(applicationContext)
                                 synchronized(this@MainActivity){if(token!=generation)return@detection;detector=engine}
                                 val result=engine.detect(ocrImage){token!=generation}
-                                main.post{if(token==generation&&!isDestroyed){detector=null;detecting=false;recognizedWords=engine.words;zones=result;order=emptyList();frameIndex=0;pageReady=true;busy=false;sync();if(zones.isEmpty())status.text="Aucun bloc trouvé. Utilisez + Bloc pour tracer une zone."}}
+                                main.post{if(token==generation&&!isDestroyed){detector=null;detecting=false;recognizedWords=engine.words;zones=TextCoverage.bridgeColumnGaps(result);order=emptyList();frameIndex=0;pageReady=true;busy=false;sync();if(zones.isEmpty())status.text="Aucun bloc trouvé. Utilisez + Bloc pour tracer une zone."}}
                             }catch(_:Exception){main.post{if(token==generation&&!isDestroyed){detector=null;detecting=false;busy=false;pageReady=true;sync(false);status.text="Analyse indisponible. Tracez vos blocs avec + Bloc."}}}
                             finally{ocrImage.recycle()}
                         }
@@ -204,30 +216,64 @@ class MainActivity:Activity() {
     private fun selectMode(mode:Int){
         ocrReading=mode==2;cleanReading=mode!=0
         getPreferences(0).edit().putBoolean("cleanReading",cleanReading).apply()
-        if(ocrReading)prepareOcr()else reader.showOcr(null)
+        if(ocrReading)prepareOcr(true)else {reader.showOcr(null);ocrRun++;detector?.cancel();ocrLoading=false}
         updateControls()
     }
-    private fun prepareOcr(){
-        val known=recognizedWords
-        if(known!=null){
-            val p=preview?:return
-            val chosen=ReadingLayout.ordered(zones,order).map{if(it.kind==Kind.TEXT)it.copy(box=TextCoverage.safeTextBox(p,it.box))else it}
-            val texts=OcrFlow.textByZone(chosen,known)
-            reader.showOcr(texts)
-            val missed=texts.count{it.value.isBlank()}
-            if(missed>0)status.text="Texte OCR · $missed bloc(s) sans texte reconnu, affichés en image"
-            return
+    private fun plainText(words:List<OcrWord>):String = OcrFlow.textByZone(listOf(Zone(1,Box(0f,0f,1f,1f),Kind.TEXT)),words)[1].orEmpty()
+    private fun displayOcr(force:Boolean=false,completed:Set<Int>?=null){
+        val words=(if(enhancedOcr)rawChunks+improvedChunks else rawChunks).toMutableMap()
+        val ready=completed?:words.keys
+        var prefix=chunkPlan.takeWhile{it.kind==Kind.IMAGE||it.key in ready}
+        if(enhancedOcr&&repair!=null){
+            // Reserve an unfinished trailing word until the next source slice has been recognized.
+            val tail=prefix.lastOrNull()
+            if(ocrLoading&&tail!=null&&tail!=chunkPlan.lastOrNull()&&words[tail.key]?.lastOrNull()?.text?.endsWith('-')==true)prefix=prefix.dropLast(1)
+            for((left,right)in prefix.zipWithNext())if(left.zoneId==right.zoneId&&left.kind==Kind.TEXT&&right.kind==Kind.TEXT){
+                val a=words[left.key].orEmpty().toMutableList();val b=words[right.key].orEmpty().toMutableList()
+                if(a.isNotEmpty()&&b.isNotEmpty()){
+                    val last=a.last();val first=b.first();val close=first.line.top-last.line.bottom<last.line.height*.8f
+                    val joint=if(close)repair!!.join(last.text,first.text)else null
+                    if(joint!=null){a[a.lastIndex]=last.copy(text=joint);b.removeAt(0);words[left.key]=a;words[right.key]=b}
+                }
+            }
         }
-        if(ocrLoading)return
-        val image=preview?.copy(Bitmap.Config.ARGB_8888,false)?:return
-        ocrLoading=true;status.text="Préparation du texte OCR local…"
-        val token=generation;val engine=ZoneDetector(applicationContext);detector=engine
-        detectionWorker.execute{try{
-            val words=engine.readWords(image){token!=generation}
-            main.post{if(token==generation&&!isDestroyed){recognizedWords=words;ocrLoading=false;detector=null;if(reading&&ocrReading)prepareOcr()}}
-        }catch(_:Exception){main.post{if(token==generation&&!isDestroyed){ocrLoading=false;detector=null;ocrReading=false;cleanReading=false;reader.showOcr(null);status.text="OCR indisponible. L'original reste affiché.";updateControls()}}}finally{image.recycle()}}
+        val texts=prefix.filter{it.kind==Kind.TEXT}.associate{c->c.key to if(enhancedOcr&&repair!=null)repair!!.text(words[c.key].orEmpty())else plainText(words[c.key].orEmpty())}
+        if(reading&&ocrReading)reader.showOcrStream(prefix,texts,ocrLoading,force)
     }
-    private fun exitReader(){saveSession();reader.clear();reader.visibility=View.GONE;canvas.visibility=View.VISIBLE;++generation;reading=false;busy=false;canvas.reading=false;canvas.image=preview;readingBitmap?.recycle();readingBitmap=null;sync()}
+    private fun prepareOcr(force:Boolean=false){
+        val p=preview?:return
+        if(force&&ocrLoading){ocrRun++;detector?.cancel();ocrLoading=false}
+        val chosen=ReadingLayout.ordered(zones,order).map{if(it.kind==Kind.TEXT)it.copy(box=TextCoverage.safeTextBox(p,it.box))else it}
+        val newPlan=OcrChunks.plan(chosen,recognizedWords.orEmpty()){OcrRasterLines.chunks(p,it)}
+        if(chunkPlan!=newPlan){ocrRun++;detector?.cancel();ocrLoading=false;chunkPlan=newPlan;rawChunks.clear();improvedChunks.clear();for(c in chunkPlan)if(c.words.isNotEmpty())rawChunks[c.key]=c.words}
+        ocrNotice="";displayOcr(force);updateControls()
+        if(ocrLoading)return
+        val needed=chunkPlan.filter{it.kind==Kind.TEXT&&if(enhancedOcr)it.key !in improvedChunks else it.key !in rawChunks}
+        if(needed.isEmpty())return
+        val image=p.copy(Bitmap.Config.ARGB_8888,false);val token=generation;val run=++ocrRun;val improving=enhancedOcr;val rawSnapshot=rawChunks.toMap()
+        val engine=ZoneDetector(applicationContext);detector=engine;ocrLoading=true;displayOcr()
+        detectionWorker.execute{
+            val cancelled={token!=generation||run!=ocrRun}
+            try{
+                val corrector=repair?:loadRepair()
+                main.post{if(!cancelled())repair=corrector}
+                val localRaw=rawSnapshot.toMutableMap()
+                fun own(chunk:OcrChunk,result:List<OcrWord>)=result.filter{w->chosen.firstOrNull{z->z.box.contains((w.box.left+w.box.right)/2,(w.box.top+w.box.bottom)/2)||z.box.intersect(w.box)>.5f*w.box.area}?.id==chunk.zoneId}
+                val missing=needed.filter{it.key !in localRaw}
+                if(missing.isNotEmpty())engine.recognizeChunks(missing,image,false,cancelled){chunk,result->
+                    val owned=own(chunk,result);localRaw[chunk.key]=owned
+                    main.post{if(!cancelled()&&!isDestroyed){repair=corrector;rawChunks[chunk.key]=owned;displayOcr()}}
+                }
+                if(improving&&!cancelled())engine.recognizeChunks(needed,image,true,cancelled){chunk,result->
+                    val value=corrector.improve(localRaw[chunk.key].orEmpty(),own(chunk,result))
+                    main.post{if(!cancelled()&&!isDestroyed){repair=corrector;improvedChunks[chunk.key]=value;displayOcr()}}
+                }
+                main.post{if(!cancelled()&&!isDestroyed){ocrLoading=false;detector=null;ocrNotice=if(improving)" · déjà affiché inchangé" else "";displayOcr();if(ocrReading)status.text="OCR ${if(enhancedOcr)"amélioré" else "brut"} · erreurs possibles$ocrNotice"}}
+            }catch(_:Exception){main.post{if(!cancelled()&&!isDestroyed){ocrLoading=false;detector=null;ocrNotice=" · suite indisponible, réessayez";displayOcr();status.text="OCR partiel. Réessayez ou revenez à Original."}}}
+            finally{image.recycle()}
+        }
+    }
+    private fun exitReader(){ocrRun++;detector?.cancel();ocrLoading=false;saveSession();reader.clear();reader.visibility=View.GONE;canvas.visibility=View.VISIBLE;++generation;reading=false;busy=false;canvas.reading=false;canvas.image=preview;readingBitmap?.recycle();readingBitmap=null;sync()}
     private fun editZone(z:Zone){
         frameIndex=0
         AlertDialog.Builder(this).setTitle("Corriger le bloc").setItems(arrayOf("Redessiner le cadre","Traiter comme ${if(z.kind==Kind.TEXT)"image" else "texte"}","Couper en deux verticalement","Couper en deux horizontalement","Fusionner les blocs choisis","Supprimer ce bloc")){_,which->

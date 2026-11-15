@@ -21,4 +21,10 @@ class TextCoverageTest {
   assertTrue(safe.bottom*600>=310);assertTrue(safe.top<=.2f);b.recycle()
  }
  @Test fun neverShrinksAManualBox(){val b=Bitmap.createBitmap(300,600,Bitmap.Config.ARGB_8888);b.eraseColor(Color.WHITE);val x=Box(.1f,.1f,.5f,.8f);val out=TextCoverage.safeTextBox(b,x);assertTrue(out.left<=x.left&&out.top<=x.top&&out.right>=x.right&&out.bottom>=x.bottom);b.recycle()}
+ @Test fun recoversUnrecognizedGapWithOverlapButNeverAcrossImage(){
+  val a=Zone(1,Box(.1f,.4f,.3f,.45f),Kind.TEXT);val b=Zone(2,Box(.1f,.485f,.3f,.6f),Kind.TEXT)
+  val covered=TextCoverage.bridgeColumnGaps(listOf(a,b));assertTrue(covered[1].box.top<a.box.bottom)
+  val bands=ContinuousLayout.bands(covered);for(i in bands.indices)for(j in i+1 until bands.size)for(x in bands[i].pieces)for(y in bands[j].pieces)assertEquals(0f,x.intersect(y),.000001f)
+  val image=Zone(3,Box(.1f,.455f,.3f,.48f),Kind.IMAGE);assertEquals(b.box,TextCoverage.bridgeColumnGaps(listOf(a,b,image))[1].box)
+ }
 }

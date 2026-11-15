@@ -4,6 +4,17 @@ import kotlin.math.*
 
 /** Keep complete OCR lines, including lines rejected by paragraph-level filtering. */
 object TextCoverage {
+    /** Cover short unrecognized gaps between aligned fragments. Source-area union removes overlaps. */
+    fun bridgeColumnGaps(zones:List<Zone>):List<Zone> = zones.map{z->
+        if(z.kind!=Kind.TEXT)return@map z
+        val b=z.box
+        val previous=zones.filter{p->p.id!=z.id&&p.kind==Kind.TEXT&&p.box.bottom<=b.top&&b.top-p.box.bottom<=.045f&&
+            min(p.box.width,b.width)/max(p.box.width,b.width)>.72f&&
+            (min(p.box.right,b.right)-max(p.box.left,b.left))>.78f*min(p.box.width,b.width)}.maxByOrNull{it.box.bottom}
+        if(previous==null||zones.any{it.kind==Kind.IMAGE&&it.box.top<b.top&&it.box.bottom>previous.box.bottom&&it.box.intersect(Box(b.left,previous.box.bottom,b.right,b.top))>0})z
+        else z.copy(box=Box(b.left,max(0f,previous.box.bottom-.0015f),b.right,b.bottom))
+    }
+
     fun includeLines(paragraphs:List<Zone>,lines:List<Box>):List<Zone>{
         val out=paragraphs.toMutableList()
         for(line in lines){

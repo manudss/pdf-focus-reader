@@ -1,6 +1,6 @@
 package com.pdffocus.reader
 
-data class OcrWord(val text:String,val box:Box,val line:Box)
+data class OcrWord(val text:String,val box:Box,val line:Box,val confidence:Float=100f)
 /** Selection order wins. A recognized word can belong to only one selected block. */
 object OcrFlow {
  fun textByZone(zones:List<Zone>,words:List<OcrWord>):Map<Int,String>{

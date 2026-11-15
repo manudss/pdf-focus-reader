@@ -60,13 +60,31 @@ class ZoneDetector(private val context:Context) {
                 .sortedWith(compareBy<Zone>{(it.box.top*35).toInt()}.thenBy{it.box.left}).mapIndexed{i,z->z.copy(id=i+1)}
         }finally{synchronized(lifecycle){active=null;api.recycle()}}
     }
+    fun recognizeChunks(chunks:List<OcrChunk>,bitmap:Bitmap,best:Boolean,obsolete:()->Boolean,publish:(OcrChunk,List<OcrWord>)->Unit){
+        val name=if(best)"accurate" else "ocr";val root=File(context.filesDir,name);val data=File(root,"tessdata").apply{mkdirs()}
+        for(lang in listOf("fra","eng")){val target=File(data,"$lang.traineddata");if(!target.exists()){val temp=File(data,"$lang.part");context.assets.open(if(best&&lang=="fra")"tessdata_best/fra.traineddata" else "tessdata/$lang.traineddata").use{a->temp.outputStream().use{a.copyTo(it)}};check(temp.renameTo(target))}}
+        val api=TessBaseAPI();val cancelled={stopped||obsolete()}
+        try{check(api.init(root.absolutePath,"fra+eng"));api.setPageSegMode(TessBaseAPI.PageSegMode.PSM_AUTO)
+            synchronized(lifecycle){if(cancelled())return;active=api}
+            for(chunk in chunks){if(cancelled())break;if(chunk.kind==Kind.IMAGE)continue
+                val l=(chunk.box.left*bitmap.width).toInt().coerceIn(0,bitmap.width-1);val t=(chunk.box.top*bitmap.height).toInt().coerceIn(0,bitmap.height-1)
+                val r=kotlin.math.ceil(chunk.box.right*bitmap.width).toInt().coerceIn(l+1,bitmap.width);val b=kotlin.math.ceil(chunk.box.bottom*bitmap.height).toInt().coerceIn(t+1,bitmap.height)
+                val crop=Bitmap.createBitmap(bitmap,l,t,r-l,b-t);val scale=minOf(2f,1800f/maxOf(crop.width,crop.height));val enlarged=Bitmap.createScaledBitmap(crop,maxOf(1,(crop.width*scale).toInt()),maxOf(1,(crop.height*scale).toInt()),true)
+                try{api.setImage(enlarged);api.getHOCRText(0);if(cancelled())break
+                    fun global(box:Box)=Box((l+box.left*(r-l))/bitmap.width,(t+box.top*(b-t))/bitmap.height,(l+box.right*(r-l))/bitmap.width,(t+box.bottom*(b-t))/bitmap.height)
+                    val result=recognizedWords(api,enlarged.width.toFloat(),enlarged.height.toFloat(),cancelled).map{it.copy(box=global(it.box),line=global(it.line))}
+                    if(!cancelled())publish(chunk,result)
+                }finally{if(enlarged!==crop)enlarged.recycle();if(crop!==bitmap)crop.recycle()}
+            }
+        }finally{synchronized(lifecycle){active=null;api.recycle()}}
+    }
     fun readWords(bitmap:Bitmap,obsolete:()->Boolean):List<OcrWord>{detect(bitmap,obsolete);return words}
     private fun recognizedWords(api:TessBaseAPI,w:Float,h:Float,cancelled:()->Boolean):List<OcrWord>{
         val out=mutableListOf<OcrWord>();val iterator=api.resultIterator?:return out
         try{iterator.begin();do{
             val text=iterator.getUTF8Text(TessBaseAPI.PageIteratorLevel.RIL_WORD).orEmpty().trim()
             val r=iterator.getBoundingRect(TessBaseAPI.PageIteratorLevel.RIL_WORD);val line=iterator.getBoundingRect(TessBaseAPI.PageIteratorLevel.RIL_TEXTLINE)
-            if(text.isNotEmpty()&&r.width()>0&&r.height()>0)out+=OcrWord(text,Box(r.left/w,r.top/h,r.right/w,r.bottom/h),Box(line.left/w,line.top/h,line.right/w,line.bottom/h))
+            if(text.isNotEmpty()&&r.width()>0&&r.height()>0)out+=OcrWord(text,Box(r.left/w,r.top/h,r.right/w,r.bottom/h),Box(line.left/w,line.top/h,line.right/w,line.bottom/h),iterator.confidence(TessBaseAPI.PageIteratorLevel.RIL_WORD))
         }while(iterator.next(TessBaseAPI.PageIteratorLevel.RIL_WORD)&&!cancelled())}finally{iterator.delete()}
         return out
     }

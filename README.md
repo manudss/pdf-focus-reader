@@ -8,7 +8,8 @@ Prototype Android natif pour lire un PDF par zones, sans compte ni service dista
 4. Appuyer sur **Lire** : les blocs s'enchaînent dans un ruban à faire défiler au doigt. Le texte est cadré à la largeur de l'écran ; les images s'affichent entières. Les surfaces communes à plusieurs blocs sélectionnés ne sont affichées qu'une fois.
 5. Les boutons de page et le choix du numéro restent disponibles pendant la détection locale.
 6. En lecture, choisir **Original**, **Nettoyé** (nettoyage local et léger épaississement des lettres) ou **Texte OCR**. Ce dernier recompose les mots reconnus avec une vraie police ; Texte −/+ règle sa taille. La reconnaissance peut contenir des erreurs. Un bloc sans texte reconnu reste affiché en image. Les photos et le PDF original restent inchangés.
-7. Revenir à la page ou corriger les zones par appui long. Ajouter un bloc en traçant un rectangle ; diviser ou fusionner les cadres si nécessaire.
+7. En Texte OCR, **OCR brut / OCR amélioré** permet de comparer la reconnaissance initiale et des corrections locales prudentes. Les morceaux arrivent progressivement ; le texte déjà affiché reste stable. Les chiffres, noms propres et mots ambigus ne sont pas corrigés par un dictionnaire seul. Les erreurs restent possibles et le retour au brut est immédiat.
+8. Revenir à la page ou corriger les zones par appui long. Ajouter un bloc en traçant un rectangle ; diviser ou fusionner les cadres si nécessaire.
 
 ## État : alpha, pas une application finale
 
