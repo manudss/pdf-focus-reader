@@ -34,7 +34,7 @@ class PageThumbnails(context:Context,val pageCount:Int,val currentPage:Int,priva
   if(active&&shown==null&&position !in failed&&pending.size<24&&pending.add(position))execute{
    val needed=active&&position in wanted
    val bitmap=if(needed)try{render(position)}catch(_:Exception){null}else null
-   main.post{pending.remove(position);if(!active){bitmap?.recycle()}else if(needed){if(bitmap!=null){cache.put(position,bitmap);holders[position]?.get()?.takeIf{it.bound==position}?.let{it.bitmap=bitmap;it.image.setImageBitmap(bitmap)}}else{failed.add(position);holders[position]?.get()?.takeIf{it.bound==position}?.root?.contentDescription="Page ${position+1}, aperçu indisponible"}}else if(position in wanted)notifyDataSetChanged()}
+   main.post{pending.remove(position);if(!active){bitmap?.recycle()}else if(needed){if(bitmap!=null){cache.put(position,bitmap);holders[position]?.get()?.takeIf{it.bound==position}?.let{it.bitmap=bitmap;it.image.setImageBitmap(bitmap)}}else{failed.add(position);holders[position]?.get()?.takeIf{it.bound==position}?.root?.contentDescription="Page ${position+1}, aperçu indisponible"}};if(active&&holders.any{(n,ref)->val cell=ref.get();n in wanted&&cell?.bound==n&&cell.bitmap==null&&n !in pending&&n !in failed})notifyDataSetChanged()}
   }
   return holder.root
  }
