@@ -8,7 +8,7 @@ Prototype Android natif pour lire un PDF par zones, sans compte ni service dista
 4. Appuyer sur **Lire** : les blocs s'enchaînent dans un ruban à faire défiler au doigt. Le texte est cadré à la largeur de l'écran ; les images s'affichent entières. Les surfaces communes à plusieurs blocs sélectionnés ne sont affichées qu'une fois.
 5. Les boutons de page et le choix du numéro restent disponibles pendant la détection locale.
 6. En lecture, choisir **Original**, **Nettoyé** (nettoyage local et léger épaississement des lettres) ou **Texte OCR**. Ce dernier recompose les mots reconnus avec une vraie police ; **Réglages** ouvre Texte −/+ pour sa taille, uniquement en OCR. La reconnaissance peut contenir des erreurs. Un bloc sans texte reconnu reste affiché en image. Les photos et le PDF original restent inchangés.
-7. En Texte OCR, dans **Réglages**, **OCR brut / OCR amélioré** permet de comparer la reconnaissance initiale et des corrections locales prudentes. Les morceaux arrivent progressivement ; le texte déjà affiché reste stable. Les chiffres, noms propres et mots ambigus ne sont pas corrigés par un dictionnaire seul. Les erreurs restent possibles et le retour au brut est immédiat.
+7. En Texte OCR, dans **Réglages**, **OCR brut / OCR amélioré** permet de comparer la reconnaissance initiale et des corrections locales prudentes. En mode amélioré, chaque bloc choisi est publié après reconnaissance de ses morceaux : une limite de traitement ne devient pas un paragraphe. Le texte déjà affiché reste stable. Les chiffres, noms propres et mots ambigus ne sont pas corrigés par un dictionnaire seul. Les erreurs restent possibles et le retour au brut est immédiat.
 8. Revenir à la page ou corriger les zones par appui long. **Ajuster le cadre** permet de glisser le bloc ou ses huit poignées, puis Valider ou Annuler. Après un nouveau tracé, cet ajustement est proposé avant l’ajout. Les cadres manuels restent exacts, sans extension automatique.
 9. Le bouton **Fusionner** (ou l’appui long **Choisir les blocs à fusionner**) ouvre une sélection violette, indépendante du parcours. Le nouveau bloc prend la place du premier bloc fusionné dans l’ordre existant ; les autres gardent leur ordre relatif. Une confirmation montre le nouvel ordre. Si aucun membre ne figurait dans le parcours, l’ajout à la fin est demandé explicitement.
 
@@ -19,6 +19,16 @@ Prototype Android natif pour lire un PDF par zones, sans compte ni service dista
 La compilation et les tests locaux ne remplacent pas l'essai sur téléphone. Les mises en page irrégulières, les images en noir et blanc, les encadrés et les petits scans peuvent produire des blocs incorrects ou manquants. Le cadrage manuel reste disponible. L'application ne reconstitue pas automatiquement les articles et ne modifie pas le texte source. Le mode Texte OCR est une vue séparée, pas une transcription garantie. Un scan flou reste limité par sa résolution d'origine.
 
 L'exemple est entièrement fictif. Aucun journal ou fichier personnel n'est inclus dans le dépôt ou dans les tests.
+
+## OCR amélioré (alpha 0.9)
+
+- Rendu de la région depuis le PDF, plafonné à 3 millions de pixels / 2400 pixels sur le grand côté. Un agrandissement ne répare pas un scan d’origine flou.
+- Tesseract français précis et second reconnaisseur PP-OCRv5 Latin mobile, exécuté avec ONNX Runtime. Les lignes sont découpées à partir de Tesseract : les analyses de mise en page ne sont pas indépendantes.
+- Reconstruction des lignes et paragraphes selon leur géométrie. Une césure n’est réunie qu’avec un mot attesté par le lexique ; les composés inconnus restent inchangés. Les retraits et espaces verticaux restent des indices imparfaits.
+- Suggestions orthographiques locales, sans analyse grammaticale. Un mot déjà valide, un nombre ou un nom propre n’est pas remplacé sur simple accord statistique. Les divergences ne sont pas toutes corrigées.
+- Les changements sont marqués dans la lecture. Toucher un repère permet de consulter le brut, les lectures disponibles et l’extrait PDF, puis de garder le brut. Les choix sont sauvegardés par empreinte, sans recopier le texte du document dans le parcours.
+- Deux moteurs qui s’accordent peuvent avoir tort. Les tests emploient des PDF fictifs et ne garantissent pas la qualité sur un journal particulier. Les mesures de temps sur émulateur ne sont pas celles d’un téléphone.
+- Le second moteur alourdit l’APK et consomme de la mémoire pendant l’OCR amélioré. Aucun téléchargement de modèle n’est nécessaire.
 
 ## Confidentialité
 

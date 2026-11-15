@@ -21,7 +21,27 @@ object OcrReview {
  /** Bounded token alignment retains insertions, deletions and many-to-one hyphen repairs. */
  fun compare(raw:String,corrected:String,source:Box):OcrReviewText {
   val a=tokens(raw);val b=tokens(corrected)
-  if(a.size>350||b.size>350)return if(raw==corrected)OcrReviewText(corrected,emptyList()) else OcrReviewText(corrected,listOf(OcrEdit(0,0,corrected.length,raw,corrected,source)))
+  if(a.size>350||b.size>350){
+   if(raw==corrected)return OcrReviewText(corrected,emptyList())
+   // Bound each alignment by unchanged, unique words. Long blocks must not turn into
+   // one highlighted edit merely because source slices now share one reflow layout.
+   val ac=a.groupingBy{it.value}.eachCount();val bc=b.groupingBy{it.value}.eachCount()
+   val indexes=b.mapIndexed{i,t->t.value to i}.toMap()
+   val pairs=a.mapIndexedNotNull{i,t->if(ac[t.value]==1&&bc[t.value]==1)i to indexes.getValue(t.value)else null}
+   val tail=mutableListOf<Int>();val previous=IntArray(pairs.size){-1}
+   for(k in pairs.indices){var lo=0;var hi=tail.size;while(lo<hi){val m=(lo+hi)/2;if(pairs[tail[m]].second<pairs[k].second)lo=m+1 else hi=m};if(lo>0)previous[k]=tail[lo-1];if(lo==tail.size)tail+=k else tail[lo]=k}
+   val anchors=mutableListOf<Pair<Int,Int>>();var k=tail.lastOrNull()?:-1
+   while(k>=0){anchors+=pairs[k];k=previous[k]};anchors.reverse()
+   if(anchors.isEmpty())return OcrReviewText(corrected,listOf(OcrEdit(0,0,corrected.length,raw,corrected,source)))
+   val edits=mutableListOf<OcrEdit>();var x=0;var y=0
+   for((ai,bi)in anchors+listOf(a.size to b.size)){
+    val endX=a.getOrNull(ai)?.start?:raw.length;val endY=b.getOrNull(bi)?.start?:corrected.length
+    val part=compare(raw.substring(x,endX),corrected.substring(y,endY),source)
+    for(edit in part.edits)edits+=edit.copy(id=edits.size,start=edit.start+y,end=edit.end+y)
+    x=a.getOrNull(ai)?.end?:raw.length;y=b.getOrNull(bi)?.end?:corrected.length
+   }
+   return OcrReviewText(corrected,edits)
+  }
   val dp=Array(a.size+1){IntArray(b.size+1)}
   for(i in a.indices.reversed())for(j in b.indices.reversed())dp[i][j]=if(a[i].value==b[j].value)1+dp[i+1][j+1]else maxOf(dp[i+1][j],dp[i][j+1])
   val edits=mutableListOf<OcrEdit>();var i=0;var j=0
