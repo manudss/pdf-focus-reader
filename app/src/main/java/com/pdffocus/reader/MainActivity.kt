@@ -53,7 +53,7 @@ class MainActivity:Activity() {
     private val green=Color.rgb(57,126,108);private val ink=Color.rgb(37,31,33)
     private fun dp(v:Int)=(v*resources.displayMetrics.density).roundToInt()
 
-    private fun loadRepair()=java.util.zip.GZIPInputStream(assets.open("tessdata_best/fra-words.txt.gz")).bufferedReader().use{OcrEnhancer(it.readLines())}
+    private fun loadRepair()=assets.open("tessdata_best/fra-words.txt").bufferedReader().use{OcrEnhancer(it.readLines())}
     override fun onCreate(savedInstanceState:Bundle?) {
         super.onCreate(savedInstanceState);store=SessionStore(this);cleanReading=getPreferences(0).getBoolean("cleanReading",true)
         val root=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setBackgroundColor(Color.WHITE)}
@@ -276,7 +276,7 @@ class MainActivity:Activity() {
                     }
                 }else engine.recognizeChunks(needed.filter{it.key !in localRaw},image,false,cancelled,::publishRaw)
                 main.post{if(!cancelled()&&!isDestroyed){ocrLoading=false;detector=null;ocrNotice=if(improving)" · déjà affiché inchangé" else "";displayOcr();if(ocrReading)status.text="OCR ${if(enhancedOcr)"amélioré" else "brut"} · erreurs possibles$ocrNotice"}}
-            }catch(e:Exception){android.util.Log.e("PdfFocusOcr","Local OCR chunk processing failed",e);main.post{if(!cancelled()&&!isDestroyed){ocrLoading=false;detector=null;ocrNotice=" · suite indisponible, réessayez";displayOcr();status.text="OCR partiel. Réessayez ou revenez à Original."}}}
+            }catch(_:Exception){main.post{if(!cancelled()&&!isDestroyed){ocrLoading=false;detector=null;ocrNotice=" · suite indisponible, réessayez";displayOcr();status.text="OCR partiel. Réessayez ou revenez à Original."}}}
             finally{image.recycle()}
         }
     }
