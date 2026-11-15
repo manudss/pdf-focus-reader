@@ -57,7 +57,8 @@ object TextGrouping {
                 val contained=x.intersect(y)>.92f*minOf(x.area,y.area)
                 val overlap=(minOf(x.right,y.right)-maxOf(x.left,y.left)).coerceAtLeast(0f)
                 val gap=maxOf(x.top,y.top)-minOf(x.bottom,y.bottom)
-                if(contained||(union.width<=maxWidth&&gap>=-.004f&&gap<=.014f&&overlap>.85f*minOf(x.width,y.width))){
+                val aligned=abs(x.left-y.left)<.018f&&abs(x.right-y.right)<.018f
+                if(contained||((union.width<=maxWidth||aligned)&&gap>=-.004f&&gap<=.014f&&overlap>.85f*minOf(x.width,y.width))){
                     out[i]=a.copy(box=union,lineBottoms=(a.lineBottoms+b.lineBottoms).distinct().sorted());out.removeAt(j);changed=true;break@loop
                 }
             }
