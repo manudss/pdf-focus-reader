@@ -16,6 +16,7 @@ import java.io.File
 class ReaderDeviceTest {
     @Test fun bundledOcrWorksWithoutNetworkAndFindsSyntheticText(){
         val c=InstrumentationRegistry.getInstrumentation().targetContext
+        c.assets.open("tessdata_best/fra-words.txt").bufferedReader().use{assertTrue("Packaged repair lexicon must be readable",it.readLines().size>10000)}
         val b=Bitmap.createBitmap(900,1400,Bitmap.Config.ARGB_8888)
         val canvas=Canvas(b);canvas.drawColor(Color.WHITE);val paint=Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.BLACK;textSize=28f}
         for(i in 0..14){canvas.drawText("Un journal simple et lisible",35f,100f+i*50,paint);canvas.drawText("Une autre colonne de texte",470f,100f+i*50,paint)}

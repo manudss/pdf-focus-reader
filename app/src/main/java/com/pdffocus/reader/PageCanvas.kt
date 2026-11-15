@@ -11,6 +11,16 @@ class PageCanvas(context:Context):View(context) {
     var selection:List<Int> = emptyList();set(value){field=value;invalidate()}
     var reading=false;set(value){field=value;resetZoom()}
     var drawMode=false;set(value){field=value;draft=null;invalidate()}
+    var mergeMode=false;set(value){field=value;invalidate()}
+    var mergeIds:Set<Int> = emptySet();set(value){field=value;invalidate()}
+    var adjustingZone:Int?=null
+    var editBox:Box?=null;set(value){field=value;invalidate()}
+    private var editStart:PointF?=null
+    private var editOriginal:Box?=null
+    private var editHandle:Pair<Int,Int>?=null
+    private var editMove=false
+    private fun screenRect(box:Box):RectF{val b=image?:return RectF();return RectF(box.left*b.width,box.top*b.height,box.right*b.width,box.bottom*b.height).also{matrix.mapRect(it)}}
+    private fun handles(rect:RectF)=listOf(-1 to -1,0 to -1,1 to -1,-1 to 0,1 to 0,-1 to 1,0 to 1,1 to 1).map{h->h to PointF(if(h.first<0)rect.left else if(h.first>0)rect.right else rect.centerX(),if(h.second<0)rect.top else if(h.second>0)rect.bottom else rect.centerY())}
     var onZoneTap:((Zone)->Unit)?=null
     var onZoneLongPress:((Zone)->Unit)?=null
     var onRectangle:((Box)->Unit)?=null
@@ -25,8 +35,8 @@ class PageCanvas(context:Context):View(context) {
     private val gestures=GestureDetector(context,object:GestureDetector.SimpleOnGestureListener(){
         override fun onDown(e:android.view.MotionEvent)=true
         override fun onScroll(a:MotionEvent?,b:MotionEvent,dx:Float,dy:Float):Boolean {if(zoom>1f){panX-=dx;panY-=dy;invalidate()};return true}
-        override fun onSingleTapConfirmed(e:MotionEvent):Boolean {if(!reading){point(e)?.let{p->ReadingLayout.smallestHit(zones,p.x,p.y)?.let{onZoneTap?.invoke(it)}}};return true}
-        override fun onLongPress(e:MotionEvent){if(!reading)point(e)?.let{p->ReadingLayout.smallestHit(zones,p.x,p.y)?.let{onZoneLongPress?.invoke(it)}}}
+        override fun onSingleTapConfirmed(e:MotionEvent):Boolean {if(!reading&&editBox==null){point(e)?.let{p->ReadingLayout.smallestHit(zones,p.x,p.y)?.let{onZoneTap?.invoke(it)}}};return true}
+        override fun onLongPress(e:MotionEvent){if(!reading&&editBox==null)point(e)?.let{p->ReadingLayout.smallestHit(zones,p.x,p.y)?.let{onZoneLongPress?.invoke(it)}}}
         override fun onDoubleTap(e:MotionEvent):Boolean{if(zoom>1f)resetZoom()else{zoom=2f;invalidate()};return true}
     })
     init {setBackgroundColor(Color.rgb(245,243,240));contentDescription="Page PDF. Pincez pour zoomer ; touchez les blocs dans l'ordre. Appui long pour corriger.";isFocusable=true}
@@ -54,11 +64,13 @@ class PageCanvas(context:Context):View(context) {
         matrix.reset();matrix.postScale(s,s);matrix.postTranslate((width-dw)/2+panX,(height-dh)/2+panY);matrix.invert(inverse)
         paint.style=Paint.Style.FILL;paint.color=Color.WHITE;canvas.drawBitmap(b,matrix,paint)
         if(!reading)for(zone in zones){
-            val number=selection.indexOf(zone.id)+1
+            if(zone.id==adjustingZone)continue
+            val number=if(mergeMode)0 else selection.indexOf(zone.id)+1
+            val merged=mergeMode&&zone.id in mergeIds
             val rect=RectF(zone.box.left*b.width,zone.box.top*b.height,zone.box.right*b.width,zone.box.bottom*b.height);matrix.mapRect(rect)
-            paint.color=if(number>0)Color.rgb(37,122,100)else Color.rgb(90,98,98)
-            paint.style=Paint.Style.STROKE;paint.strokeWidth=if(number>0)3*density else density
-            paint.pathEffect=if(number>0)null else DashPathEffect(floatArrayOf(5*density,3*density),0f)
+            paint.color=if(merged)Color.rgb(128,91,167)else if(number>0)Color.rgb(37,122,100)else Color.rgb(90,98,98)
+            paint.style=Paint.Style.STROKE;paint.strokeWidth=if(number>0||merged)3*density else density
+            paint.pathEffect=if(number>0||merged)null else DashPathEffect(floatArrayOf(5*density,3*density),0f)
             canvas.drawRect(rect,paint);paint.pathEffect=null
             if(number>0){
                 paint.style=Paint.Style.FILL;canvas.drawRoundRect(RectF(rect.left,rect.top,rect.left+27*density,rect.top+25*density),3*density,3*density,paint)
@@ -66,11 +78,31 @@ class PageCanvas(context:Context):View(context) {
                 canvas.drawText(number.toString(),rect.left+6*density,rect.top+19*density,paint)
             }
         }
+        if(mergeMode&&mergeIds.size>=2){zones.filter{it.id in mergeIds}.map{it.box}.reduceOrNull{a,b->a.union(b)}?.let{box->val rect=screenRect(box);rect.inset(-4*density,-4*density);paint.color=Color.rgb(128,91,167);paint.style=Paint.Style.STROKE;paint.strokeWidth=2*density;paint.pathEffect=DashPathEffect(floatArrayOf(8*density,4*density),0f);canvas.drawRect(rect,paint);paint.pathEffect=null}}
         draft?.let{box->val rect=RectF(box.left*b.width,box.top*b.height,box.right*b.width,box.bottom*b.height);matrix.mapRect(rect);paint.color=Color.rgb(37,122,100);paint.style=Paint.Style.STROKE;paint.strokeWidth=3*density;canvas.drawRect(rect,paint)}
+        editBox?.let{box->
+            val rect=screenRect(box);paint.color=Color.rgb(57,126,108);paint.style=Paint.Style.STROKE;paint.strokeWidth=2*density;canvas.drawRect(rect,paint)
+            for((_,p)in handles(rect)){paint.style=Paint.Style.FILL;paint.color=Color.WHITE;canvas.drawRect(p.x-5*density,p.y-5*density,p.x+5*density,p.y+5*density,paint);paint.color=Color.rgb(57,126,108);paint.style=Paint.Style.STROKE;canvas.drawRect(p.x-5*density,p.y-5*density,p.x+5*density,p.y+5*density,paint)}
+        }
         paint.style=Paint.Style.FILL
     }
     private fun point(e:MotionEvent):PointF? {val b=image?:return null;val xy=floatArrayOf(e.x,e.y);inverse.mapPoints(xy);return PointF((xy[0]/b.width).coerceIn(0f,1f),(xy[1]/b.height).coerceIn(0f,1f))}
     override fun onTouchEvent(e:MotionEvent):Boolean {
+        if(editBox!=null&&!reading){
+            scale.onTouchEvent(e)
+            if(e.pointerCount>1||scale.isInProgress){editStart=null;editHandle=null;editMove=false;return true}
+            val p=point(e)?:return false
+            when(e.actionMasked){
+                MotionEvent.ACTION_DOWN->{
+                    val rect=screenRect(editBox!!);val nearest=handles(rect).minByOrNull{(_,q)->hypot((q.x-e.x).toDouble(),(q.y-e.y).toDouble())}
+                    editHandle=nearest?.takeIf{(_,q)->hypot((q.x-e.x).toDouble(),(q.y-e.y).toDouble())<24*density}?.first
+                    editMove=editHandle==null&&rect.contains(e.x,e.y)
+                    if(editHandle!=null||editMove){editStart=p;editOriginal=editBox;parent?.requestDisallowInterceptTouchEvent(true)}else gestures.onTouchEvent(e)
+                }
+                MotionEvent.ACTION_MOVE->{val a=editStart;val original=editOriginal;if(a!=null&&original!=null){val h=editHandle?: (0 to 0);editBox=FrameAdjustment.change(original,h.first,h.second,p.x-a.x,p.y-a.y,editMove)}else gestures.onTouchEvent(e)}
+                MotionEvent.ACTION_UP,MotionEvent.ACTION_CANCEL->{if(editStart==null)gestures.onTouchEvent(e);editStart=null;editOriginal=null;editHandle=null;editMove=false;performClick()}
+            };return true
+        }
         if(drawMode&&!reading){
             val p=point(e)?:return false
             when(e.actionMasked){

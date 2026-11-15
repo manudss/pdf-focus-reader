@@ -48,6 +48,10 @@ class MainActivity:Activity() {
     private var count=0;private var page=0;private var zones=listOf<Zone>();private var order=listOf<Int>()
     private var preview:Bitmap?=null;private var readingBitmap:Bitmap?=null
     private var frameIndex=0;private var reading=false;private var busy=false
+    private var merging=false
+    private var mergeIds=setOf<Int>()
+    private var pendingNew:Zone?=null
+    private var adjusting:Int?=null
     private var adding=false;private var replaceId:Int?=null
     private var documentTitle="PDF Focus Reader"
     private val green=Color.rgb(57,126,108);private val ink=Color.rgb(37,31,33)
@@ -74,13 +78,16 @@ class MainActivity:Activity() {
         controls=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(10),dp(6),dp(10),dp(6))};root.addView(controls)
         setContentView(root)
         detectionWorker.execute{try{val local=loadRepair();main.post{if(!isDestroyed)repair=local}}catch(_:Exception){}}
-        canvas.onZoneTap={z->if(!busy&&!reading){order=ReadingLayout.toggle(order,z.id);frameIndex=0;scrollPosition=0;sync()}}
-        canvas.onZoneLongPress={z->if(!busy&&!reading)editZone(z)}
+        canvas.onZoneTap={z->if(!busy&&!reading){if(merging){mergeIds=if(z.id in mergeIds)mergeIds-z.id else mergeIds+z.id;canvas.mergeIds=mergeIds;updateControls()}else{order=ReadingLayout.toggle(order,z.id);frameIndex=0;scrollPosition=0;sync()}}}
+        canvas.onZoneLongPress={z->if(!busy&&!reading&&!merging&&adjusting==null)editZone(z)}
         canvas.onRectangle={b->
             if(!busy){
                 val id=replaceId?:((zones.maxOfOrNull{it.id}?:0)+1)
-                if(replaceId!=null){zones=zones.map{if(it.id==id)it.copy(box=b,manual=true)else it};replaceId=null;adding=false;canvas.drawMode=false;sync()}
-                else AlertDialog.Builder(this).setTitle("Type de bloc").setItems(arrayOf("Texte","Image")){_,which->zones=zones+Zone(id,b,if(which==0)Kind.TEXT else Kind.IMAGE,manual=true);order=order+id;adding=false;canvas.drawMode=false;sync()}.setOnCancelListener{adding=false;canvas.drawMode=false;sync()}.show()
+                if(replaceId!=null){val zone=zones.first{it.id==id};replaceId=null;adding=false;canvas.drawMode=false;beginAdjustment(zone.copy(box=b))}
+                else AlertDialog.Builder(this).setTitle("Type de bloc").setItems(arrayOf("Texte","Image")){_,which->
+                    val zone=Zone(id,b,if(which==0)Kind.TEXT else Kind.IMAGE,manual=true);beginNewAdjustment(zone)
+                }.setOnCancelListener{adding=false;canvas.drawMode=false;sync()}.show()
+
             }
         }
         canvas.onViewportReady={}
@@ -101,6 +108,19 @@ class MainActivity:Activity() {
             row(button("Essayer un exemple fictif"){demo()})
             controls.addView(text("Aucun fichier n'est envoyé sur Internet. L'analyse et les parcours restent sur cet appareil.",12))
             setEnabledRecursive(controls,!busy);return
+        }
+        if(merging){
+            status.text="Fusion · ${mergeIds.size} blocs en violet · ordre conservé"
+            controls.addView(text("Touchez les blocs à fusionner. Pointillé : aperçu. L'ordre de lecture est en pause.",12))
+            val place=BlockMerge.position(order,mergeIds)
+            controls.addView(text(if(place!=null)"Le nouveau bloc prendra la place ${place+1}, celle du premier bloc fusionné." else "Aucun bloc choisi ne figure encore dans le parcours.",12))
+            row(button("Annuler"){finishMerge(false)},button("Fusionner",true){confirmMerge()}.apply{isEnabled=mergeIds.size>=2})
+            return
+        }
+        if(adjusting!=null){
+            controls.addView(text("Glisser dans le cadre pour le déplacer. Poignées : agrandir / réduire. Pincez pour zoomer.",12))
+            row(button("Annuler"){finishAdjustment(false)},button("Valider",true){finishAdjustment(true)})
+            return
         }
         if(reading){
             row(button("Vue page"){exitReader()},button("Texte −"){reader.zoomBy(.9f)},button("Texte +"){reader.zoomBy(1.1f)})
@@ -174,7 +194,7 @@ class MainActivity:Activity() {
     private fun loadPage(index:Int,force:Boolean=false){
         if(index !in 0 until count)return
         if(pageReady)saveSession()
-        detector?.cancel();ocrRun++;chunkPlan=emptyList();rawChunks.clear();improvedChunks.clear();ocrNotice="";detecting=false;pageReady=false;recognizedWords=null;ocrLoading=false
+        adjusting=null;canvas.adjustingZone=null;canvas.editBox=null;detector?.cancel();ocrRun++;chunkPlan=emptyList();rawChunks.clear();improvedChunks.clear();ocrNotice="";detecting=false;pageReady=false;recognizedWords=null;ocrLoading=false
         val savedSession=if(force)null else store.get(index)
         reader.clear();reader.visibility=View.GONE;canvas.visibility=View.VISIBLE;scrollPosition=0
         val token=++generation;page=index;reading=false;adding=false;canvas.drawMode=false;canvas.reading=false
@@ -281,16 +301,41 @@ class MainActivity:Activity() {
         }
     }
     private fun exitReader(){ocrRun++;detector?.cancel();ocrLoading=false;saveSession();reader.clear();reader.visibility=View.GONE;canvas.visibility=View.VISIBLE;++generation;reading=false;busy=false;canvas.reading=false;canvas.image=preview;readingBitmap?.recycle();readingBitmap=null;sync()}
+    private fun beginMerge(z:Zone){merging=true;mergeIds=setOf(z.id);canvas.mergeMode=true;canvas.mergeIds=mergeIds;updateControls()}
+    private fun confirmMerge(){
+        val chosen=zones.filter{it.id in mergeIds};if(chosen.size<2)return
+        val automatic=BlockMerge.position(order,mergeIds);val position=automatic?:order.size
+        fun preview(kind:Kind){val result=BlockMerge.apply(zones,order,mergeIds,position,kind)
+            val labels=result.order.mapIndexed{i,id->"${i+1} : "+if(id==result.merged.id)"nouveau bloc fusionné" else "ancien bloc ${order.indexOf(id)+1}"}
+            AlertDialog.Builder(this).setTitle("Aperçu du nouvel ordre").setMessage((if(automatic==null)"Aucun bloc choisi ne figure dans le parcours. Ajouter le bloc fusionné à la fin ?\n\n" else "Place du premier bloc fusionné conservée.\n\n")+labels.joinToString("\n")).setPositiveButton("Fusionner"){_,_->zones=result.zones;order=result.order;finishMerge(true)}.setNegativeButton("Revenir",null).show()
+        }
+        val kinds=chosen.map{it.kind}.distinct()
+        if(kinds.size==1)preview(kinds.single())else AlertDialog.Builder(this).setTitle("Contenu du bloc fusionné").setItems(arrayOf("Texte (vue OCR possible)","Image (conserve tous les pixels)")){_,which->preview(if(which==0)Kind.TEXT else Kind.IMAGE)}.setNegativeButton("Annuler",null).show()
+    }
+    private fun finishMerge(apply:Boolean){merging=false;mergeIds=emptySet();canvas.mergeMode=false;canvas.mergeIds=emptySet();if(apply){chunkPlan=emptyList();rawChunks.clear();improvedChunks.clear()};sync(apply)}
+    private fun beginNewAdjustment(z:Zone){pendingNew=z;adding=false;canvas.drawMode=false;beginAdjustment(z)}
+    private fun beginAdjustment(z:Zone){adjusting=z.id;canvas.adjustingZone=z.id;canvas.editBox=z.box;status.text="Ajuster le cadre · glisser et poignées";updateControls()}
+    private fun finishAdjustment(apply:Boolean){
+        val id=adjusting;val box=canvas.editBox;val pending=pendingNew
+        if(apply&&id!=null&&box!=null){
+            if(pending!=null){zones=zones+pending.copy(box=box,manual=true);order=order+pending.id}
+            else zones=zones.map{if(it.id==id)it.copy(box=box,manual=true)else it}
+            ocrRun++;detector?.cancel();ocrLoading=false;chunkPlan=emptyList();rawChunks.clear();improvedChunks.clear()
+        }
+        pendingNew=null;adjusting=null;canvas.adjustingZone=null;canvas.editBox=null;sync(apply)
+    }
     private fun editZone(z:Zone){
         frameIndex=0
-        AlertDialog.Builder(this).setTitle("Corriger le bloc").setItems(arrayOf("Redessiner le cadre","Traiter comme ${if(z.kind==Kind.TEXT)"image" else "texte"}","Couper en deux verticalement","Couper en deux horizontalement","Fusionner les blocs choisis","Supprimer ce bloc")){_,which->
+        AlertDialog.Builder(this).setTitle("Corriger le bloc").setItems(arrayOf("Redessiner le cadre","Traiter comme ${if(z.kind==Kind.TEXT)"image" else "texte"}","Couper en deux verticalement","Couper en deux horizontalement","Choisir les blocs à fusionner","Supprimer ce bloc","Ajuster le cadre")){_,which->
             when(which){
                 0->{replaceId=z.id;adding=true;canvas.drawMode=true}
                 1->{zones=zones.map{if(it.id==z.id)it.copy(kind=if(it.kind==Kind.TEXT)Kind.IMAGE else Kind.TEXT)else it}}
                 2,3->{val b=z.box;val a:Box;val c:Box;if(which==2){val x=(b.left+b.right)/2;a=Box(b.left,b.top,x,b.bottom);c=Box(x,b.top,b.right,b.bottom)}else{val y=(b.top+b.bottom)/2;a=Box(b.left,b.top,b.right,y);c=Box(b.left,y,b.right,b.bottom)};val id=(zones.maxOfOrNull{it.id}?:0)+1;zones=zones.filterNot{it.id==z.id}+z.copy(box=a,manual=true)+Zone(id,c,z.kind,manual=true);val i=order.indexOf(z.id);if(i>=0)order=order.toMutableList().apply{add(i+1,id)}}
-                4->{val chosen=ReadingLayout.ordered(zones,order);if(chosen.size<2)toast("Choisissez au moins deux blocs à fusionner.")else{val merged=chosen.map{it.box}.reduce{a,b->a.union(b)};val first=chosen.first();zones=zones.filterNot{it.id in order}+first.copy(box=merged,manual=true);order=listOf(first.id)}}
+                4->{beginMerge(z)}
+
                 5->{zones=zones.filterNot{it.id==z.id};order=order.filterNot{it==z.id}}
-            };sync()
+                6->{beginAdjustment(z)}
+            };sync(adjusting==null&&!merging)
         }.setNegativeButton("Annuler",null).show()
     }
     private fun goToPage(){if(documentLoading)return;val input=EditText(this).apply{inputType=android.text.InputType.TYPE_CLASS_NUMBER;hint="1 à $count"};AlertDialog.Builder(this).setTitle("Aller à la page").setView(input).setPositiveButton("Ouvrir"){_,_->val p=input.text.toString().toIntOrNull();if(p!=null&&p in 1..count)loadPage(p-1)else toast("Numéro de page invalide")}.setNegativeButton("Annuler",null).show()}
@@ -304,6 +349,6 @@ class MainActivity:Activity() {
         for(col in 0..1)for(i in 0 until 28)c.drawText(lines[i%lines.size],40f+col*330f,170f+i*25f,paint)
         paint.color=Color.rgb(84,153,130);c.drawRect(40f,880f,660f,960f,paint);paint.color=Color.WHITE;paint.textSize=22f;c.drawText("Illustration fictive · aucun document personnel",65f,927f,paint);pdf.finishPage(p);target.outputStream().use{pdf.writeTo(it)};pdf.close()}}
     @Deprecated("Activity back callback")
-    override fun onBackPressed(){if(reading)exitReader()else if(adding){adding=false;replaceId=null;canvas.drawMode=false;sync()}else super.onBackPressed()}
+    override fun onBackPressed(){if(merging)finishMerge(false)else if(adjusting!=null)finishAdjustment(false)else if(reading)exitReader()else if(adding){adding=false;replaceId=null;canvas.drawMode=false;sync()}else super.onBackPressed()}
     override fun onDestroy(){main.removeCallbacks(saveProgress);if(pageReady)saveSession();reader.clear();++generation;detector?.cancel();detectionWorker.shutdown();super.onDestroy();worker.execute{document?.close();document=null};worker.shutdown()}
 }

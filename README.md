@@ -9,7 +9,8 @@ Prototype Android natif pour lire un PDF par zones, sans compte ni service dista
 5. Les boutons de page et le choix du numéro restent disponibles pendant la détection locale.
 6. En lecture, choisir **Original**, **Nettoyé** (nettoyage local et léger épaississement des lettres) ou **Texte OCR**. Ce dernier recompose les mots reconnus avec une vraie police ; Texte −/+ règle sa taille. La reconnaissance peut contenir des erreurs. Un bloc sans texte reconnu reste affiché en image. Les photos et le PDF original restent inchangés.
 7. En Texte OCR, **OCR brut / OCR amélioré** permet de comparer la reconnaissance initiale et des corrections locales prudentes. Les morceaux arrivent progressivement ; le texte déjà affiché reste stable. Les chiffres, noms propres et mots ambigus ne sont pas corrigés par un dictionnaire seul. Les erreurs restent possibles et le retour au brut est immédiat.
-8. Revenir à la page ou corriger les zones par appui long. Ajouter un bloc en traçant un rectangle ; diviser ou fusionner les cadres si nécessaire.
+8. Revenir à la page ou corriger les zones par appui long. **Ajuster le cadre** permet de glisser le bloc ou ses huit poignées, puis Valider ou Annuler. Après un nouveau tracé, cet ajustement est proposé avant l’ajout. Les cadres manuels restent exacts, sans extension automatique.
+9. **Choisir les blocs à fusionner** ouvre une sélection violette, indépendante du parcours. Le nouveau bloc prend la place du premier bloc fusionné dans l’ordre existant ; les autres gardent leur ordre relatif. Une confirmation montre le nouvel ordre. Si aucun membre ne figurait dans le parcours, l’ajout à la fin est demandé explicitement.
 
 ## État : alpha, pas une application finale
 
