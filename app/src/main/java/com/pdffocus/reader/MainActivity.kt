@@ -28,6 +28,7 @@ class MainActivity:Activity() {
     private val improvedChunks=mutableMapOf<Int,List<OcrWord>>()
     private var repair:OcrEnhancer?=null
     private var ocrNotice=""
+    private var pageSummary:Dialog?=null
     private var readingSettings=false
     private var currentOrdinal=0
 
@@ -83,6 +84,7 @@ class MainActivity:Activity() {
         canvas=PageCanvas(this);viewport.addView(canvas,android.widget.FrameLayout.LayoutParams(-1,-1))
         reader=ContinuousReaderView(this).apply{visibility=View.GONE};viewport.addView(reader,android.widget.FrameLayout.LayoutParams(-1,-1))
         reader.onRequest={tile,revision->val token=generation;val targetPage=page;val cleanup=cleanReading&&!ocrReading&&tile.kind==Kind.TEXT;worker.execute{var image:Bitmap?=null;try{if(token==generation&&!reader.needsRender(tile,revision)){main.post{reader.skipRequest(tile,revision)};return@execute};if(token==generation)image=document?.readingRegion(targetPage,tile.source,max(1,ceil(tile.rect.width()).toInt()),max(1,ceil(tile.rect.height()).toInt()),cleanup)}catch(_:Exception){};main.post{if(token==generation&&reading)reader.accept(tile,revision,image)else image?.recycle()}}}
+        reader.onOcrMark={key,id,_,y->showOcrComparison(key,id,y)}
         reader.onProgress={ordinal,position->currentOrdinal=ordinal;scrollPosition=position;if(reading){info.text="Page ${page+1} sur $count · bloc ${ordinal+1} sur ${order.size}";progress.progress=((ordinal+1)*1000/maxOf(1,order.size))};status.text=if(ocrReading)"OCR ${if(enhancedOcr)"amélioré" else "brut"} · erreurs possibles${if(ocrLoading)" · suite en cours" else ""}${ocrNotice}" else "Lecture continue · bloc ${ordinal+1} / ${order.size} · glissez pour la suite";if(reading&&pageReady){main.removeCallbacks(saveProgress);main.postDelayed(saveProgress,400)}}
         controls=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(12),dp(8),dp(12),dp(10));background=shape(Color.WHITE,22);elevation=dp(5).toFloat()};root.addView(controls)
         setContentView(root)
@@ -196,7 +198,7 @@ class MainActivity:Activity() {
         if(reading){
             fun flat(label:String,action:()->Unit)=button(label,false,action).apply{background=null}
             fun compactRow(vararg buttons:Button){val r=LinearLayout(this).apply{isBaselineAligned=false};buttons.forEach{r.addView(it,LinearLayout.LayoutParams(0,dp(48),1f))};controls.addView(r,LinearLayout.LayoutParams(-1,dp(48)))}
-            compactRow(flat("Vue page"){exitReader()},flat(if(readingSettings)"Fermer" else "Réglages"){readingSettings=!readingSettings;updateControls()})
+            compactRow(flat("Vue page"){exitReader()},flat("Pages"){showPageSummary()},flat(if(readingSettings)"Fermer" else "Réglages"){readingSettings=!readingSettings;updateControls()})
             fun segment(vararg buttons:Button){
                 val r=LinearLayout(this).apply{isBaselineAligned=false;gravity=Gravity.CENTER_VERTICAL;setPadding(dp(3),dp(3),dp(3),dp(3));background=shape(Color.rgb(244,245,241),12);clipToOutline=true;clipChildren=true;clipToPadding=true}
                 buttons.forEach{b->val active=b.text.toString().endsWith("✓");b.isSelected=active;b.stateListAnimator=null;b.elevation=0f;b.translationZ=0f
@@ -226,7 +228,7 @@ class MainActivity:Activity() {
             val prev=button("Précédente"){loadPage(page-1)}.apply{isEnabled=page>0&&!documentLoading}
             val next=button("Suivante"){loadPage(page+1)}.apply{isEnabled=page<count-1&&!documentLoading}
             pages.addView(prev,LinearLayout.LayoutParams(0,dp(44),1f))
-            pages.addView(button("${page+1} / $count"){goToPage()},LinearLayout.LayoutParams(0,dp(44),1f))
+            pages.addView(button("Pages ${page+1}/$count"){showPageSummary()},LinearLayout.LayoutParams(0,dp(44),1f))
             pages.addView(next,LinearLayout.LayoutParams(0,dp(44),1f))
         }
         setEnabledRecursive(controls,!busy)
@@ -253,6 +255,7 @@ class MainActivity:Activity() {
         openDocument(name){target->contentResolver.openInputStream(uri)?.use{input->target.outputStream().use{output->val b=ByteArray(64*1024);var bytes=0L;while(true){val n=input.read(b);if(n<0)break;bytes+=n;require(bytes<=250L*1024*1024){"Ce prototype accepte les PDF jusqu'à 250 Mo."};output.write(b,0,n)}}}?:error("Fichier inaccessible")}
     }
     private fun openDocument(name:String,write:(File)->Unit){
+        pageSummary?.dismiss()
         reader.clear();reader.visibility=View.GONE;canvas.visibility=View.VISIBLE;detector?.cancel();detecting=false;pageReady=false;documentLoading=true
         val token=++generation;busy=true;reading=false;canvas.reading=false;canvas.image=preview;status.text="Ouverture du document…";updateControls()
         worker.execute{
@@ -279,6 +282,7 @@ class MainActivity:Activity() {
         worker.execute{try{document=PdfDocument(File(filesDir,"current.pdf"));val total=document!!.count;main.post{if(token==generation&&!isDestroyed){documentLoading=false;count=total;page=store.page.coerceIn(0,total-1);documentTitle=getPreferences(0).getString("title","Document PDF")!!;busy=false;loadPage(page)}}}catch(_:Exception){main.post{if(token==generation&&!isDestroyed){documentLoading=false;busy=false;status.text="Choisissez un PDF pour commencer.";updateControls()}}}}
     }
     private fun loadPage(index:Int,force:Boolean=false){
+        pageSummary?.dismiss()
         articleIds=null;articleReason=""
         if(index !in 0 until count)return
         if(pageReady)saveSession()
@@ -336,17 +340,22 @@ class MainActivity:Activity() {
             // Reserve an unfinished trailing word until the next source slice has been recognized.
             val tail=prefix.lastOrNull()
             if(ocrLoading&&tail!=null&&tail!=chunkPlan.lastOrNull()&&words[tail.key]?.lastOrNull()?.text?.endsWith('-')==true)prefix=prefix.dropLast(1)
-            for((left,right)in prefix.zipWithNext())if(left.zoneId==right.zoneId&&left.kind==Kind.TEXT&&right.kind==Kind.TEXT){
-                val a=words[left.key].orEmpty().toMutableList();val b=words[right.key].orEmpty().toMutableList()
-                if(a.isNotEmpty()&&b.isNotEmpty()){
-                    val last=a.last();val first=b.first();val close=first.line.top-last.line.bottom<last.line.height*.8f
-                    val joint=if(close)repair!!.join(last.text,first.text)else null
-                    if(joint!=null){a[a.lastIndex]=last.copy(text=joint);b.removeAt(0);words[left.key]=a;words[right.key]=b}
-                }
-            }
+
         }
-        val texts=prefix.filter{it.kind==Kind.TEXT}.associate{c->c.key to if(enhancedOcr&&repair!=null)repair!!.text(words[c.key].orEmpty())else plainText(words[c.key].orEmpty())}
-        if(reading&&ocrReading)reader.showOcrStream(prefix,texts,ocrLoading,force)
+        val texts=prefix.filter{it.kind==Kind.TEXT}.associate{c->c.key to OcrReview.whitespace(if(enhancedOcr&&repair!=null)repair!!.text(words[c.key].orEmpty())else plainText(words[c.key].orEmpty()))}
+        val reviews=if(enhancedOcr)prefix.filter{it.kind==Kind.TEXT}.associate{c->c.key to OcrReview.compare(OcrReview.whitespace(plainText(rawChunks[c.key].orEmpty())),texts[c.key].orEmpty(),c.box).let{it.copy(keptRaw=store.ocrChoices(page,it.fingerprint()))}}else emptyMap()
+        val shown=texts.mapValues{(key,value)->reviews[key]?.rendered()?.first?:value}
+        if(reading&&ocrReading)reader.showOcrStream(prefix,shown,ocrLoading,force,reviewTexts=reviews)
+    }
+    private fun showOcrComparison(key:Int,id:Int,y:Float){
+        val review=reader.review(key)?:return;val edit=review.edits.firstOrNull{it.id==id}?:return
+        OcrComparisonPopup(this,edit,id in review.keptRaw,{keep->store.putOcrChoice(page,review.fingerprint(),id,keep);reader.chooseRaw(key,id,keep)},{showOcrSource(edit.source)}).show(reader,y)
+    }
+    private fun showOcrSource(box:Box){
+        val token=generation;val targetPage=page;val image=ImageView(this).apply{adjustViewBounds=true;contentDescription="Extrait du PDF original";setPadding(dp(8),dp(8),dp(8),dp(8))}
+        val panel=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;addView(text("Chargement de l'extrait original…"));addView(image,LinearLayout.LayoutParams(-1,-2))}
+        val dialog=AlertDialog.Builder(this).setTitle("Extrait PDF").setView(ScrollView(this).apply{addView(panel)}).setPositiveButton("Fermer",null).create();dialog.show()
+        worker.execute{val bitmap=try{if(token==generation)document?.region(targetPage,box,1200,1200)else null}catch(_:Exception){null};main.post{if(token!=generation||!dialog.isShowing){bitmap?.recycle()}else{(panel.getChildAt(0)as TextView).text=if(bitmap==null)"Extrait indisponible. Revenez à Original." else "Source du passage, sans correction OCR";image.setImageBitmap(bitmap);dialog.setOnDismissListener{image.setImageDrawable(null);bitmap?.recycle()}}}}
     }
     private fun prepareOcr(force:Boolean=false){
         val p=preview?:return
@@ -503,6 +512,18 @@ class MainActivity:Activity() {
         dialog.window?.apply{setBackgroundDrawableResource(android.R.color.transparent);setLayout(-1,-1)}
     }
 
+    private fun showPageSummary(){
+        if(count<=0||(busy&&!detecting)||documentLoading||pageSummary?.isShowing==true)return
+        val token=generation;val originalPage=page;val dialog=Dialog(this);pageSummary=dialog
+        val panel=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setBackgroundColor(Color.rgb(250,249,246));setPadding(dp(12),dp(12),dp(12),dp(12))}
+        val head=LinearLayout(this).apply{gravity=Gravity.CENTER_VERTICAL};val titles=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;addView(text("Sommaire visuel",22,true));addView(text("$count pages · page actuelle : ${page+1}",12))};head.addView(titles,LinearLayout.LayoutParams(0,-2,1f));head.addView(button("Fermer"){dialog.dismiss()});panel.addView(head)
+        panel.addView(text("Touchez un aperçu pour ouvrir sa page.",13))
+        val grid=GridView(this).apply{numColumns=3;horizontalSpacing=dp(6);verticalSpacing=dp(8);stretchMode=GridView.STRETCH_COLUMN_WIDTH;clipToPadding=false;setPadding(0,dp(8),0,dp(8))}
+        val adapter=PageThumbnails(this,count,page,{job->worker.execute{job()}},{index->if(token==generation)document?.thumbnail(index)else null});grid.adapter=adapter
+        grid.setOnScrollListener(object:AbsListView.OnScrollListener{override fun onScrollStateChanged(v:AbsListView?,state:Int){};override fun onScroll(v:AbsListView?,first:Int,visible:Int,total:Int){adapter.visible(first,visible)}})
+        grid.setOnItemClickListener{_,_,position,_->dialog.dismiss();if(token==generation&&position!=originalPage)loadPage(position)}
+        panel.addView(grid,LinearLayout.LayoutParams(-1,0,1f));panel.addView(text("Glissez pour parcourir les $count pages.",12));dialog.setContentView(panel);dialog.setOnDismissListener{adapter.close();grid.adapter=null;pageSummary=null};dialog.show();dialog.window?.apply{setBackgroundDrawableResource(android.R.color.transparent);setLayout(-1,-1)};grid.setSelection((page/3)*3)
+    }
     private fun goToPage(){if(documentLoading)return;val input=EditText(this).apply{inputType=android.text.InputType.TYPE_CLASS_NUMBER;hint="1 à $count"};AlertDialog.Builder(this).setTitle("Aller à la page").setView(input).setPositiveButton("Ouvrir"){_,_->val p=input.text.toString().toIntOrNull();if(p!=null&&p in 1..count)loadPage(p-1)else toast("Numéro de page invalide")}.setNegativeButton("Annuler",null).show()}
     private fun menu(){val items=arrayOf("Ouvrir un autre PDF","Réessayer la détection","Confidentialité et aide","Supprimer le document local","Licences des composants")
         AlertDialog.Builder(this).setItems(items){_,which->when(which){0->pickPdf();1->if(count>0&&!busy)AlertDialog.Builder(this).setMessage("Remplacer les blocs et le parcours de cette page ?").setPositiveButton("Remplacer"){_,_->loadPage(page,true)}.setNegativeButton("Annuler",null).show();2->AlertDialog.Builder(this).setTitle("PDF Focus Reader · prototype").setMessage("Le PDF, les zones et les parcours restent sur cet appareil. Aucune permission Internet, publicité ou compte. Une copie privée du dernier PDF est conservée pour reprendre la lecture.\n\nLa détection peut manquer ou fusionner des zones. + Bloc permet de cadrer à la main ; un double tap ouvre la correction. Maintenez et glissez pour choisir plusieurs blocs. Pincez pour zoomer et faites glisser la page agrandie.\n\nLe zoom ne recrée pas les détails d'un scan flou. Ce prototype n'a pas encore été testé sur votre téléphone.").setPositiveButton("Fermer",null).show();3->clearDocument();4->showLicenses()}}.show()}
@@ -515,5 +536,5 @@ class MainActivity:Activity() {
         paint.color=Color.rgb(84,153,130);c.drawRect(40f,880f,660f,960f,paint);paint.color=Color.WHITE;paint.textSize=22f;c.drawText("Illustration fictive · aucun document personnel",65f,927f,paint);pdf.finishPage(p);target.outputStream().use{pdf.writeTo(it)};pdf.close()}}
     @Deprecated("Activity back callback")
     override fun onBackPressed(){if(articleIds!=null)finishArticle(false)else if(merging)finishMerge(false)else if(adjusting!=null)finishAdjustment(false)else if(reading)exitReader()else if(adding){adding=false;replaceId=null;canvas.drawMode=false;sync()}else super.onBackPressed()}
-    override fun onDestroy(){editDialog?.dismiss();main.removeCallbacks(saveProgress);if(pageReady)saveSession();reader.clear();++generation;detector?.cancel();detectionWorker.shutdown();super.onDestroy();worker.execute{document?.close();document=null};worker.shutdown()}
+    override fun onDestroy(){pageSummary?.dismiss();editDialog?.dismiss();main.removeCallbacks(saveProgress);if(pageReady)saveSession();reader.clear();++generation;detector?.cancel();detectionWorker.shutdown();super.onDestroy();worker.execute{document?.close();document=null};worker.shutdown()}
 }

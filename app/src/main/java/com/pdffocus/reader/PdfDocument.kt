@@ -17,6 +17,10 @@ class PdfDocument(file:File):Closeable {
         b.eraseColor(Color.WHITE)
         try{p.render(b,null,null,PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY);b}catch(t:Throwable){b.recycle();throw t}
     }
+    fun thumbnail(index:Int):Bitmap=pdf.openPage(index).use{p->
+        val scale=min(240f/p.width,360f/p.height);val b=Bitmap.createBitmap(max(1,(p.width*scale).toInt()),max(1,(p.height*scale).toInt()),Bitmap.Config.ARGB_8888);b.eraseColor(Color.WHITE)
+        try{p.render(b,null,null,PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY);b}catch(t:Throwable){b.recycle();throw t}
+    }
     fun region(index:Int,box:Box,width:Int,height:Int):Bitmap=pdf.openPage(index).use{p->
         // Tile at screen resolution, with a strict allocation cap.
         val rawScale=min(width/(box.width*p.width),height/(box.height*p.height))

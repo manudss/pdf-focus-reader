@@ -202,6 +202,30 @@ class ReaderDeviceTest {
             scenario.onActivity{a->val v=findCanvas(a.window.decorView)!!;v.onZoneTap!!.invoke(zones[2]);assertEquals(listOf(1,2,3),get(a,"order"));call(a,"finishArticle",false);assertEquals(listOf(1,2,3),get(a,"order"));call(a,"beginArticle",zones[0]);call(a,"finishArticle",true);assertEquals(listOf(1,2,3),get(a,"order"));assertEquals(zones,get(a,"zones"))}
         }
     }
+    @Test fun visualPageSummaryRendersPdfThumbnailsCancelsAndNavigates(){
+        val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext
+        val file=File(c.filesDir,"current.pdf");val pdf=android.graphics.pdf.PdfDocument()
+        for(n in 1..68){val p=pdf.startPage(android.graphics.pdf.PdfDocument.PageInfo.Builder(400,600,n).create());p.canvas.drawColor(Color.WHITE);val paint=Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.BLACK;textSize=22f};p.canvas.drawText("Journal fictif · page $n",20f,45f,paint);paint.textSize=14f;for(line in 0..24)p.canvas.drawText("Une lecture locale, à son rythme.",20f,85f+line*18,paint);if(n%3==0){paint.color=Color.rgb(180,208,191);p.canvas.drawRect(20f,90f,380f,180f,paint)};pdf.finishPage(p)}
+        file.outputStream().use{pdf.writeTo(it)};pdf.close();val store=SessionStore(c);store.clear();store.key="synthetic-summary";val zones=listOf(Zone(1,Box(.04f,.05f,.96f,.95f),Kind.TEXT));for(n in listOf(16,67))store.put(n,PageSession(zones,listOf(1),0,200));store.page=16
+        PdfDocument(file).use{doc->val thumb=doc.thumbnail(16);assertTrue(thumb.width<=240&&thumb.height<=360);assertTrue(thumb.byteCount<=240*360*4);var ink=0;for(y in 0 until thumb.height)for(x in 0 until thumb.width)if(Color.red(thumb.getPixel(x,y))<150)ink++;assertTrue("PDF thumbnail must contain source ink",ink>100);thumb.recycle()}
+        ActivityScenario.launch<MainActivity>(Intent(c,MainActivity::class.java)).use{scenario->
+            fun field(a:MainActivity,n:String)=MainActivity::class.java.getDeclaredField(n).apply{isAccessible=true}.get(a)
+            val deadline=System.currentTimeMillis()+30000;var ready=false
+            while(System.currentTimeMillis()<deadline){scenario.onActivity{a->ready=(field(a,"pageReady")as Boolean)&&field(a,"page")==16};if(ready)break;Thread.sleep(100)};assertTrue(ready)
+            fun grid(v:View):GridView?{if(v is GridView)return v;if(v is ViewGroup)for(j in 0 until v.childCount)grid(v.getChildAt(j))?.let{return it};return null}
+            scenario.onActivity{a->findButton(a.window.decorView,"Lire (")!!.performClick();findButton(a.window.decorView,"Pages")!!.performClick()};Thread.sleep(2500);i.waitForIdleSync()
+            scenario.onActivity{a->val d=field(a,"pageSummary")as android.app.Dialog;val root=d.window!!.decorView;assertEquals(68,grid(root)!!.adapter.count);val bitmap=Bitmap.createBitmap(root.width,root.height,Bitmap.Config.ARGB_8888);root.draw(Canvas(bitmap));File(File(a.getExternalFilesDir(null),"screenshots").apply{mkdirs()},"page-summary.png").outputStream().use{bitmap.compress(Bitmap.CompressFormat.PNG,100,it)};bitmap.recycle();findButton(root,"Fermer")!!.performClick();assertEquals(16,field(a,"page"));assertEquals(true,field(a,"reading"));assertEquals(listOf(1),field(a,"order"))}
+            i.waitForIdleSync();scenario.onActivity{a->findButton(a.window.decorView,"Pages")!!.performClick()};i.waitForIdleSync();scenario.onActivity{a->val d=field(a,"pageSummary")as android.app.Dialog;val g=grid(d.window!!.decorView)!!;g.performItemClick(g.getChildAt(0),67,67)}
+            val end=System.currentTimeMillis()+30000;ready=false;while(System.currentTimeMillis()<end){scenario.onActivity{a->ready=field(a,"page")==67&&(field(a,"pageReady")as Boolean)};if(ready)break;Thread.sleep(100)};assertTrue("Tap must open selected last page",ready);scenario.onActivity{a->assertEquals(listOf(1),field(a,"order"));assertNotNull(SessionStore(a).get(16))};screenshot(scenario,"page-summary-last-page")
+        }
+    }
+    @Test fun ocrReviewIsVisibleReversibleAndSavedWithoutArticleText(){
+        val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext;File(c.filesDir,"current.pdf").delete();SessionStore(c).clear()
+        ActivityScenario.launch<MainActivity>(Intent(c,MainActivity::class.java)).use{scenario->
+            val box=Box(0f,0f,1f,1f);val review=OcrReview.compare("Le mot corrlgé reste vérifiable.","Le mot corrigé reste vérifiable.",box)
+            scenario.onActivity{a->val reader=findReader(a.window.decorView)!!;findCanvas(a.window.decorView)!!.visibility=View.GONE;reader.visibility=View.VISIBLE;reader.setDocument(listOf(Zone(1,box,Kind.TEXT)),700,1000);reader.showOcrStream(listOf(OcrChunk(1,1,0,box,Kind.TEXT)),mapOf(1 to review.corrected),false,reviewTexts=mapOf(1 to review));reader.chooseRaw(1,0,true);assertEquals("Le mot corrlgé reste vérifiable.",reader.review(1)!!.rendered().first);reader.chooseRaw(1,0,false);assertEquals(review.corrected,reader.review(1)!!.rendered().first);val store=SessionStore(a);store.key="ocr-fixture";store.putOcrChoice(0,review.fingerprint(),0,true);assertEquals(setOf(0),SessionStore(a).ocrChoices(0,review.fingerprint()));assertFalse(File(a.filesDir,"session.json").readText().contains("corrlgé"))};i.waitForIdleSync();screenshot(scenario,"ocr-inline-reading")
+        }
+    }
     private fun findText(v:View,value:String):Boolean{if(v is TextView&&v.text.toString().contains(value))return true;if(v is ViewGroup)for(j in 0 until v.childCount)if(findText(v.getChildAt(j),value))return true;return false}
     private fun findButton(v:View,label:String):Button? {if(v is Button&&v.text.toString().startsWith(label))return v;if(v is ViewGroup)for(i in 0 until v.childCount)findButton(v.getChildAt(i),label)?.let{return it};return null}
     private fun findReader(v:View):ContinuousReaderView?{if(v is ContinuousReaderView)return v;if(v is ViewGroup)for(i in 0 until v.childCount)findReader(v.getChildAt(i))?.let{return it};return null}

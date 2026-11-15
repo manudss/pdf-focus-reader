@@ -23,6 +23,14 @@ class SessionStore(context:Context) {
         val zones=JSONArray();session.zones.forEach{z->zones.put(JSONObject().put("id",z.id).put("l",z.box.left).put("t",z.box.top).put("r",z.box.right).put("b",z.box.bottom).put("kind",z.kind.name).put("lines",JSONArray(z.lineBottoms)).put("manual",z.manual))}
         root.put(index.toString(),JSONObject().put("zones",zones).put("order",JSONArray(session.order)).put("frame",session.frame).put("scroll",session.scroll));root.put("page",index);flush()
     }
+    /** Only fingerprints and numeric choices are persisted, never recognized article text. */
+    fun ocrChoices(index:Int,fingerprint:String):Set<Int>{val values=root.optJSONObject("ocrChoices")?.optJSONObject(index.toString())?.optJSONArray(fingerprint)?:return emptySet();return (0 until values.length()).map{values.getInt(it)}.toSet()}
+    fun putOcrChoice(index:Int,fingerprint:String,id:Int,keep:Boolean){
+        require(fingerprint.matches(Regex("[a-f0-9]{64}")))
+        val all=root.optJSONObject("ocrChoices")?:JSONObject().also{root.put("ocrChoices",it)}
+        val page=all.optJSONObject(index.toString())?:JSONObject().also{all.put(index.toString(),it)}
+        val choices=ocrChoices(index,fingerprint);page.put(fingerprint,JSONArray((if(keep)choices+id else choices-id).sorted()));flush()
+    }
     fun clear(){root=JSONObject();file.delete()}
     private fun flush(){val temp=File(file.parentFile,"session.tmp");temp.writeText(root.toString());check(temp.renameTo(file)){"Sauvegarde de la lecture impossible"}}
 }

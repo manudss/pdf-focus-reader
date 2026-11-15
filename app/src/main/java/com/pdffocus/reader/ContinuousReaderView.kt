@@ -14,17 +14,22 @@ class ContinuousReaderView(context:Context):View(context){
     data class TextItem(val layout:StaticLayout,val top:Float,val ordinal:Int,val key:Int=ordinal)
     private var ocrTexts:Map<Int,String>?=null
     private var textItems=listOf<TextItem>()
+    private var reviews=mapOf<Int,OcrReviewText>()
+    var onOcrMark:((Int,Int,Float,Float)->Unit)?=null
+    fun review(key:Int)=reviews[key]
+    fun chooseRaw(key:Int,id:Int,keep:Boolean){val r=reviews[key]?:return;val anchor=textItems.lastOrNull{it.top<=offset};val relative=anchor?.let{offset-it.top}?:offset;reviews=reviews+(key to r.chooseRaw(id,keep));ocrTexts=ocrTexts.orEmpty()+(key to reviews.getValue(key).rendered().first);rebuild();val next=anchor?.let{a->textItems.firstOrNull{it.key==a.key}};if(next!=null)move(next.top+relative)}
     private var ocrPlan:List<OcrChunk>?=null
     private val exposed=mutableSetOf<Int>()
     private var streamLoading=false
     private var streamMessage="Préparation de la suite…"
     private var streamTail=0f
     /** Keep every previously exposed chunk immutable. Explicit mode switches can opt in to changes. */
-    fun showOcrStream(plan:List<OcrChunk>,texts:Map<Int,String>,loading:Boolean,force:Boolean=false,message:String="Préparation de la suite…"){
+    fun showOcrStream(plan:List<OcrChunk>,texts:Map<Int,String>,loading:Boolean,force:Boolean=false,message:String="Préparation de la suite…",reviewTexts:Map<Int,OcrReviewText> = emptyMap()){
         rememberExposed()
         val anchor=textItems.lastOrNull{it.top<=offset}?:textItems.firstOrNull()
         val relative=anchor?.let{offset-it.top}?:offset
         val old=ocrTexts.orEmpty()
+        reviews=reviewTexts.mapValues{(key,value)->if(!force&&key in exposed&&reviews.containsKey(key))reviews.getValue(key)else value}
         ocrTexts=texts.mapValues{(key,value)->if(!force&&key in exposed&&old.containsKey(key))old.getValue(key)else value}
         if(force)exposed.clear()
         ocrPlan=plan;streamLoading=loading;streamMessage=message;horizontal=0f;rebuild()
@@ -46,21 +51,29 @@ class ContinuousReaderView(context:Context):View(context){
     private val scroller=OverScroller(context);private val density=resources.displayMetrics.density
     @Volatile private var revision=0
     @Volatile private var horizontal=0f
+    private var multiTouch=false
     private val scaling=ScaleGestureDetector(context,object:ScaleGestureDetector.SimpleOnScaleGestureListener(){override fun onScale(d:ScaleGestureDetector):Boolean{zoomBy(d.scaleFactor);return true}})
     private val gestures=GestureDetector(context,object:GestureDetector.SimpleOnGestureListener(){
         override fun onDown(e:MotionEvent):Boolean{scroller.forceFinished(true);return true}
         override fun onScroll(a:MotionEvent?,b:MotionEvent,dx:Float,dy:Float):Boolean{horizontal=if(ocrTexts!=null)0f else (horizontal+dx).coerceIn(-max(0f,(width*magnification-width)/2),max(0f,(width*magnification-width)/2));move(offset+dy);return true}
+        override fun onSingleTapUp(e:MotionEvent):Boolean {
+            val x=e.x-16*density;val y=e.y+offset
+            for(item in textItems){if(y<item.top||y>item.top+item.layout.height)continue
+                val layout=item.layout;val line=layout.getLineForVertical((y-item.top).toInt());val start=layout.getLineStart(line);val end=layout.getLineEnd(line)
+                for(mark in reviews[item.key]?.rendered()?.second.orEmpty())if(mark.end>=start&&mark.start<=end){val left=layout.getPrimaryHorizontal(max(start,mark.start));val right=layout.getPrimaryHorizontal(min(end,mark.end));if(x>=min(left,right)-10*density&&x<=max(left,right)+10*density){onOcrMark?.invoke(item.key,mark.edit.id,e.x,e.y);return true}}
+            };return false
+        }
         override fun onFling(a:MotionEvent?,b:MotionEvent,vx:Float,vy:Float):Boolean{scroller.fling(0,offset.roundToInt(),0,(-vy).roundToInt(),0,0,0,max(0f,totalHeight-height).roundToInt());postInvalidateOnAnimation();return true}
     })
     init{setBackgroundColor(Color.WHITE);isFocusable=true;contentDescription="Lecture continue. Glissez verticalement pour lire les blocs dans votre ordre."}
     fun setDocument(zones:List<Zone>,pageWidth:Int,pageHeight:Int,position:Int=0){clear();bands=ContinuousLayout.bands(zones);pw=pageWidth;ph=pageHeight;offset=position.toFloat();rebuild()}
     fun zoomBy(f:Float){if(ocrTexts!=null){val fraction=if(totalHeight>0)offset/totalHeight else 0f;fontSize=(fontSize*f).coerceIn(14f,38f);rebuild();move(fraction*totalHeight);return};val fraction=if(totalHeight>0)offset/totalHeight else 0f;magnification=(magnification*f).coerceIn(1f,2f);val limit=max(0f,(width*magnification-width)/2);horizontal=horizontal.coerceIn(-limit,limit);rebuild();move(fraction*totalHeight)}
-    fun clear(){ocrPlan=null;exposed.clear();streamLoading=false;ocrTexts=null;textItems=emptyList();revision++;pending.clear();failed.clear();bitmaps.evictAll();tiles=emptyList();bands=emptyList();offset=0f;horizontal=0f;magnification=1f;totalHeight=0f;scroller.forceFinished(true);invalidate()}
+    fun clear(){ocrPlan=null;reviews=emptyMap();exposed.clear();streamLoading=false;ocrTexts=null;textItems=emptyList();revision++;pending.clear();failed.clear();bitmaps.evictAll();tiles=emptyList();bands=emptyList();offset=0f;horizontal=0f;magnification=1f;totalHeight=0f;scroller.forceFinished(true);invalidate()}
     /** Worker-side guard: discard queued work made obsolete by zoom, mode or a long swipe. */
     fun needsRender(tile:Tile,expected:Int)=expected==revision&&tile.rect.bottom>=offset-height*.5f&&tile.rect.top<=offset+height*1.5f&&tile.rect.right>=horizontal-width*.25f&&tile.rect.left<=horizontal+width*1.25f
     fun skipRequest(tile:Tile,expected:Int){if(expected==revision){pending.remove(tile.key);invalidate()}}
     fun accept(tile:Tile,expected:Int,bitmap:Bitmap?){if(expected!=revision||tiles.none{it.key==tile.key}){bitmap?.recycle();return};pending.remove(tile.key);if(bitmap!=null)bitmaps.put(tile.key,bitmap)else failed.add(tile.key);invalidate()}
-    fun showOcr(texts:Map<Int,String>?){ocrPlan=null;exposed.clear();streamLoading=false;val fraction=if(totalHeight>0)offset/totalHeight else 0f;ocrTexts=texts;horizontal=0f;rebuild();move(fraction*totalHeight)}
+    fun showOcr(texts:Map<Int,String>?){reviews=emptyMap();ocrPlan=null;exposed.clear();streamLoading=false;val fraction=if(totalHeight>0)offset/totalHeight else 0f;ocrTexts=texts;horizontal=0f;rebuild();move(fraction*totalHeight)}
     fun reprocess(){rebuild()}
     fun currentPosition()=offset.roundToInt()
     override fun onSizeChanged(w:Int,h:Int,oldw:Int,oldh:Int){val atEnd=oldh>0&&totalHeight>oldh&&offset>=totalHeight-oldh-2f;super.onSizeChanged(w,h,oldw,oldh);if(w>0&&h>0){rebuild();if(atEnd)move(totalHeight-h)}}
@@ -102,7 +115,10 @@ class ContinuousReaderView(context:Context):View(context){
     private fun move(value:Float){offset=value.coerceIn(0f,max(0f,totalHeight-height));val ordinal=(tiles.filter{it.rect.bottom>=offset}.map{it.rect.top to it.ordinal}+textItems.filter{it.top+it.layout.height>=offset}.map{it.top to it.ordinal}).minByOrNull{it.first}?.second?:0;onProgress?.invoke(ordinal,offset.roundToInt());invalidate()}
     override fun onDraw(c:Canvas){
         super.onDraw(c);c.save();c.translate(-horizontal,-offset)
-        for(item in textItems)if(item.top+item.layout.height>=offset&&item.top<=offset+height){c.save();c.translate(16*density,item.top);item.layout.draw(c);c.restore()}
+        for(item in textItems)if(item.top+item.layout.height>=offset&&item.top<=offset+height){c.save();c.translate(16*density,item.top);item.layout.draw(c)
+            val underline=Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.rgb(87,117,107);strokeWidth=density;style=Paint.Style.STROKE;pathEffect=DashPathEffect(floatArrayOf(2*density,3*density),0f)}
+            for(mark in reviews[item.key]?.rendered()?.second.orEmpty())for(line in 0 until item.layout.lineCount){val start=max(mark.start,item.layout.getLineStart(line));val end=min(mark.end,item.layout.getLineEnd(line));if(end<start||end==start&&mark.end!=mark.start)continue;val left=item.layout.getPrimaryHorizontal(start);val right=item.layout.getPrimaryHorizontal(end);val y=item.layout.getLineBaseline(line)+3*density;c.drawLine(left,y,max(left+5*density,right),y,underline)}
+            c.restore()}
         val visible=tiles.filter{it.rect.bottom>=offset&&it.rect.top<=offset+height&&it.rect.right>=horizontal&&it.rect.left<=horizontal+width}
         // Draw all available visible pixels before touching the cache's prefetch entries.
         for(tile in visible){
@@ -123,6 +139,6 @@ class ContinuousReaderView(context:Context):View(context){
         c.restore();rememberExposed()
     }
     override fun computeScroll(){if(scroller.computeScrollOffset()){move(scroller.currY.toFloat());postInvalidateOnAnimation()}}
-    override fun onTouchEvent(e:MotionEvent):Boolean{scaling.onTouchEvent(e);if(!scaling.isInProgress)gestures.onTouchEvent(e);if(e.action==MotionEvent.ACTION_UP)performClick();return true}
+    override fun onTouchEvent(e:MotionEvent):Boolean{if(e.actionMasked==MotionEvent.ACTION_DOWN)multiTouch=false;if(e.pointerCount>1&&!multiTouch){multiTouch=true;val cancel=MotionEvent.obtain(e);cancel.action=MotionEvent.ACTION_CANCEL;gestures.onTouchEvent(cancel);cancel.recycle()};scaling.onTouchEvent(e);if(!multiTouch&&!scaling.isInProgress)gestures.onTouchEvent(e);if(e.action==MotionEvent.ACTION_UP)performClick();return true}
     override fun performClick():Boolean{super.performClick();return true}
 }

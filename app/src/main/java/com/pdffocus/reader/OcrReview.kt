@@ -1,0 +1,41 @@
+package com.pdffocus.reader
+
+/** Both readings stay separate. Agreement is evidence, never a correctness certificate. */
+data class OcrPass(val engine:String,val variant:String,val words:List<OcrWord>)
+data class OcrEdit(val id:Int,val start:Int,val end:Int,val raw:String,val corrected:String,val source:Box)
+data class OcrMark(val edit:OcrEdit,val start:Int,val end:Int)
+data class OcrReviewText(val corrected:String,val edits:List<OcrEdit>,val keptRaw:Set<Int> = emptySet()) {
+ fun fingerprint():String=java.security.MessageDigest.getInstance("SHA-256").digest((corrected+"\u0000"+edits.joinToString("\u0000"){"${it.start}:${it.end}:${it.raw}:${it.source}"}).toByteArray(Charsets.UTF_8)).joinToString(""){"%02x".format(it)}
+ fun chooseRaw(id:Int,keep:Boolean)=copy(keptRaw=if(keep)keptRaw+id else keptRaw-id)
+ fun rendered():Pair<String,List<OcrMark>> {
+  val out=StringBuilder();val marks=mutableListOf<OcrMark>();var cursor=0
+  for(edit in edits){out.append(corrected.substring(cursor,edit.start));val start=out.length;out.append(if(edit.id in keptRaw)edit.raw else edit.corrected);val shown=out.substring(start);val lead=shown.indexOfFirst{!it.isWhitespace()}.coerceAtLeast(0);val tail=shown.indexOfLast{!it.isWhitespace()};marks+=OcrMark(edit,start+lead,if(tail<0)start+lead else start+tail+1);cursor=edit.end}
+  out.append(corrected.substring(cursor));return out.toString() to marks
+ }
+}
+object OcrReview {
+ private data class Token(val value:String,val start:Int,val end:Int)
+ private fun tokens(s:String)=Regex("\\S+").findAll(s).map{Token(it.value,it.range.first,it.range.last+1)}.toList()
+ /** Normalize runs, not French number spacing, paragraph boundaries or punctuation. */
+ fun whitespace(s:String):String=s.replace("\r\n","\n").replace('\r','\n').split(Regex("\n[ \\t]*\n+")).joinToString("\n\n"){it.replace(Regex("[\\s\\u00a0\\u202f]+")," ").trim()}.trim()
+ /** Bounded token alignment retains insertions, deletions and many-to-one hyphen repairs. */
+ fun compare(raw:String,corrected:String,source:Box):OcrReviewText {
+  val a=tokens(raw);val b=tokens(corrected)
+  if(a.size>350||b.size>350)return if(raw==corrected)OcrReviewText(corrected,emptyList()) else OcrReviewText(corrected,listOf(OcrEdit(0,0,corrected.length,raw,corrected,source)))
+  val dp=Array(a.size+1){IntArray(b.size+1)}
+  for(i in a.indices.reversed())for(j in b.indices.reversed())dp[i][j]=if(a[i].value==b[j].value)1+dp[i+1][j+1]else maxOf(dp[i+1][j],dp[i][j+1])
+  val edits=mutableListOf<OcrEdit>();var i=0;var j=0
+  while(i<a.size||j<b.size){
+   if(i<a.size&&j<b.size&&a[i].value==b[j].value){i++;j++;continue}
+   val ai=i;val bj=j
+   while(i<a.size||j<b.size){if(i<a.size&&j<b.size&&a[i].value==b[j].value)break;if(i<a.size&&(j==b.size||dp[i+1][j]>=dp[i][j+1]))i++ else j++}
+   val terminal=i==a.size&&j==b.size
+   val rawStart=if(terminal)if(ai>0)a[ai-1].end else 0 else a.getOrNull(ai)?.start?:raw.length
+   val rawEnd=if(terminal)raw.length else a[i].start
+   val start=if(terminal)if(bj>0)b[bj-1].end else 0 else b.getOrNull(bj)?.start?:corrected.length
+   val end=if(terminal)corrected.length else b[j].start
+   edits+=OcrEdit(edits.size,start,end,raw.substring(rawStart,rawEnd),corrected.substring(start,end),source)
+  }
+  return OcrReviewText(corrected,edits)
+ }
+}
