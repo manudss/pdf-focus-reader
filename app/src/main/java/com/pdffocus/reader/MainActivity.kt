@@ -73,7 +73,7 @@ class MainActivity:Activity() {
         val viewport=android.widget.FrameLayout(this);root.addView(viewport,LinearLayout.LayoutParams(-1,0,1f))
         canvas=PageCanvas(this);viewport.addView(canvas,android.widget.FrameLayout.LayoutParams(-1,-1))
         reader=ContinuousReaderView(this).apply{visibility=View.GONE};viewport.addView(reader,android.widget.FrameLayout.LayoutParams(-1,-1))
-        reader.onRequest={tile,revision->val token=generation;val targetPage=page;val cleanup=cleanReading&&!ocrReading&&tile.kind==Kind.TEXT;worker.execute{var image:Bitmap?=null;try{if(token==generation)image=document?.readingRegion(targetPage,tile.source,max(1,ceil(tile.rect.width()).toInt()),max(1,ceil(tile.rect.height()).toInt()),cleanup)}catch(_:Exception){};main.post{if(token==generation&&reading)reader.accept(tile,revision,image)else image?.recycle()}}}
+        reader.onRequest={tile,revision->val token=generation;val targetPage=page;val cleanup=cleanReading&&!ocrReading&&tile.kind==Kind.TEXT;worker.execute{var image:Bitmap?=null;try{if(token==generation&&!reader.needsRender(tile,revision)){main.post{reader.skipRequest(tile,revision)};return@execute};if(token==generation)image=document?.readingRegion(targetPage,tile.source,max(1,ceil(tile.rect.width()).toInt()),max(1,ceil(tile.rect.height()).toInt()),cleanup)}catch(_:Exception){};main.post{if(token==generation&&reading)reader.accept(tile,revision,image)else image?.recycle()}}}
         reader.onProgress={ordinal,position->scrollPosition=position;status.text=if(ocrReading)"OCR ${if(enhancedOcr)"amélioré" else "brut"} · ${if(ocrLoading)"suite en préparation" else "erreurs possibles"} · bloc ${ordinal+1} / ${order.size}${ocrNotice}" else "Lecture continue · bloc ${ordinal+1} / ${order.size} · glissez pour la suite";if(reading&&pageReady){main.removeCallbacks(saveProgress);main.postDelayed(saveProgress,400)}}
         controls=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(10),dp(6),dp(10),dp(6))};root.addView(controls)
         setContentView(root)
@@ -123,7 +123,8 @@ class MainActivity:Activity() {
             return
         }
         if(reading){
-            row(button("Vue page"){exitReader()},button("Texte −"){reader.zoomBy(.9f)},button("Texte +"){reader.zoomBy(1.1f)})
+            if(ocrReading)row(button("Vue page"){exitReader()},button("Texte −"){reader.zoomBy(.9f)},button("Texte +"){reader.zoomBy(1.1f)})
+            else row(button("Vue page"){exitReader()})
             row(button(if(!ocrReading&&!cleanReading)"Original ✓" else "Original"){selectMode(0)},button(if(!ocrReading&&cleanReading)"Nettoyé ✓" else "Nettoyé"){selectMode(1)},button(if(ocrReading)"Texte OCR ✓" else "Texte OCR"){selectMode(2)})
             if(ocrReading){row(button(if(!enhancedOcr)"OCR brut ✓" else "OCR brut"){enhancedOcr=false;prepareOcr(true)},button(if(enhancedOcr)"OCR amélioré ✓" else "OCR amélioré"){enhancedOcr=true;prepareOcr(true)})}
 
@@ -230,7 +231,7 @@ class MainActivity:Activity() {
     private fun startReader(){
         if(order.isEmpty()||busy)return
         val p=preview?:return;reading=true;canvas.visibility=View.GONE;reader.visibility=View.VISIBLE
-        val chosen=ReadingLayout.ordered(zones,order).map{z->if(z.kind==Kind.TEXT&&!z.manual)z.copy(box=TextCoverage.safeTextBox(p,z.box))else z}
+        val chosen=BlockSeams.align(p,ReadingLayout.ordered(zones,order).map{z->if(z.kind==Kind.TEXT&&!z.manual)z.copy(box=TextCoverage.safeTextBox(p,z.box))else z})
         reader.setDocument(chosen,p.width,p.height,scrollPosition);if(ocrReading)prepareOcr();updateControls()
     }
     private fun selectMode(mode:Int){
@@ -263,7 +264,7 @@ class MainActivity:Activity() {
     private fun prepareOcr(force:Boolean=false){
         val p=preview?:return
         if(force&&ocrLoading){ocrRun++;detector?.cancel();ocrLoading=false}
-        val chosen=ReadingLayout.ordered(zones,order).map{if(it.kind==Kind.TEXT&&!it.manual)it.copy(box=TextCoverage.safeTextBox(p,it.box))else it}
+        val chosen=BlockSeams.align(p,ReadingLayout.ordered(zones,order).map{if(it.kind==Kind.TEXT&&!it.manual)it.copy(box=TextCoverage.safeTextBox(p,it.box))else it})
         val newPlan=OcrChunks.plan(chosen,recognizedWords.orEmpty()){OcrRasterLines.chunks(p,it)}
         if(chunkPlan!=newPlan){ocrRun++;detector?.cancel();ocrLoading=false;chunkPlan=newPlan;rawChunks.clear();improvedChunks.clear();for(c in chunkPlan)if(c.words.isNotEmpty())rawChunks[c.key]=c.words}
         ocrNotice="";displayOcr(force);updateControls()

@@ -39,8 +39,8 @@ object TextCoverage {
         }
         var top=y0;var bottom=y1
         // Always retain the supplied region. Only grow outward, never shrink to an OCR box.
-        for(y in y0-1 downTo max(0,y0-limit)){top=y;if(blank(y)&&y<y0-2)break}
-        for(y in y1 until min(h,y1+limit)){bottom=y+1;if(blank(y)&&y>y1+1)break}
+        if(!blank(y0))for(y in y0-1 downTo max(0,y0-limit)){top=y;if(blank(y))break}
+        if(!blank(y1-1))for(y in y1 until min(h,y1+limit)){bottom=y+1;if(blank(y))break}
         return Box(max(0f,box.left-2f/w),top.toFloat()/h,min(1f,box.right+2f/w),bottom.toFloat()/h)
     }
 }
