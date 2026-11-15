@@ -51,14 +51,18 @@ jobs:
           disable-animations: true
           script: |
             adb shell settings put global airplane_mode_on 1
-            ./gradlew --no-daemon connectedDebugAndroidTest
-            adb shell ls /data/local/tmp/pdffocus-screenshots/home.png
-            adb pull /data/local/tmp/pdffocus-screenshots app/build/device-screenshots
+            ./gradlew --no-daemon assembleDebug assembleDebugAndroidTest
+            adb install -r app/build/outputs/apk/debug/app-x86_64-debug.apk
+            adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+            adb shell am instrument -w -r com.pdffocus.reader.test/androidx.test.runner.AndroidJUnitRunner | tee device-tests.txt
+            grep -q 'OK (2 tests)' device-tests.txt
+            adb pull /sdcard/Android/data/com.pdffocus.reader/files/screenshots app/build/device-screenshots
       - uses: actions/upload-artifact@v5
         if: always()
         with:
           name: android-device-test-results
           path: |
+            device-tests.txt
             app/build/reports/androidTests/
             app/build/outputs/androidTest-results/
             app/build/device-screenshots/

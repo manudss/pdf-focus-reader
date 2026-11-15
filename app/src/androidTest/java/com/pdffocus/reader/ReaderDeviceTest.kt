@@ -28,7 +28,7 @@ class ReaderDeviceTest {
         val instrumentation=InstrumentationRegistry.getInstrumentation();val c=instrumentation.targetContext
         File(c.filesDir,"current.pdf").delete();SessionStore(c).clear()
         ActivityScenario.launch<MainActivity>(Intent(c,MainActivity::class.java)).use{scenario->
-            screenshot("home")
+            screenshot(scenario,"home")
             scenario.onActivity{a->findButton(a.window.decorView,"Essayer un exemple")!!.performClick()}
             val end=System.currentTimeMillis()+90000
             var ready=false
@@ -38,7 +38,7 @@ class ReaderDeviceTest {
                 Thread.sleep(250)
             }
             assertTrue("Synthetic PDF must load and detect blocks",ready)
-            screenshot("detected")
+            screenshot(scenario,"detected")
             scenario.onActivity{a->
                 val page=findCanvas(a.window.decorView)!!
                 val selected=page.zones.filter{it.kind==Kind.TEXT}.take(2)
@@ -47,7 +47,7 @@ class ReaderDeviceTest {
                 assertEquals(selected.reversed().map{it.id},page.selection)
                 findButton(a.window.decorView,"Lire (")!!.performClick()
             }
-            Thread.sleep(1500);instrumentation.waitForIdleSync();screenshot("reader")
+            Thread.sleep(1500);instrumentation.waitForIdleSync();screenshot(scenario,"reader")
             scenario.onActivity{a->assertNotNull(findButton(a.window.decorView,"Vue page"));assertTrue(findCanvas(a.window.decorView)!!.reading);findButton(a.window.decorView,"Vue page")!!.performClick()}
             scenario.recreate()
             Thread.sleep(2000)
@@ -55,11 +55,16 @@ class ReaderDeviceTest {
     }
     private fun findButton(v:View,label:String):Button? {if(v is Button&&v.text.toString().startsWith(label))return v;if(v is ViewGroup)for(i in 0 until v.childCount)findButton(v.getChildAt(i),label)?.let{return it};return null}
     private fun findCanvas(v:View):PageCanvas?{if(v is PageCanvas)return v;if(v is ViewGroup)for(i in 0 until v.childCount)findCanvas(v.getChildAt(i))?.let{return it};return null}
-    private fun screenshot(name:String){
+    private fun screenshot(scenario:ActivityScenario<MainActivity>,name:String){
         val i=InstrumentationRegistry.getInstrumentation();i.waitForIdleSync()
-        // Use shell capture: UiAutomation.takeScreenshot may return null on API 35.
-        val command="mkdir -p /data/local/tmp/pdffocus-screenshots; screencap -p /data/local/tmp/pdffocus-screenshots/$name.png; ls -l /data/local/tmp/pdffocus-screenshots/$name.png"
-        val result=android.os.ParcelFileDescriptor.AutoCloseInputStream(i.uiAutomation.executeShellCommand("sh -c '$command'")).bufferedReader().use{it.readText()}
-        assertTrue("Screen capture must be produced: $result",result.contains("$name.png"))
+        scenario.onActivity{a->
+            val root=a.window.decorView
+            val b=Bitmap.createBitmap(root.width,root.height,Bitmap.Config.ARGB_8888)
+            root.draw(Canvas(b))
+            val dir=File(a.getExternalFilesDir(null),"screenshots").apply{mkdirs()}
+            File(dir,"$name.png").outputStream().use{b.compress(Bitmap.CompressFormat.PNG,100,it)}
+            b.recycle()
+            assertTrue(File(dir,"$name.png").length()>1000)
+        }
     }
 }
