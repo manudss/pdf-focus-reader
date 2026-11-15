@@ -60,5 +60,9 @@ class ReaderDeviceTest {
         val b=i.uiAutomation.takeScreenshot()?:return
         File(i.targetContext.getExternalFilesDir(null),"screenshots").apply{mkdirs()}.let{dir->File(dir,"$name.png").outputStream().use{b.compress(Bitmap.CompressFormat.PNG,100,it)}}
         b.recycle()
+        // The Gradle runner uninstalls the app after the tests, deleting app-scoped files.
+        // A shell-owned capture survives long enough for CI to collect it.
+        val command="mkdir -p /data/local/tmp/pdffocus-screenshots; screencap -p /data/local/tmp/pdffocus-screenshots/$name.png"
+        android.os.ParcelFileDescriptor.AutoCloseInputStream(i.uiAutomation.executeShellCommand(command)).use{it.readBytes()}
     }
 }

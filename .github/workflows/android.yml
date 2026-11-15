@@ -52,7 +52,7 @@ jobs:
           script: |
             adb shell settings put global airplane_mode_on 1
             ./gradlew --no-daemon connectedDebugAndroidTest
-            adb pull /sdcard/Android/data/com.pdffocus.reader/files/screenshots app/build/device-screenshots
+            adb pull /data/local/tmp/pdffocus-screenshots app/build/device-screenshots
       - uses: actions/upload-artifact@v5
         if: always()
         with:
