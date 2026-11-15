@@ -16,11 +16,11 @@ class SessionStore(context:Context) {
         get()=root.optInt("page",0)
         set(value){root.put("page",value);flush()}
     fun get(index:Int):PageSession?=try{
-        val p=root.getJSONObject(index.toString());val a=p.getJSONArray("zones");val zones=(0 until a.length()).map{i->val z=a.getJSONObject(i);Zone(z.getInt("id"),Box(z.getDouble("l").toFloat(),z.getDouble("t").toFloat(),z.getDouble("r").toFloat(),z.getDouble("b").toFloat()),Kind.valueOf(z.getString("kind")),z.optJSONArray("lines")?.let{ls->(0 until ls.length()).map{ls.getDouble(it).toFloat()}}?:emptyList())}
+        val p=root.getJSONObject(index.toString());val a=p.getJSONArray("zones");val zones=(0 until a.length()).map{i->val z=a.getJSONObject(i);Zone(z.getInt("id"),Box(z.getDouble("l").toFloat(),z.getDouble("t").toFloat(),z.getDouble("r").toFloat(),z.getDouble("b").toFloat()),Kind.valueOf(z.getString("kind")),z.optJSONArray("lines")?.let{ls->(0 until ls.length()).map{ls.getDouble(it).toFloat()}}?:emptyList(),z.optBoolean("manual",false))}
         val o=p.getJSONArray("order");PageSession(zones,(0 until o.length()).map{o.getInt(it)},p.optInt("frame"),p.optInt("scroll"))
     }catch(_:Exception){null}
     fun put(index:Int,session:PageSession){
-        val zones=JSONArray();session.zones.forEach{z->zones.put(JSONObject().put("id",z.id).put("l",z.box.left).put("t",z.box.top).put("r",z.box.right).put("b",z.box.bottom).put("kind",z.kind.name).put("lines",JSONArray(z.lineBottoms)))}
+        val zones=JSONArray();session.zones.forEach{z->zones.put(JSONObject().put("id",z.id).put("l",z.box.left).put("t",z.box.top).put("r",z.box.right).put("b",z.box.bottom).put("kind",z.kind.name).put("lines",JSONArray(z.lineBottoms)).put("manual",z.manual))}
         root.put(index.toString(),JSONObject().put("zones",zones).put("order",JSONArray(session.order)).put("frame",session.frame).put("scroll",session.scroll));root.put("page",index);flush()
     }
     fun clear(){root=JSONObject();file.delete()}

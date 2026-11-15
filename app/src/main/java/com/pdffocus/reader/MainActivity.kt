@@ -79,8 +79,8 @@ class MainActivity:Activity() {
         canvas.onRectangle={b->
             if(!busy){
                 val id=replaceId?:((zones.maxOfOrNull{it.id}?:0)+1)
-                if(replaceId!=null){zones=zones.map{if(it.id==id)it.copy(box=b)else it};replaceId=null;adding=false;canvas.drawMode=false;sync()}
-                else AlertDialog.Builder(this).setTitle("Type de bloc").setItems(arrayOf("Texte","Image")){_,which->zones=zones+Zone(id,b,if(which==0)Kind.TEXT else Kind.IMAGE);order=order+id;adding=false;canvas.drawMode=false;sync()}.setOnCancelListener{adding=false;canvas.drawMode=false;sync()}.show()
+                if(replaceId!=null){zones=zones.map{if(it.id==id)it.copy(box=b,manual=true)else it};replaceId=null;adding=false;canvas.drawMode=false;sync()}
+                else AlertDialog.Builder(this).setTitle("Type de bloc").setItems(arrayOf("Texte","Image")){_,which->zones=zones+Zone(id,b,if(which==0)Kind.TEXT else Kind.IMAGE,manual=true);order=order+id;adding=false;canvas.drawMode=false;sync()}.setOnCancelListener{adding=false;canvas.drawMode=false;sync()}.show()
             }
         }
         canvas.onViewportReady={}
@@ -210,7 +210,7 @@ class MainActivity:Activity() {
     private fun startReader(){
         if(order.isEmpty()||busy)return
         val p=preview?:return;reading=true;canvas.visibility=View.GONE;reader.visibility=View.VISIBLE
-        val chosen=ReadingLayout.ordered(zones,order).map{z->if(z.kind==Kind.TEXT)z.copy(box=TextCoverage.safeTextBox(p,z.box))else z}
+        val chosen=ReadingLayout.ordered(zones,order).map{z->if(z.kind==Kind.TEXT&&!z.manual)z.copy(box=TextCoverage.safeTextBox(p,z.box))else z}
         reader.setDocument(chosen,p.width,p.height,scrollPosition);if(ocrReading)prepareOcr();updateControls()
     }
     private fun selectMode(mode:Int){
@@ -222,7 +222,7 @@ class MainActivity:Activity() {
     private fun plainText(words:List<OcrWord>):String = OcrFlow.textByZone(listOf(Zone(1,Box(0f,0f,1f,1f),Kind.TEXT)),words)[1].orEmpty()
     private fun displayOcr(force:Boolean=false,completed:Set<Int>?=null){
         val words=(if(enhancedOcr)rawChunks+improvedChunks else rawChunks).toMutableMap()
-        val ready=completed?:words.keys
+        val ready=completed?:(if(enhancedOcr)improvedChunks.keys else rawChunks.keys)
         var prefix=chunkPlan.takeWhile{it.kind==Kind.IMAGE||it.key in ready}
         if(enhancedOcr&&repair!=null){
             // Reserve an unfinished trailing word until the next source slice has been recognized.
@@ -243,7 +243,7 @@ class MainActivity:Activity() {
     private fun prepareOcr(force:Boolean=false){
         val p=preview?:return
         if(force&&ocrLoading){ocrRun++;detector?.cancel();ocrLoading=false}
-        val chosen=ReadingLayout.ordered(zones,order).map{if(it.kind==Kind.TEXT)it.copy(box=TextCoverage.safeTextBox(p,it.box))else it}
+        val chosen=ReadingLayout.ordered(zones,order).map{if(it.kind==Kind.TEXT&&!it.manual)it.copy(box=TextCoverage.safeTextBox(p,it.box))else it}
         val newPlan=OcrChunks.plan(chosen,recognizedWords.orEmpty()){OcrRasterLines.chunks(p,it)}
         if(chunkPlan!=newPlan){ocrRun++;detector?.cancel();ocrLoading=false;chunkPlan=newPlan;rawChunks.clear();improvedChunks.clear();for(c in chunkPlan)if(c.words.isNotEmpty())rawChunks[c.key]=c.words}
         ocrNotice="";displayOcr(force);updateControls()
@@ -259,17 +259,24 @@ class MainActivity:Activity() {
                 main.post{if(!cancelled())repair=corrector}
                 val localRaw=rawSnapshot.toMutableMap()
                 fun own(chunk:OcrChunk,result:List<OcrWord>)=result.filter{w->chosen.firstOrNull{z->z.box.contains((w.box.left+w.box.right)/2,(w.box.top+w.box.bottom)/2)||z.box.intersect(w.box)>.5f*w.box.area}?.id==chunk.zoneId}
-                val missing=needed.filter{it.key !in localRaw}
-                if(missing.isNotEmpty())engine.recognizeChunks(missing,image,false,cancelled){chunk,result->
+                fun publishRaw(chunk:OcrChunk,result:List<OcrWord>){
                     val owned=own(chunk,result);localRaw[chunk.key]=owned
-                    main.post{if(!cancelled()&&!isDestroyed){repair=corrector;rawChunks[chunk.key]=owned;displayOcr()}}
+                    main.post{if(!cancelled()&&!isDestroyed){repair=corrector;rawChunks[chunk.key]=owned;if(!improving)displayOcr()}}
                 }
-                if(improving&&!cancelled())engine.recognizeChunks(needed,image,true,cancelled){chunk,result->
+                fun publishImproved(chunk:OcrChunk,result:List<OcrWord>){
                     val value=corrector.improve(localRaw[chunk.key].orEmpty(),own(chunk,result))
                     main.post{if(!cancelled()&&!isDestroyed){repair=corrector;improvedChunks[chunk.key]=value;displayOcr()}}
                 }
+                if(improving){
+                    if(needed.all{it.key in localRaw})engine.recognizeChunks(needed,image,true,cancelled,::publishImproved)
+                    else for(chunk in needed){
+                        if(cancelled())break
+                        if(chunk.key !in localRaw)engine.recognizeChunks(listOf(chunk),image,false,cancelled,::publishRaw)
+                        if(!cancelled())engine.recognizeChunks(listOf(chunk),image,true,cancelled,::publishImproved)
+                    }
+                }else engine.recognizeChunks(needed.filter{it.key !in localRaw},image,false,cancelled,::publishRaw)
                 main.post{if(!cancelled()&&!isDestroyed){ocrLoading=false;detector=null;ocrNotice=if(improving)" · déjà affiché inchangé" else "";displayOcr();if(ocrReading)status.text="OCR ${if(enhancedOcr)"amélioré" else "brut"} · erreurs possibles$ocrNotice"}}
-            }catch(_:Exception){main.post{if(!cancelled()&&!isDestroyed){ocrLoading=false;detector=null;ocrNotice=" · suite indisponible, réessayez";displayOcr();status.text="OCR partiel. Réessayez ou revenez à Original."}}}
+            }catch(e:Exception){android.util.Log.e("PdfFocusOcr","Local OCR chunk processing failed",e);main.post{if(!cancelled()&&!isDestroyed){ocrLoading=false;detector=null;ocrNotice=" · suite indisponible, réessayez";displayOcr();status.text="OCR partiel. Réessayez ou revenez à Original."}}}
             finally{image.recycle()}
         }
     }
@@ -280,8 +287,8 @@ class MainActivity:Activity() {
             when(which){
                 0->{replaceId=z.id;adding=true;canvas.drawMode=true}
                 1->{zones=zones.map{if(it.id==z.id)it.copy(kind=if(it.kind==Kind.TEXT)Kind.IMAGE else Kind.TEXT)else it}}
-                2,3->{val b=z.box;val a:Box;val c:Box;if(which==2){val x=(b.left+b.right)/2;a=Box(b.left,b.top,x,b.bottom);c=Box(x,b.top,b.right,b.bottom)}else{val y=(b.top+b.bottom)/2;a=Box(b.left,b.top,b.right,y);c=Box(b.left,y,b.right,b.bottom)};val id=(zones.maxOfOrNull{it.id}?:0)+1;zones=zones.filterNot{it.id==z.id}+z.copy(box=a)+Zone(id,c,z.kind);val i=order.indexOf(z.id);if(i>=0)order=order.toMutableList().apply{add(i+1,id)}}
-                4->{val chosen=ReadingLayout.ordered(zones,order);if(chosen.size<2)toast("Choisissez au moins deux blocs à fusionner.")else{val merged=chosen.map{it.box}.reduce{a,b->a.union(b)};val first=chosen.first();zones=zones.filterNot{it.id in order}+first.copy(box=merged);order=listOf(first.id)}}
+                2,3->{val b=z.box;val a:Box;val c:Box;if(which==2){val x=(b.left+b.right)/2;a=Box(b.left,b.top,x,b.bottom);c=Box(x,b.top,b.right,b.bottom)}else{val y=(b.top+b.bottom)/2;a=Box(b.left,b.top,b.right,y);c=Box(b.left,y,b.right,b.bottom)};val id=(zones.maxOfOrNull{it.id}?:0)+1;zones=zones.filterNot{it.id==z.id}+z.copy(box=a,manual=true)+Zone(id,c,z.kind,manual=true);val i=order.indexOf(z.id);if(i>=0)order=order.toMutableList().apply{add(i+1,id)}}
+                4->{val chosen=ReadingLayout.ordered(zones,order);if(chosen.size<2)toast("Choisissez au moins deux blocs à fusionner.")else{val merged=chosen.map{it.box}.reduce{a,b->a.union(b)};val first=chosen.first();zones=zones.filterNot{it.id in order}+first.copy(box=merged,manual=true);order=listOf(first.id)}}
                 5->{zones=zones.filterNot{it.id==z.id};order=order.filterNot{it==z.id}}
             };sync()
         }.setNegativeButton("Annuler",null).show()

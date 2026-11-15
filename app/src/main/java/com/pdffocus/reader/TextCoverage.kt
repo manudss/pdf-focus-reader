@@ -6,7 +6,7 @@ import kotlin.math.*
 object TextCoverage {
     /** Cover short unrecognized gaps between aligned fragments. Source-area union removes overlaps. */
     fun bridgeColumnGaps(zones:List<Zone>):List<Zone> = zones.map{z->
-        if(z.kind!=Kind.TEXT)return@map z
+        if(z.kind!=Kind.TEXT||z.manual)return@map z
         val b=z.box
         val previous=zones.filter{p->p.id!=z.id&&p.kind==Kind.TEXT&&p.box.bottom<=b.top&&b.top-p.box.bottom<=.045f&&
             min(p.box.width,b.width)/max(p.box.width,b.width)>.72f&&
