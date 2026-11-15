@@ -72,10 +72,10 @@ class PageCanvas(context:Context):View(context) {
             paint.style=Paint.Style.STROKE;paint.strokeWidth=if(number>0||merged)3*density else density
             paint.pathEffect=if(number>0||merged)null else DashPathEffect(floatArrayOf(5*density,3*density),0f)
             canvas.drawRect(rect,paint);paint.pathEffect=null
-            if(number>0){
+            if(number>0||merged){
                 paint.style=Paint.Style.FILL;canvas.drawRoundRect(RectF(rect.left,rect.top,rect.left+27*density,rect.top+25*density),3*density,3*density,paint)
                 paint.color=Color.WHITE;paint.textSize=16*density;paint.typeface=Typeface.create("sans-serif",Typeface.BOLD)
-                canvas.drawText(number.toString(),rect.left+6*density,rect.top+19*density,paint)
+                canvas.drawText(if(merged)"✓" else number.toString(),rect.left+6*density,rect.top+19*density,paint)
             }
         }
         if(mergeMode&&mergeIds.size>=2){zones.filter{it.id in mergeIds}.map{it.box}.reduceOrNull{a,b->a.union(b)}?.let{box->val rect=screenRect(box);rect.inset(-4*density,-4*density);paint.color=Color.rgb(128,91,167);paint.style=Paint.Style.STROKE;paint.strokeWidth=2*density;paint.pathEffect=DashPathEffect(floatArrayOf(8*density,4*density),0f);canvas.drawRect(rect,paint);paint.pathEffect=null}}

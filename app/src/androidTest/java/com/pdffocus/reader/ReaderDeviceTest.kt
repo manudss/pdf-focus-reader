@@ -59,6 +59,7 @@ class ReaderDeviceTest {
             var ocrHeight=0
             scenario.onActivity{a->
                 findButton(a.window.decorView,"Texte OCR")!!.performClick()
+                findButton(a.window.decorView,"Réglages")!!.performClick()
                 val reader=findReader(a.window.decorView)!!
                 val field=ContinuousReaderView::class.java.getDeclaredField("textItems").apply{isAccessible=true}
                 val items=field.get(reader) as List<*>
@@ -105,9 +106,9 @@ class ReaderDeviceTest {
             try{
                 fun awaitText(value:String){val end=System.currentTimeMillis()+7000;var ok=false;while(System.currentTimeMillis()<end){scenario.onActivity{a->ok=findText(a.window.decorView,value)};if(ok)return;Thread.sleep(50)};assertTrue("Page update must not wait for OCR: $value",ok)}
                 awaitText("Détection locale en cours")
-                scenario.onActivity{a->val next=findButton(a.window.decorView,"Page ›")!!;assertTrue(next.isEnabled);next.performClick()}
+                scenario.onActivity{a->val next=findButton(a.window.decorView,"Suivante")!!;assertTrue(next.isEnabled);next.performClick()}
                 awaitText("Page 2 sur 3")
-                scenario.onActivity{a->findButton(a.window.decorView,"Page ›")!!.performClick()}
+                scenario.onActivity{a->findButton(a.window.decorView,"Suivante")!!.performClick()}
                 awaitText("Page 3 sur 3")
                 assertEquals(1L,latch.count)
                 screenshot(scenario,"navigation-with-ocr-pending")
