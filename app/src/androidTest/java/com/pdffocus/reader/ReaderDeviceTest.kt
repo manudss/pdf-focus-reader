@@ -116,9 +116,9 @@ class ReaderDeviceTest {
     }
     @Test fun tilesSurviveLargeViewportSwipeAndRepeatedZoom(){
         val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext
-        val reader=ContinuousReaderView(c)
         var requests=0
         i.runOnMainSync{
+            val reader=ContinuousReaderView(c)
             reader.measure(View.MeasureSpec.makeMeasureSpec(1440,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(2400,View.MeasureSpec.EXACTLY));reader.layout(0,0,1440,2400)
             reader.onRequest={tile,revision->requests++;val b=Bitmap.createBitmap(kotlin.math.ceil(tile.rect.width()).toInt(),kotlin.math.ceil(tile.rect.height()).toInt(),Bitmap.Config.ARGB_8888);b.eraseColor(Color.rgb(40,80,60));reader.accept(tile,revision,b)}
             reader.setDocument(listOf(Zone(1,Box(0f,0f,1f,1f),Kind.TEXT)),600,12000)
