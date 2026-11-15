@@ -60,7 +60,8 @@ class ZoneDetector(private val context:Context) {
                 .sortedWith(compareBy<Zone>{(it.box.top*35).toInt()}.thenBy{it.box.left}).mapIndexed{i,z->z.copy(id=i+1)}
         }finally{synchronized(lifecycle){active=null;api.recycle()}}
     }
-    fun recognizeChunks(chunks:List<OcrChunk>,bitmap:Bitmap,best:Boolean,obsolete:()->Boolean,publish:(OcrChunk,List<OcrWord>)->Unit){
+    fun recognizeChunks(chunks:List<OcrChunk>,bitmap:Bitmap,best:Boolean,obsolete:()->Boolean,publish:(OcrChunk,List<OcrWord>)->Unit)=recognizeChunks(chunks,bitmap,best,obsolete,publish,null)
+    fun recognizeChunks(chunks:List<OcrChunk>,bitmap:Bitmap,best:Boolean,obsolete:()->Boolean,publish:(OcrChunk,List<OcrWord>)->Unit,source:((OcrChunk)->Bitmap?)?){
         val name=if(best)"accurate" else "ocr";val root=File(context.filesDir,name);val data=File(root,"tessdata").apply{mkdirs()}
         for(lang in listOf("fra","eng")){val target=File(data,"$lang.traineddata");if(!target.exists()){val temp=File(data,"$lang.part");context.assets.open(if(best&&lang=="fra")"tessdata_best/fra.traineddata" else "tessdata/$lang.traineddata").use{a->temp.outputStream().use{a.copyTo(it)}};check(temp.renameTo(target))}}
         val api=TessBaseAPI();val cancelled={stopped||obsolete()}
@@ -69,9 +70,9 @@ class ZoneDetector(private val context:Context) {
             for(chunk in chunks){if(cancelled())break;if(chunk.kind==Kind.IMAGE)continue
                 val l=(chunk.box.left*bitmap.width).toInt().coerceIn(0,bitmap.width-1);val t=(chunk.box.top*bitmap.height).toInt().coerceIn(0,bitmap.height-1)
                 val r=kotlin.math.ceil(chunk.box.right*bitmap.width).toInt().coerceIn(l+1,bitmap.width);val b=kotlin.math.ceil(chunk.box.bottom*bitmap.height).toInt().coerceIn(t+1,bitmap.height)
-                val crop=Bitmap.createBitmap(bitmap,l,t,r-l,b-t);val scale=minOf(2f,1800f/maxOf(crop.width,crop.height));val enlarged=Bitmap.createScaledBitmap(crop,maxOf(1,(crop.width*scale).toInt()),maxOf(1,(crop.height*scale).toInt()),true)
-                try{api.setImage(enlarged);api.getHOCRText(0);if(cancelled())break
-                    fun global(box:Box)=Box((l+box.left*(r-l))/bitmap.width,(t+box.top*(b-t))/bitmap.height,(l+box.right*(r-l))/bitmap.width,(t+box.bottom*(b-t))/bitmap.height)
+                val direct=source?.invoke(chunk);if(source!=null&&direct==null){if(cancelled())break;error("PDF source raster unavailable")};val crop=direct?:Bitmap.createBitmap(bitmap,l,t,r-l,b-t);val scale=if(direct!=null)minOf(1f,2400f/maxOf(crop.width,crop.height))else minOf(2f,1800f/maxOf(crop.width,crop.height));val enlarged=Bitmap.createScaledBitmap(crop,maxOf(1,(crop.width*scale).toInt()),maxOf(1,(crop.height*scale).toInt()),true)
+                try{api.setPageSegMode(TessBaseAPI.PageSegMode.PSM_SINGLE_BLOCK);api.setImage(enlarged);api.getHOCRText(0);if(cancelled())break
+                    fun global(box:Box)=if(direct!=null)Box(chunk.box.left+box.left*chunk.box.width,chunk.box.top+box.top*chunk.box.height,chunk.box.left+box.right*chunk.box.width,chunk.box.top+box.bottom*chunk.box.height)else Box((l+box.left*(r-l))/bitmap.width,(t+box.top*(b-t))/bitmap.height,(l+box.right*(r-l))/bitmap.width,(t+box.bottom*(b-t))/bitmap.height)
                     val result=recognizedWords(api,enlarged.width.toFloat(),enlarged.height.toFloat(),cancelled).map{it.copy(box=global(it.box),line=global(it.line))}
                     if(!cancelled())publish(chunk,result)
                 }finally{if(enlarged!==crop)enlarged.recycle();if(crop!==bitmap)crop.recycle()}

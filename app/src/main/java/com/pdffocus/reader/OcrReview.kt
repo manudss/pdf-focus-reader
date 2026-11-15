@@ -2,7 +2,7 @@ package com.pdffocus.reader
 
 /** Both readings stay separate. Agreement is evidence, never a correctness certificate. */
 data class OcrPass(val engine:String,val variant:String,val words:List<OcrWord>)
-data class OcrEdit(val id:Int,val start:Int,val end:Int,val raw:String,val corrected:String,val source:Box)
+data class OcrEdit(val id:Int,val start:Int,val end:Int,val raw:String,val corrected:String,val source:Box,val readings:List<OcrEvidence> = emptyList())
 data class OcrMark(val edit:OcrEdit,val start:Int,val end:Int)
 data class OcrReviewText(val corrected:String,val edits:List<OcrEdit>,val keptRaw:Set<Int> = emptySet()) {
  fun fingerprint():String=java.security.MessageDigest.getInstance("SHA-256").digest((corrected+"\u0000"+edits.joinToString("\u0000"){"${it.start}:${it.end}:${it.raw}:${it.source}"}).toByteArray(Charsets.UTF_8)).joinToString(""){"%02x".format(it)}

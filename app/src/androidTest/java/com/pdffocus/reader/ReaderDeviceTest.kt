@@ -75,7 +75,7 @@ class ReaderDeviceTest {
             while(System.currentTimeMillis()<finish){scenario.onActivity{a->val f=MainActivity::class.java.getDeclaredField("ocrLoading").apply{isAccessible=true};complete=!(f.get(a) as Boolean)};if(complete)break;Thread.sleep(100)}
             assertTrue("Improved local OCR must complete",complete)
             screenshot(scenario,"reader-ocr-improved")
-            scenario.onActivity{a->assertFalse("Improved OCR must not fail silently",findText(a.window.decorView,"OCR partiel"));val f=MainActivity::class.java.getDeclaredField("improvedChunks").apply{isAccessible=true};assertTrue("Improved chunks must actually be produced",(f.get(a) as Map<*,*>).isNotEmpty());assertNotNull(findButton(a.window.decorView,"OCR amélioré ✓"));findButton(a.window.decorView,"OCR brut")!!.performClick();assertNotNull(findButton(a.window.decorView,"OCR brut ✓"))}
+            scenario.onActivity{a->assertFalse("Improved OCR must not fail silently",findText(a.window.decorView,"OCR partiel"));val f=MainActivity::class.java.getDeclaredField("improvedChunks").apply{isAccessible=true};assertTrue("Improved chunks must actually be produced",(f.get(a) as Map<*,*>).isNotEmpty());val evidence=MainActivity::class.java.getDeclaredField("secondChunks").apply{isAccessible=true}.get(a) as Map<Int,List<OcrEvidence>>;assertTrue("The reading flow must really run the second recognizer",evidence.values.flatten().any{it.engine.startsWith("PaddleOCR")});assertNotNull(findButton(a.window.decorView,"OCR amélioré ✓"));findButton(a.window.decorView,"OCR brut")!!.performClick();assertNotNull(findButton(a.window.decorView,"OCR brut ✓"))}
 
             scenario.onActivity{a->findButton(a.window.decorView,"Original")!!.performClick()}
             Thread.sleep(500)
@@ -136,6 +136,21 @@ class ReaderDeviceTest {
         PdfDocument(f).use{doc->val preview=doc.preview(0);val safe=TextCoverage.safeTextBox(preview,Box(.1f,.4f,.4f,.5f));assertTrue(safe.bottom*600>=309);val tile=doc.region(0,safe,600,800)
             var lowest=-1;for(y in 0 until tile.height)for(x in 0 until tile.width)if(Color.red(tile.getPixel(x,y))<100)lowest=maxOf(lowest,y)
             assertTrue(lowest>=0);assertTrue("Whitespace must remain under ink, not crop through it",lowest<tile.height-1);preview.recycle();tile.recycle()}
+    }
+    @Test fun directPdfRasterFeedsOcrWithPageCoordinates(){
+        val c=InstrumentationRegistry.getInstrumentation().targetContext
+        val f=File(c.cacheDir,"source-ocr-fixture.pdf");val pdf=android.graphics.pdf.PdfDocument()
+        val page=pdf.startPage(android.graphics.pdf.PdfDocument.PageInfo.Builder(400,600,1).create())
+        page.canvas.drawColor(Color.WHITE);page.canvas.drawText("Lecture des logements",50f,220f,Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.BLACK;textSize=24f})
+        pdf.finishPage(page);f.outputStream().use{pdf.writeTo(it)};pdf.close()
+        PdfDocument(f).use{doc->
+            val preview=Bitmap.createBitmap(40,60,Bitmap.Config.ARGB_8888).apply{eraseColor(Color.WHITE)}
+            val chunk=OcrChunk(1,1,0,Box(.08f,.28f,.97f,.40f),Kind.TEXT);var used=false;var text=""
+            ZoneDetector(c).recognizeChunks(listOf(chunk),preview,true,{false},{_,words->
+                text=words.joinToString(" "){it.text};assertTrue(words.all{it.box.top>=chunk.box.top&&it.box.bottom<=chunk.box.bottom+.001f})
+            },{part->used=true;doc.ocrRegion(0,part.box).also{assertTrue(it.width>preview.width*5);assertTrue(it.width*it.height<=3_010_000)}})
+            assertTrue(used);assertTrue("Direct source must recover words absent from the blank preview: $text",text.lowercase().contains("logements"));preview.recycle()
+        };f.delete()
     }
     @Test fun localOcrPublishesInSelectionOrderAndStopsWithoutLateChunks(){
         val context=InstrumentationRegistry.getInstrumentation().targetContext
@@ -225,6 +240,15 @@ class ReaderDeviceTest {
             val box=Box(0f,0f,1f,1f);val review=OcrReview.compare("Le mot corrlgé reste vérifiable.","Le mot corrigé reste vérifiable.",box)
             scenario.onActivity{a->fun set(n:String,v:Any){MainActivity::class.java.getDeclaredField(n).apply{isAccessible=true}.set(a,v)};set("count",1);set("order",listOf(1));set("zones",listOf(Zone(1,box,Kind.TEXT)));set("reading",true);set("ocrReading",true);set("enhancedOcr",true);MainActivity::class.java.getDeclaredMethod("updateControls").apply{isAccessible=true}.invoke(a);val reader=findReader(a.window.decorView)!!;findCanvas(a.window.decorView)!!.visibility=View.GONE;reader.visibility=View.VISIBLE;reader.setDocument(listOf(Zone(1,box,Kind.TEXT)),700,1000);reader.showOcrStream(listOf(OcrChunk(1,1,0,box,Kind.TEXT)),mapOf(1 to review.corrected),false,reviewTexts=mapOf(1 to review));reader.chooseRaw(1,0,true);assertEquals("Le mot corrlgé reste vérifiable.",reader.review(1)!!.rendered().first);reader.chooseRaw(1,0,false);assertEquals(review.corrected,reader.review(1)!!.rendered().first);val store=SessionStore(a);store.key="ocr-fixture";store.putOcrChoice(0,review.fingerprint(),0,true);assertEquals(setOf(0),SessionStore(a).ocrChoices(0,review.fingerprint()));assertFalse(File(a.filesDir,"session.json").readText().contains("corrlgé"))};i.waitForIdleSync();screenshot(scenario,"ocr-inline-reading");scenario.onActivity{a->MainActivity::class.java.getDeclaredMethod("showOcrComparison",Int::class.javaPrimitiveType,Int::class.javaPrimitiveType,Float::class.javaPrimitiveType).apply{isAccessible=true}.invoke(a,1,0,150f)};i.waitForIdleSync();Thread.sleep(200);val shot=i.uiAutomation.takeScreenshot();File(File(c.getExternalFilesDir(null),"screenshots").apply{mkdirs()},"ocr-inline-comparison.png").outputStream().use{shot.compress(Bitmap.CompressFormat.PNG,100,it)};shot.recycle()
         }
+    }
+    @Test fun paddleRecognizerRunsLocallyOnFrenchLineAndReleasesSession(){
+        val c=InstrumentationRegistry.getInstrumentation().targetContext
+        val image=Bitmap.createBitmap(1100,90,Bitmap.Config.ARGB_8888);image.eraseColor(Color.WHITE)
+        Canvas(image).drawText("Une lecture locale à Grenoble : 50 000 logements.",12f,62f,Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.BLACK;textSize=38f;typeface=Typeface.SERIF})
+        val box=Box(.1f,.2f,.8f,.23f);val start=android.os.SystemClock.elapsedRealtime();val before=android.os.Debug.getNativeHeapAllocatedSize()
+        PaddleLineRecognizer(c).use{engine->val result=engine.recognize(image,box)!!;assertTrue("Paddle must recognize French words",result.text.contains("lecture")&&result.text.contains("logements"));assertTrue(result.text.contains("50 000"));assertEquals(box,result.source);assertTrue(result.confidence>.5f);assertNull(engine.recognize(image,box){true})}
+        println("Second recognizer synthetic line: ${android.os.SystemClock.elapsedRealtime()-start}ms; native heap delta ${android.os.Debug.getNativeHeapAllocatedSize()-before} bytes (not peak or phone timing)")
+        image.recycle()
     }
     private fun findText(v:View,value:String):Boolean{if(v is TextView&&v.text.toString().contains(value))return true;if(v is ViewGroup)for(j in 0 until v.childCount)if(findText(v.getChildAt(j),value))return true;return false}
     private fun findButton(v:View,label:String):Button? {if(v is Button&&v.text.toString().startsWith(label))return v;if(v is ViewGroup)for(i in 0 until v.childCount)findButton(v.getChildAt(i),label)?.let{return it};return null}

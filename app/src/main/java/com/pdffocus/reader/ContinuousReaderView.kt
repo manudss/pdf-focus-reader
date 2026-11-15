@@ -29,8 +29,8 @@ class ContinuousReaderView(context:Context):View(context){
         val anchor=textItems.lastOrNull{it.top<=offset}?:textItems.firstOrNull()
         val relative=anchor?.let{offset-it.top}?:offset
         val old=ocrTexts.orEmpty()
-        reviews=reviewTexts.mapValues{(key,value)->if(!force&&key in exposed&&reviews.containsKey(key))reviews.getValue(key)else value}
-        ocrTexts=texts.mapValues{(key,value)->if(!force&&key in exposed&&old.containsKey(key))old.getValue(key)else value}
+        reviews=reviewTexts.mapValues{(key,value)->if(!force&&key in exposed&&reviews.containsKey(key)&&!texts[key].orEmpty().startsWith(old[key].orEmpty()))reviews.getValue(key)else value}
+        ocrTexts=texts.mapValues{(key,value)->if(!force&&key in exposed&&old.containsKey(key)&&!value.startsWith(old.getValue(key)))old.getValue(key)else value}
         if(force)exposed.clear()
         ocrPlan=plan;streamLoading=loading;streamMessage=message;horizontal=0f;rebuild()
         val newAnchor=anchor?.let{a->textItems.firstOrNull{it.key==a.key}}
@@ -114,7 +114,7 @@ class ContinuousReaderView(context:Context):View(context){
     }
     private fun move(value:Float){offset=value.coerceIn(0f,max(0f,totalHeight-height));val ordinal=(tiles.filter{it.rect.bottom>=offset}.map{it.rect.top to it.ordinal}+textItems.filter{it.top+it.layout.height>=offset}.map{it.top to it.ordinal}).minByOrNull{it.first}?.second?:0;onProgress?.invoke(ordinal,offset.roundToInt());invalidate()}
     override fun onDraw(c:Canvas){
-        super.onDraw(c);c.save();c.translate(-horizontal,-offset)
+        super.onDraw(c);c.save();c.clipRect(0,0,width,height);c.translate(-horizontal,-offset)
         for(item in textItems)if(item.top+item.layout.height>=offset&&item.top<=offset+height){c.save();c.translate(16*density,item.top);item.layout.draw(c)
             val underline=Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.rgb(87,117,107);strokeWidth=density;style=Paint.Style.STROKE;pathEffect=DashPathEffect(floatArrayOf(2*density,3*density),0f)}
             for(mark in reviews[item.key]?.rendered()?.second.orEmpty())for(line in 0 until item.layout.lineCount){val start=max(mark.start,item.layout.getLineStart(line));val end=min(mark.end,item.layout.getLineEnd(line));if(end<start||end==start&&mark.end!=mark.start)continue;val left=item.layout.getPrimaryHorizontal(start);val right=item.layout.getPrimaryHorizontal(end);val y=item.layout.getLineBaseline(line)+3*density;c.drawLine(left,y,max(left+5*density,right),y,underline)}

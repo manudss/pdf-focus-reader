@@ -26,6 +26,7 @@ class MainActivity:Activity() {
     private var chunkPlan=listOf<OcrChunk>()
     private val rawChunks=mutableMapOf<Int,List<OcrWord>>()
     private val improvedChunks=mutableMapOf<Int,List<OcrWord>>()
+    private val secondChunks=mutableMapOf<Int,List<OcrEvidence>>()
     private var repair:OcrEnhancer?=null
     private var ocrNotice=""
     private var pageSummary:Dialog?=null
@@ -78,7 +79,7 @@ class MainActivity:Activity() {
         menuButton=button("Menu",false){menu()};header.addView(menuButton,LinearLayout.LayoutParams(dp(72),dp(48)));root.addView(header)
         progress=ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal).apply{max=1000;progressTintList=android.content.res.ColorStateList.valueOf(green);progressBackgroundTintList=android.content.res.ColorStateList.valueOf(Color.rgb(226,231,226));visibility=View.GONE};root.addView(progress,LinearLayout.LayoutParams(-1,dp(3)))
         status=text("Ouvrez un PDF pour préparer votre parcours.",13).apply{setPadding(dp(16),dp(4),dp(16),dp(4));accessibilityLiveRegion=View.ACCESSIBILITY_LIVE_REGION_POLITE}
-        root.addView(status)
+        status.setBackgroundColor(Color.WHITE);root.addView(status)
         pages=LinearLayout(this).apply{gravity=Gravity.CENTER_VERTICAL;setPadding(dp(10),0,dp(10),dp(4))};root.addView(pages)
         val viewport=android.widget.FrameLayout(this);root.addView(viewport,LinearLayout.LayoutParams(-1,0,1f))
         canvas=PageCanvas(this);viewport.addView(canvas,android.widget.FrameLayout.LayoutParams(-1,-1))
@@ -286,7 +287,7 @@ class MainActivity:Activity() {
         articleIds=null;articleReason=""
         if(index !in 0 until count)return
         if(pageReady)saveSession()
-        pendingNew=null;merging=false;mergeIds=emptySet();canvas.mergeMode=false;canvas.mergeIds=emptySet();adjusting=null;canvas.adjustingZone=null;canvas.editBox=null;detector?.cancel();ocrRun++;chunkPlan=emptyList();rawChunks.clear();improvedChunks.clear();ocrNotice="";detecting=false;pageReady=false;recognizedWords=null;ocrLoading=false
+        pendingNew=null;merging=false;mergeIds=emptySet();canvas.mergeMode=false;canvas.mergeIds=emptySet();adjusting=null;canvas.adjustingZone=null;canvas.editBox=null;detector?.cancel();ocrRun++;chunkPlan=emptyList();rawChunks.clear();improvedChunks.clear();secondChunks.clear();ocrNotice="";detecting=false;pageReady=false;recognizedWords=null;ocrLoading=false
         val savedSession=if(force)null else store.get(index)
         reader.clear();reader.visibility=View.GONE;canvas.visibility=View.VISIBLE;scrollPosition=0
         val token=++generation;page=index;reading=false;adding=false;canvas.drawMode=false;canvas.reading=false
@@ -336,17 +337,26 @@ class MainActivity:Activity() {
         val words=(if(enhancedOcr)rawChunks+improvedChunks else rawChunks).toMutableMap()
         val ready=completed?:(if(enhancedOcr)improvedChunks.keys else rawChunks.keys)
         var prefix=chunkPlan.takeWhile{it.kind==Kind.IMAGE||it.key in ready}
-        if(enhancedOcr&&repair!=null){
-            // Reserve an unfinished trailing word until the next source slice has been recognized.
-            val tail=prefix.lastOrNull()
-            if(ocrLoading&&tail!=null&&tail!=chunkPlan.lastOrNull()&&words[tail.key]?.lastOrNull()?.text?.endsWith('-')==true)prefix=prefix.dropLast(1)
-
+        if(enhancedOcr&&ocrLoading){
+            // One selected block is published atomically: future slices must not rewrite its
+            // paragraph boundaries, half a word or a saved raw/corrected choice while reading.
+            val last=prefix.lastOrNull()
+            if(last!=null&&chunkPlan.drop(prefix.size).any{it.zoneId==last.zoneId})prefix=prefix.takeWhile{it.zoneId!=last.zoneId}
         }
-        val texts=prefix.filter{it.kind==Kind.TEXT}.associate{c->c.key to OcrReview.whitespace(if(enhancedOcr&&repair!=null)repair!!.text(words[c.key].orEmpty())else plainText(words[c.key].orEmpty()))}
-        val reviews=if(enhancedOcr)prefix.filter{it.kind==Kind.TEXT}.associate{c->c.key to OcrReview.compare(OcrReview.whitespace(plainText(rawChunks[c.key].orEmpty())),texts[c.key].orEmpty(),c.box).let{it.copy(keptRaw=store.ocrChoices(page,it.fingerprint()))}}else emptyMap()
+        // Adjacent slices of the same selected block share one reflow layout. A slice
+        // boundary is an execution detail, never a paragraph or a forced display line.
+        val grouped=mutableListOf<Pair<OcrChunk,List<OcrChunk>>>()
+        for(c in prefix){val last=grouped.lastOrNull();if(c.kind==Kind.TEXT&&last?.first?.kind==Kind.TEXT&&last.first.zoneId==c.zoneId){val parts=last.second+c;grouped[grouped.lastIndex]=last.first.copy(box=last.first.box.union(c.box)) to parts}else grouped+=c to listOf(c)}
+        val plan=grouped.map{it.first}
+        val texts=grouped.filter{it.first.kind==Kind.TEXT}.associate{(c,parts)->val ws=parts.flatMap{words[it.key].orEmpty()};c.key to OcrReview.whitespace(if(enhancedOcr&&repair!=null)repair!!.text(ws)else plainText(ws))}
+        val reviews=if(enhancedOcr)grouped.filter{it.first.kind==Kind.TEXT}.associate{(c,parts)->c.key to OcrReview.compare(OcrReview.whitespace(plainText(parts.flatMap{rawChunks[it.key].orEmpty()})),texts[c.key].orEmpty(),c.box).let{review->
+                val evidence=parts.flatMap{secondChunks[it.key].orEmpty()}
+                val edits=review.edits.map{edit->val terms=Regex("[\\p{L}]{4,}").findAll(edit.corrected+" "+edit.raw).map{it.value.lowercase()}.toSet();edit.copy(readings=evidence.filter{e->Regex("[\\p{L}]{4,}").findAll(e.text).any{it.value.lowercase() in terms}}.take(2))}
+                review.copy(edits=edits,keptRaw=store.ocrChoices(page,review.fingerprint()))}}else emptyMap()
         val shown=texts.mapValues{(key,value)->reviews[key]?.rendered()?.first?:value}
-        if(reading&&ocrReading)reader.showOcrStream(prefix,shown,ocrLoading,force,reviewTexts=reviews)
+        if(reading&&ocrReading)reader.showOcrStream(plan,shown,ocrLoading,force,reviewTexts=reviews)
     }
+
     private fun showOcrComparison(key:Int,id:Int,y:Float){
         val review=reader.review(key)?:return;val edit=review.edits.firstOrNull{it.id==id}?:return
         OcrComparisonPopup(this,edit,id in review.keptRaw,{keep->store.putOcrChoice(page,review.fingerprint(),id,keep);reader.chooseRaw(key,id,keep)},{showOcrSource(edit.source)}).show(reader,y)
@@ -362,39 +372,50 @@ class MainActivity:Activity() {
         if(force&&ocrLoading){ocrRun++;detector?.cancel();ocrLoading=false}
         val chosen=BlockSeams.align(p,ReadingLayout.ordered(zones,order).map{if(it.kind==Kind.TEXT&&!it.manual)it.copy(box=TextCoverage.safeTextBox(p,it.box))else it})
         val newPlan=OcrChunks.plan(chosen,recognizedWords.orEmpty()){OcrRasterLines.chunks(p,it)}
-        if(chunkPlan!=newPlan){ocrRun++;detector?.cancel();ocrLoading=false;chunkPlan=newPlan;rawChunks.clear();improvedChunks.clear();for(c in chunkPlan)if(c.words.isNotEmpty())rawChunks[c.key]=c.words}
+        if(chunkPlan!=newPlan){ocrRun++;detector?.cancel();ocrLoading=false;chunkPlan=newPlan;rawChunks.clear();improvedChunks.clear();secondChunks.clear();for(c in chunkPlan)if(c.words.isNotEmpty())rawChunks[c.key]=c.words}
         ocrNotice="";displayOcr(force);updateControls()
         if(ocrLoading)return
         val needed=chunkPlan.filter{it.kind==Kind.TEXT&&if(enhancedOcr)it.key !in improvedChunks else it.key !in rawChunks}
         if(needed.isEmpty())return
-        val image=p.copy(Bitmap.Config.ARGB_8888,false);val token=generation;val run=++ocrRun;val improving=enhancedOcr;val rawSnapshot=rawChunks.toMap()
+        val targetPage=page;val image=p.copy(Bitmap.Config.ARGB_8888,false);val token=generation;val run=++ocrRun;val improving=enhancedOcr;val rawSnapshot=rawChunks.toMap()
         val engine=ZoneDetector(applicationContext);detector=engine;ocrLoading=true;displayOcr()
         detectionWorker.execute{
             val cancelled={token!=generation||run!=ocrRun}
+            var second:PaddleLineRecognizer?=null
             try{
                 val corrector=repair?:loadRepair()
+                val spelling=assets.open("tessdata_best/fra-words.txt").bufferedReader().use{LocalSpelling(it.readLines())}
+                if(improving&&!cancelled())second=try{PaddleLineRecognizer(applicationContext)}catch(_:Exception){null}
                 main.post{if(!cancelled())repair=corrector}
                 val localRaw=rawSnapshot.toMutableMap()
+                val source:(OcrChunk)->Bitmap?={chunk->if(cancelled())null else worker.submit<Bitmap?>{if(cancelled())null else document?.ocrRegion(targetPage,chunk.box)}.get() }
                 fun own(chunk:OcrChunk,result:List<OcrWord>)=result.filter{w->chosen.firstOrNull{z->z.box.contains((w.box.left+w.box.right)/2,(w.box.top+w.box.bottom)/2)||z.box.intersect(w.box)>.5f*w.box.area}?.id==chunk.zoneId}
                 fun publishRaw(chunk:OcrChunk,result:List<OcrWord>){
                     val owned=own(chunk,result);localRaw[chunk.key]=owned
                     main.post{if(!cancelled()&&!isDestroyed){repair=corrector;rawChunks[chunk.key]=owned;if(!improving)displayOcr()}}
                 }
                 fun publishImproved(chunk:OcrChunk,result:List<OcrWord>){
-                    val value=corrector.improve(localRaw[chunk.key].orEmpty(),own(chunk,result))
-                    main.post{if(!cancelled()&&!isDestroyed){repair=corrector;improvedChunks[chunk.key]=value;displayOcr()}}
+                    val evidence=mutableListOf<OcrEvidence>()
+                    val value=OcrParagraphs.lines(own(chunk,result)).flatMap{line->
+                        evidence+=OcrEvidence("Tesseract · PDF source",line.text,line.box,line.words.map{it.confidence/100f}.average().toFloat())
+                        val box=line.box.pad(.0015f)
+                        val raster=if(second!=null&&!cancelled())worker.submit<Bitmap?>{if(cancelled())null else document?.ocrRegion(targetPage,box)}.get()else null
+                        val reading=if(raster!=null)try{second?.recognize(raster,box,cancelled)}catch(_:Exception){null}finally{raster.recycle()}else null
+                        if(reading!=null){val item=OcrEvidence(reading.engine,reading.text,reading.source,reading.confidence);evidence+=item;OcrConsensus.reconcile(line.words,item,spelling)}else line.words
+                    }
+                    main.post{if(!cancelled()&&!isDestroyed){repair=corrector;secondChunks[chunk.key]=evidence;improvedChunks[chunk.key]=value;displayOcr()}}
                 }
                 if(improving){
-                    if(needed.all{it.key in localRaw})engine.recognizeChunks(needed,image,true,cancelled,::publishImproved)
+                    if(needed.all{it.key in localRaw})engine.recognizeChunks(needed,image,true,cancelled,::publishImproved,source)
                     else for(chunk in needed){
                         if(cancelled())break
                         if(chunk.key !in localRaw)engine.recognizeChunks(listOf(chunk),image,false,cancelled,::publishRaw)
-                        if(!cancelled())engine.recognizeChunks(listOf(chunk),image,true,cancelled,::publishImproved)
+                        if(!cancelled())engine.recognizeChunks(listOf(chunk),image,true,cancelled,::publishImproved,source)
                     }
                 }else engine.recognizeChunks(needed.filter{it.key !in localRaw},image,false,cancelled,::publishRaw)
                 main.post{if(!cancelled()&&!isDestroyed){ocrLoading=false;detector=null;ocrNotice=if(improving)" · déjà affiché inchangé" else "";displayOcr();if(ocrReading)status.text="OCR ${if(enhancedOcr)"amélioré" else "brut"} · erreurs possibles$ocrNotice"}}
             }catch(_:Exception){main.post{if(!cancelled()&&!isDestroyed){ocrLoading=false;detector=null;ocrNotice=" · suite indisponible, réessayez";displayOcr();status.text="OCR partiel. Réessayez ou revenez à Original."}}}
-            finally{image.recycle()}
+            finally{second?.close();image.recycle()}
         }
     }
     private fun exitReader(){ocrRun++;detector?.cancel();ocrLoading=false;saveSession();reader.clear();reader.visibility=View.GONE;canvas.visibility=View.VISIBLE;++generation;reading=false;busy=false;canvas.reading=false;canvas.image=preview;readingBitmap?.recycle();readingBitmap=null;sync()}
@@ -505,7 +526,7 @@ class MainActivity:Activity() {
         actions.addView(button("Annuler"){dialog.dismiss()},LinearLayout.LayoutParams(0,dp(54),.85f))
         actions.addView(button("Confirmer la séparation",true){
             val result=BlockSplit.apply(zones,order,z.id,vertical,view.fraction);zones=result.zones;order=result.order
-            ocrRun++;detector?.cancel();ocrLoading=false;chunkPlan=emptyList();rawChunks.clear();improvedChunks.clear();scrollPosition=0
+            ocrRun++;detector?.cancel();ocrLoading=false;chunkPlan=emptyList();rawChunks.clear();improvedChunks.clear();secondChunks.clear();scrollPosition=0
             dialog.dismiss();sync()
         },LinearLayout.LayoutParams(0,dp(54),1.6f))
         panel.addView(actions);dialog.setContentView(panel);dialog.show()

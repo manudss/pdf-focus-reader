@@ -32,20 +32,12 @@ class OcrEnhancer(words:Collection<String>) {
   val plain=core(a+b);val compound=core(a+"-"+b)
   // Prefer an attested real compound; avoid inventing or de-hyphenating names.
   if(compound in lex)return a+"-"+right
-  if(plain in lex&&!core(a).first().isUpperCase()&&!b.first().isUpperCase())return a+right
+  if(valid(plain)&&!b.first().isUpperCase())return a+right
+  // Unknown compounds and names stay unchanged; source geometry alone is not proof.
   return null
  }
- fun text(words:List<OcrWord>):String {
-  val lines=words.groupBy{it.line}.entries.sortedWith(compareBy({it.key.top},{it.key.left}));val out=StringBuilder();var previous:Box?=null
-  for((line,items)in lines){val value=items.sortedBy{it.box.left}.joinToString(" "){it.text};if(value.isBlank())continue
-   if(out.isEmpty()){out.append(value);previous=line;continue}
-   val p=previous!!;val paragraph=line.top-p.bottom>p.height*.8f||abs(line.left-p.left)>max(p.width*.25f,.04f)
-   val last=out.toString().substringAfterLast(" ").substringAfterLast('\n');val first=value.substringBefore(' ')
-   val joined=if(!paragraph)join(last,first)else null
-   if(joined!=null){out.setLength(out.length-last.length);out.append(joined).append(value.drop(first.length))}else out.append(if(paragraph)"\n\n" else " ").append(value)
-   previous=line
-  };return out.toString()
- }
+ fun text(words:List<OcrWord>):String = OcrParagraphs.text(words,::join)
+
 }
 
 data class OcrChunk(val key:Int,val zoneId:Int,val ordinal:Int,val box:Box,val kind:Kind,val words:List<OcrWord> = emptyList())

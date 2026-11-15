@@ -17,3 +17,5 @@ Test-only components include JUnit (EPL-1.0), Robolectric (MIT), and AndroidX Te
 Model files are bundled to avoid a first-use network download. Their SHA-256 hashes are recorded in MODEL_CHECKSUMS.txt. License texts for runtime native components are included in app/src/main/assets/licenses/ and accessible from the application help menu.
 
 Le modèle français précis et son lexique dérivé proviennent de tessdata_best (Apache-2.0) : https://github.com/tesseract-ocr/tessdata_best. Le lexique est extrait de fra.lstm-word-dawg ; aucune donnée de document utilisateur ne le complète.
+
+Second local recognizer in enhanced OCR (line segmentation shared with Tesseract, not an independent layout detector): ONNX Runtime Android1.23.2, MIT, https://github.com/microsoft/onnxruntime/tree/v1.23.2 ; PP-OCRv5 Latin mobile recognizer, PaddleOCR Apache-2.0, https://github.com/PaddlePaddle/PaddleOCR . ONNX conversion distributed by RapidOCR3.10.0 from https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.10.0/onnx/PP-OCRv5/rec/latin_PP-OCRv5_rec_mobile.onnx . The bundled character dictionary is read from model metadata. No user data is used to train or extend this model.

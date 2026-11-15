@@ -6,8 +6,8 @@ android {
         applicationId = "com.pdffocus.reader"
         minSdk = 26
         targetSdk = 35
-        versionCode = 10
-        versionName = "0.8.0-alpha"
+        versionCode = 11
+        versionName = "0.9.0-alpha"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     splits { abi { isEnable = true; reset(); include("arm64-v8a", "x86_64"); isUniversalApk = false } }
@@ -16,6 +16,7 @@ android {
     testOptions { unitTests.isIncludeAndroidResources = true }
 }
 dependencies {
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.23.2")
     implementation("cz.adaptech.tesseract4android:tesseract4android:4.9.0")
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
