@@ -6,8 +6,8 @@ android {
         applicationId = "com.pdffocus.reader"
         minSdk = 26
         targetSdk = 35
-        versionCode = 6
-        versionName = "0.5.0-alpha"
+        versionCode = 7
+        versionName = "0.5.1-alpha"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     splits { abi { isEnable = true; reset(); include("arm64-v8a", "x86_64"); isUniversalApk = false } }

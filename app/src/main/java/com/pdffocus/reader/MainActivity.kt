@@ -121,6 +121,7 @@ class MainActivity:Activity() {
         else->"more"
     }
     private fun button(label:String,primary:Boolean=false,action:()->Unit)=Button(this).apply{
+        stateListAnimator=null;elevation=0f;translationZ=0f;backgroundTintList=null
         text=label;textSize=13f;isAllCaps=false;maxLines=1;setAutoSizeTextTypeUniformWithConfiguration(9,13,1,android.util.TypedValue.COMPLEX_UNIT_SP);minHeight=dp(48);minimumHeight=dp(48);minWidth=0;minimumWidth=0;setPadding(dp(9),0,dp(9),0)
         val selected=label.endsWith("✓");val color=if(primary)Color.WHITE else green
         setTextColor(color);typeface=Typeface.create("sans-serif-medium",Typeface.NORMAL)
@@ -182,7 +183,16 @@ class MainActivity:Activity() {
             fun flat(label:String,action:()->Unit)=button(label,false,action).apply{background=null}
             fun compactRow(vararg buttons:Button){val r=LinearLayout(this).apply{isBaselineAligned=false};buttons.forEach{r.addView(it,LinearLayout.LayoutParams(0,dp(48),1f))};controls.addView(r,LinearLayout.LayoutParams(-1,dp(48)))}
             compactRow(flat("Vue page"){exitReader()},flat(if(readingSettings)"Fermer" else "Réglages"){readingSettings=!readingSettings;updateControls()})
-            fun segment(vararg buttons:Button){val r=LinearLayout(this).apply{isBaselineAligned=false;setPadding(dp(3),0,dp(3),0);background=shape(Color.rgb(244,245,241),12)};buttons.forEach{b->val active=b.text.toString().endsWith("✓");b.background=if(active)shape(Color.WHITE,9)else null;b.setPadding(dp(5),0,dp(5),0);b.compoundDrawablePadding=dp(4);r.addView(b,LinearLayout.LayoutParams(0,dp(48),1f))};controls.addView(r,LinearLayout.LayoutParams(-1,dp(48)))}
+            fun segment(vararg buttons:Button){
+                val r=LinearLayout(this).apply{isBaselineAligned=false;gravity=Gravity.CENTER_VERTICAL;setPadding(dp(3),dp(3),dp(3),dp(3));background=shape(Color.rgb(244,245,241),12);clipToOutline=true;clipChildren=true;clipToPadding=true}
+                buttons.forEach{b->val active=b.text.toString().endsWith("✓");b.isSelected=active;b.stateListAnimator=null;b.elevation=0f;b.translationZ=0f
+                    val surface=if(active)shape(Color.WHITE,9)else shape(Color.TRANSPARENT,9)
+                    b.background=android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(Color.argb(25,50,109,93)),surface,shape(Color.WHITE,9))
+                    b.setPadding(dp(5),0,dp(5),0);b.compoundDrawablePadding=dp(4)
+                    r.addView(b,LinearLayout.LayoutParams(0,dp(48),1f))
+                }
+                controls.addView(r,LinearLayout.LayoutParams(-1,dp(54)).apply{bottomMargin=dp(6)})
+            }
             segment(button(if(!ocrReading&&!cleanReading)"Original ✓" else "Original"){selectMode(0)},button(if(!ocrReading&&cleanReading)"Nettoyé ✓" else "Nettoyé"){selectMode(1)},button(if(ocrReading)"Texte OCR ✓" else "Texte OCR"){selectMode(2)})
             if(readingSettings){
                 if(ocrReading){

@@ -14,7 +14,8 @@ class RedesignUiTest {
  private fun get(a:MainActivity,n:String)=MainActivity::class.java.getDeclaredField(n).apply{isAccessible=true}.get(a)
  private fun call(a:MainActivity,n:String){MainActivity::class.java.getDeclaredMethod(n).apply{isAccessible=true}.invoke(a)}
  private fun b(v:View,label:String):Button?{if(v is Button&&v.text.toString()==label)return v;if(v is ViewGroup)for(i in 0 until v.childCount)b(v.getChildAt(i),label)?.let{return it};return null}
- private fun shot(a:MainActivity,name:String){val v=a.window.decorView;val w=a.resources.configuration.screenWidthDp*3;val h=a.resources.configuration.screenHeightDp*3;v.measure(View.MeasureSpec.makeMeasureSpec(w,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(h,View.MeasureSpec.EXACTLY));v.layout(0,0,w,h);repeat(2){val image=Bitmap.createBitmap(v.width,v.height,Bitmap.Config.ARGB_8888);fun dirty(q:View){q.invalidate();if(q is ViewGroup)for(i in 0 until q.childCount)dirty(q.getChildAt(i))};dirty(v);v.draw(Canvas(image));if(it==1)File("/tmp/pdf-native-ui/$name-${a.resources.configuration.screenWidthDp}.png").outputStream().use{image.compress(Bitmap.CompressFormat.PNG,100,it)};image.recycle()}}
+ private fun shot(a:MainActivity,name:String){val v=a.window.decorView;val density=a.resources.displayMetrics.density;val w=(a.resources.configuration.screenWidthDp*density).toInt();val h=(a.resources.configuration.screenHeightDp*density).toInt();v.measure(View.MeasureSpec.makeMeasureSpec(w,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(h,View.MeasureSpec.EXACTLY));v.layout(0,0,w,h);repeat(2){val image=Bitmap.createBitmap(v.width,v.height,Bitmap.Config.ARGB_8888);fun dirty(q:View){q.invalidate();if(q is ViewGroup)for(i in 0 until q.childCount)dirty(q.getChildAt(i))};dirty(v);v.draw(Canvas(image));if(it==1)File("/tmp/pdf-native-ui/$name-${a.resources.configuration.screenWidthDp}.png").outputStream().use{image.compress(Bitmap.CompressFormat.PNG,100,it)};image.recycle()}}
+ @Test @Config(qualifiers="fr-rFR-w360dp-h800dp-xhdpi") fun mediumDensityControls(){compactControlsStayContextualAndOcrSizeSurvivesSwitch()}
  @Test @Config(qualifiers="fr-rFR-w320dp-h640dp-xxhdpi") fun narrowControls(){compactControlsStayContextualAndOcrSizeSurvivesSwitch()}
  @Test fun compactControlsStayContextualAndOcrSizeSurvivesSwitch(){
   val controller=Robolectric.buildActivity(MainActivity::class.java).setup().visible();val a=controller.get();val v=a.window.decorView
@@ -29,9 +30,20 @@ class RedesignUiTest {
   set(a,"ocrReading",true);set(a,"chunkPlan",listOf(OcrChunk(1,1,0,zones[0].box,Kind.TEXT)));reader.showOcr(mapOf(1 to "Le plaisir de lire à son rythme. ".repeat(40)));call(a,"updateControls")
   b(v,"Réglages")!!.performClick();assertNotNull(b(v,"Texte +"));b(v,"Texte +")!!.performClick()
   val font=ContinuousReaderView::class.java.getDeclaredField("fontSize").apply{isAccessible=true}.getFloat(reader)
-  shot(a,"redesign-ocr-settings");b(v,"Fermer")!!.performClick();assertTrue((get(a,"status")as TextView).text.contains("erreurs possibles"));assertEquals(View.VISIBLE,(get(a,"status")as View).visibility);shot(a,"redesign-ocr-closed")
+  fun checkSegments(){
+   val controls=get(a,"controls")as ViewGroup
+   for(i in 0 until controls.childCount){val row=controls.getChildAt(i)as? ViewGroup?:continue
+    for(j in 0 until row.childCount){val child=row.getChildAt(j)as? Button?:continue
+     assertNull(child.stateListAnimator);assertEquals(0f,child.elevation);assertEquals(0f,child.translationZ)
+     assertTrue(child.top>=row.paddingTop);assertTrue(child.bottom<=row.height-row.paddingBottom)
+    }
+   }
+  }
+  shot(a,"redesign-ocr-settings");checkSegments();b(v,"Texte OCR ✓")!!.isPressed=true;shot(a,"redesign-ocr-pressed");checkSegments();b(v,"Texte OCR ✓")!!.isPressed=false
+  set(a,"enhancedOcr",true);call(a,"updateControls");shot(a,"redesign-ocr-improved");checkSegments()
+  set(a,"enhancedOcr",false);call(a,"updateControls");shot(a,"redesign-ocr-settings");b(v,"Fermer")!!.performClick();assertTrue((get(a,"status")as TextView).text.contains("erreurs possibles"));assertEquals(View.VISIBLE,(get(a,"status")as View).visibility);shot(a,"redesign-ocr-closed")
   b(v,"Original")!!.performClick();assertNull(b(v,"Texte +"));assertEquals(font,ContinuousReaderView::class.java.getDeclaredField("fontSize").apply{isAccessible=true}.getFloat(reader))
-  assertNotNull(b(v,"Original ✓"));b(v,"Nettoyé")!!.performClick();assertNull(b(v,"Texte −"));assertNotNull(b(v,"Nettoyé ✓"))
+  assertNotNull(b(v,"Original ✓"));shot(a,"redesign-original");checkSegments();b(v,"Nettoyé")!!.performClick();assertNull(b(v,"Texte −"));assertNotNull(b(v,"Nettoyé ✓"));shot(a,"redesign-cleaned");checkSegments()
   controller.pause().stop().destroy()
  }
 }
