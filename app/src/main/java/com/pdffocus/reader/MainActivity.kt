@@ -17,7 +17,8 @@ import kotlin.math.*
 class MainActivity:Activity() {
     private val worker=Executors.newSingleThreadExecutor()
     private val detectionWorker=Executors.newSingleThreadExecutor()
-    private var detector:ZoneDetector?=null
+    @Volatile private var detector:ZoneDetector?=null
+    private var cleanReading=true
     private var scrollPosition=0
     private var documentLoading=false
     private var detecting=false
@@ -42,7 +43,7 @@ class MainActivity:Activity() {
     private fun dp(v:Int)=(v*resources.displayMetrics.density).roundToInt()
 
     override fun onCreate(savedInstanceState:Bundle?) {
-        super.onCreate(savedInstanceState);store=SessionStore(this)
+        super.onCreate(savedInstanceState);store=SessionStore(this);cleanReading=getPreferences(0).getBoolean("cleanReading",true)
         val root=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setBackgroundColor(Color.WHITE)}
         root.setOnApplyWindowInsetsListener{v,insets->v.setPadding(insets.systemWindowInsetLeft,insets.systemWindowInsetTop,insets.systemWindowInsetRight,insets.systemWindowInsetBottom);insets}
         val header=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL;setPadding(dp(14),dp(3),dp(6),0)}
@@ -56,7 +57,7 @@ class MainActivity:Activity() {
         val viewport=android.widget.FrameLayout(this);root.addView(viewport,LinearLayout.LayoutParams(-1,0,1f))
         canvas=PageCanvas(this);viewport.addView(canvas,android.widget.FrameLayout.LayoutParams(-1,-1))
         reader=ContinuousReaderView(this).apply{visibility=View.GONE};viewport.addView(reader,android.widget.FrameLayout.LayoutParams(-1,-1))
-        reader.onRequest={tile,revision->val token=generation;val targetPage=page;worker.execute{var image:Bitmap?=null;try{if(token==generation)image=document?.region(targetPage,tile.source,max(1,ceil(tile.rect.width()).toInt()),max(1,ceil(tile.rect.height()).toInt()))}catch(_:Exception){};main.post{if(token==generation&&reading)reader.accept(tile,revision,image)else image?.recycle()}}}
+        reader.onRequest={tile,revision->val token=generation;val targetPage=page;val cleanup=cleanReading&&tile.kind==Kind.TEXT;worker.execute{var image:Bitmap?=null;try{if(token==generation)image=document?.readingRegion(targetPage,tile.source,max(1,ceil(tile.rect.width()).toInt()),max(1,ceil(tile.rect.height()).toInt()),cleanup)}catch(_:Exception){};main.post{if(token==generation&&reading)reader.accept(tile,revision,image)else image?.recycle()}}}
         reader.onProgress={ordinal,position->scrollPosition=position;status.text="Lecture continue · bloc ${ordinal+1} / ${order.size} · glissez pour la suite";if(reading&&pageReady){main.removeCallbacks(saveProgress);main.postDelayed(saveProgress,400)}}
         controls=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(10),dp(6),dp(10),dp(6))};root.addView(controls)
         setContentView(root)
@@ -90,6 +91,7 @@ class MainActivity:Activity() {
         }
         if(reading){
             row(button("Vue page"){exitReader()},button("Texte −"){reader.zoomBy(.9f)},button("Texte +"){reader.zoomBy(1.1f)})
+            row(button(if(cleanReading)"Texte nettoyé · Désactiver" else "Original · Activer le nettoyage"){cleanReading=!cleanReading;getPreferences(0).edit().putBoolean("cleanReading",cleanReading).apply();reader.reprocess();updateControls()})
         }else if(adding){
             controls.addView(text("Tracez un rectangle autour du bloc. Pincez avant d'activer ce mode pour mieux cadrer.",12))
             row(button("Annuler le cadrage"){adding=false;replaceId=null;canvas.drawMode=false;sync()})

@@ -51,6 +51,10 @@ class ReaderDeviceTest {
                 findButton(a.window.decorView,"Lire (")!!.performClick()
             }
             Thread.sleep(1500);instrumentation.waitForIdleSync();screenshot(scenario,"reader")
+            scenario.onActivity{a->val toggle=findButton(a.window.decorView,"Texte nettoyé")!!;toggle.performClick();assertNotNull(findButton(a.window.decorView,"Original · Activer"))}
+            Thread.sleep(800);screenshot(scenario,"reader-original")
+            scenario.onActivity{a->findButton(a.window.decorView,"Original · Activer")!!.performClick();assertNotNull(findButton(a.window.decorView,"Texte nettoyé"))}
+            Thread.sleep(800);screenshot(scenario,"reader-cleaned")
             scenario.onActivity{a->val reader=findReader(a.window.decorView)!!;val now=android.os.SystemClock.uptimeMillis();reader.onTouchEvent(MotionEvent.obtain(now,now,MotionEvent.ACTION_DOWN,200f,600f,0));reader.onTouchEvent(MotionEvent.obtain(now,now+100,MotionEvent.ACTION_MOVE,200f,150f,0));reader.onTouchEvent(MotionEvent.obtain(now,now+150,MotionEvent.ACTION_UP,200f,150f,0));assertTrue("Swipe must move continuous stream",reader.currentPosition()>0)}
             Thread.sleep(1000);screenshot(scenario,"reader-scrolled")
             scenario.onActivity{a->assertNotNull(findButton(a.window.decorView,"Vue page"));assertTrue(findReader(a.window.decorView)!!.visibility==View.VISIBLE);findButton(a.window.decorView,"Vue page")!!.performClick()}
@@ -70,7 +74,10 @@ class ReaderDeviceTest {
             scenario.onActivity{a->
                 val field=MainActivity::class.java.getDeclaredField("detectionWorker").apply{isAccessible=true}
                 (field.get(a) as java.util.concurrent.ExecutorService).execute{latch.await(20,java.util.concurrent.TimeUnit.SECONDS)}
+                // ActivityScenario matches lifecycle events to its launch intent.
+                val launchIntent=Intent(a.intent)
                 MainActivity::class.java.getDeclaredMethod("onNewIntent",Intent::class.java).apply{isAccessible=true}.invoke(a,Intent(Intent.ACTION_VIEW,android.net.Uri.fromFile(file)))
+                a.intent=launchIntent
             }
             try{
                 fun awaitText(value:String){val end=System.currentTimeMillis()+7000;var ok=false;while(System.currentTimeMillis()<end){scenario.onActivity{a->ok=findText(a.window.decorView,value)};if(ok)return;Thread.sleep(50)};assertTrue("Page update must not wait for OCR: $value",ok)}

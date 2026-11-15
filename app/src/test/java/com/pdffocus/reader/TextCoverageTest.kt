@@ -16,9 +16,9 @@ class TextCoverageTest {
  }
  @Test fun expandsBottomThroughInkRatherThanCuttingIt(){
   val b=Bitmap.createBitmap(300,600,Bitmap.Config.ARGB_8888);b.eraseColor(Color.WHITE)
-  Canvas(b).drawRect(35f,290f,110f,305f,Paint().apply{color=Color.BLACK})
+  Canvas(b).drawRect(35f,290f,110f,309f,Paint().apply{color=Color.BLACK})
   val safe=TextCoverage.safeTextBox(b,Box(.1f,.2f,.4f,.5f))
-  assertTrue(safe.bottom*600>=305);assertTrue(safe.top<=.2f);b.recycle()
+  assertTrue(safe.bottom*600>=310);assertTrue(safe.top<=.2f);b.recycle()
  }
  @Test fun neverShrinksAManualBox(){val b=Bitmap.createBitmap(300,600,Bitmap.Config.ARGB_8888);b.eraseColor(Color.WHITE);val x=Box(.1f,.1f,.5f,.8f);val out=TextCoverage.safeTextBox(b,x);assertTrue(out.left<=x.left&&out.top<=x.top&&out.right>=x.right&&out.bottom>=x.bottom);b.recycle()}
 }

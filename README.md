@@ -7,7 +7,8 @@ Prototype Android natif pour lire un PDF par zones, sans compte ni service dista
 3. Toucher les blocs dans l'ordre souhaité. Les blocs choisis se numérotent.
 4. Appuyer sur **Lire** : les blocs s'enchaînent dans un ruban à faire défiler au doigt. Le texte est cadré à la largeur de l'écran ; les images s'affichent entières. Les surfaces communes à plusieurs blocs sélectionnés ne sont affichées qu'une fois.
 5. Les boutons de page et le choix du numéro restent disponibles pendant la détection locale.
-6. Revenir à la page ou corriger les zones par appui long. Ajouter un bloc en traçant un rectangle ; diviser ou fusionner les cadres si nécessaire.
+6. En lecture, le bouton **Texte nettoyé / Original** désactive ou réactive le nettoyage local et le léger épaississement des lettres. Les photos et le PDF original restent inchangés. Le choix est mémorisé sur cet appareil.
+7. Revenir à la page ou corriger les zones par appui long. Ajouter un bloc en traçant un rectangle ; diviser ou fusionner les cadres si nécessaire.
 
 ## État : alpha, pas une application finale
 
