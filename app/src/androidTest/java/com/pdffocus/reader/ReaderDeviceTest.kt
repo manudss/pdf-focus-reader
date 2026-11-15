@@ -51,10 +51,25 @@ class ReaderDeviceTest {
                 findButton(a.window.decorView,"Lire (")!!.performClick()
             }
             Thread.sleep(1500);instrumentation.waitForIdleSync();screenshot(scenario,"reader")
-            scenario.onActivity{a->val toggle=findButton(a.window.decorView,"Texte nettoyé")!!;toggle.performClick();assertNotNull(findButton(a.window.decorView,"Original · Activer"))}
+            scenario.onActivity{a->val toggle=findButton(a.window.decorView,"Original")!!;toggle.performClick();assertNotNull(findButton(a.window.decorView,"Nettoyé"))}
             Thread.sleep(800);screenshot(scenario,"reader-original")
-            scenario.onActivity{a->findButton(a.window.decorView,"Original · Activer")!!.performClick();assertNotNull(findButton(a.window.decorView,"Texte nettoyé"))}
+            scenario.onActivity{a->findButton(a.window.decorView,"Nettoyé")!!.performClick();assertNotNull(findButton(a.window.decorView,"Original"))}
             Thread.sleep(800);screenshot(scenario,"reader-cleaned")
+            var ocrHeight=0
+            scenario.onActivity{a->
+                findButton(a.window.decorView,"Texte OCR")!!.performClick()
+                val reader=findReader(a.window.decorView)!!
+                val field=ContinuousReaderView::class.java.getDeclaredField("textItems").apply{isAccessible=true}
+                val items=field.get(reader) as List<*>
+                assertTrue("OCR mode must render real recognized text",items.isNotEmpty())
+                ocrHeight=(items.first() as ContinuousReaderView.TextItem).layout.height
+                findButton(a.window.decorView,"Texte +")!!.performClick()
+                val grown=field.get(reader) as List<*>
+                assertTrue("OCR text must reflow at larger font size",(grown.first() as ContinuousReaderView.TextItem).layout.height>ocrHeight)
+            }
+            Thread.sleep(800);screenshot(scenario,"reader-ocr")
+            scenario.onActivity{a->findButton(a.window.decorView,"Original")!!.performClick()}
+            Thread.sleep(500)
             scenario.onActivity{a->val reader=findReader(a.window.decorView)!!;val now=android.os.SystemClock.uptimeMillis();reader.onTouchEvent(MotionEvent.obtain(now,now,MotionEvent.ACTION_DOWN,200f,600f,0));reader.onTouchEvent(MotionEvent.obtain(now,now+100,MotionEvent.ACTION_MOVE,200f,150f,0));reader.onTouchEvent(MotionEvent.obtain(now,now+150,MotionEvent.ACTION_UP,200f,150f,0));assertTrue("Swipe must move continuous stream",reader.currentPosition()>0)}
             Thread.sleep(1000);screenshot(scenario,"reader-scrolled")
             scenario.onActivity{a->assertNotNull(findButton(a.window.decorView,"Vue page"));assertTrue(findReader(a.window.decorView)!!.visibility==View.VISIBLE);findButton(a.window.decorView,"Vue page")!!.performClick()}

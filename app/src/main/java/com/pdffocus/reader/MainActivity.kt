@@ -19,6 +19,9 @@ class MainActivity:Activity() {
     private val detectionWorker=Executors.newSingleThreadExecutor()
     @Volatile private var detector:ZoneDetector?=null
     private var cleanReading=true
+    private var ocrReading=false
+    private var ocrLoading=false
+    private var recognizedWords:List<OcrWord>?=null
     private var scrollPosition=0
     private var documentLoading=false
     private var detecting=false
@@ -57,8 +60,8 @@ class MainActivity:Activity() {
         val viewport=android.widget.FrameLayout(this);root.addView(viewport,LinearLayout.LayoutParams(-1,0,1f))
         canvas=PageCanvas(this);viewport.addView(canvas,android.widget.FrameLayout.LayoutParams(-1,-1))
         reader=ContinuousReaderView(this).apply{visibility=View.GONE};viewport.addView(reader,android.widget.FrameLayout.LayoutParams(-1,-1))
-        reader.onRequest={tile,revision->val token=generation;val targetPage=page;val cleanup=cleanReading&&tile.kind==Kind.TEXT;worker.execute{var image:Bitmap?=null;try{if(token==generation)image=document?.readingRegion(targetPage,tile.source,max(1,ceil(tile.rect.width()).toInt()),max(1,ceil(tile.rect.height()).toInt()),cleanup)}catch(_:Exception){};main.post{if(token==generation&&reading)reader.accept(tile,revision,image)else image?.recycle()}}}
-        reader.onProgress={ordinal,position->scrollPosition=position;status.text="Lecture continue · bloc ${ordinal+1} / ${order.size} · glissez pour la suite";if(reading&&pageReady){main.removeCallbacks(saveProgress);main.postDelayed(saveProgress,400)}}
+        reader.onRequest={tile,revision->val token=generation;val targetPage=page;val cleanup=cleanReading&&!ocrReading&&tile.kind==Kind.TEXT;worker.execute{var image:Bitmap?=null;try{if(token==generation)image=document?.readingRegion(targetPage,tile.source,max(1,ceil(tile.rect.width()).toInt()),max(1,ceil(tile.rect.height()).toInt()),cleanup)}catch(_:Exception){};main.post{if(token==generation&&reading)reader.accept(tile,revision,image)else image?.recycle()}}}
+        reader.onProgress={ordinal,position->scrollPosition=position;status.text=if(ocrLoading&&ocrReading)"Préparation du texte OCR local…" else if(ocrReading)"Texte OCR · erreurs possibles · bloc ${ordinal+1} / ${order.size}" else "Lecture continue · bloc ${ordinal+1} / ${order.size} · glissez pour la suite";if(reading&&pageReady){main.removeCallbacks(saveProgress);main.postDelayed(saveProgress,400)}}
         controls=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(10),dp(6),dp(10),dp(6))};root.addView(controls)
         setContentView(root)
         canvas.onZoneTap={z->if(!busy&&!reading){order=ReadingLayout.toggle(order,z.id);frameIndex=0;scrollPosition=0;sync()}}
@@ -91,7 +94,7 @@ class MainActivity:Activity() {
         }
         if(reading){
             row(button("Vue page"){exitReader()},button("Texte −"){reader.zoomBy(.9f)},button("Texte +"){reader.zoomBy(1.1f)})
-            row(button(if(cleanReading)"Texte nettoyé · Désactiver" else "Original · Activer le nettoyage"){cleanReading=!cleanReading;getPreferences(0).edit().putBoolean("cleanReading",cleanReading).apply();reader.reprocess();updateControls()})
+            row(button(if(!ocrReading&&!cleanReading)"Original ✓" else "Original"){selectMode(0)},button(if(!ocrReading&&cleanReading)"Nettoyé ✓" else "Nettoyé"){selectMode(1)},button(if(ocrReading)"Texte OCR ✓" else "Texte OCR"){selectMode(2)})
         }else if(adding){
             controls.addView(text("Tracez un rectangle autour du bloc. Pincez avant d'activer ce mode pour mieux cadrer.",12))
             row(button("Annuler le cadrage"){adding=false;replaceId=null;canvas.drawMode=false;sync()})
@@ -159,7 +162,7 @@ class MainActivity:Activity() {
     private fun loadPage(index:Int,force:Boolean=false){
         if(index !in 0 until count)return
         if(pageReady)saveSession()
-        detector?.cancel();detecting=false;pageReady=false
+        detector?.cancel();detecting=false;pageReady=false;recognizedWords=null;ocrLoading=false
         val savedSession=if(force)null else store.get(index)
         reader.clear();reader.visibility=View.GONE;canvas.visibility=View.VISIBLE;scrollPosition=0
         val token=++generation;page=index;reading=false;adding=false;canvas.drawMode=false;canvas.reading=false
@@ -182,7 +185,7 @@ class MainActivity:Activity() {
                                 val engine=ZoneDetector(applicationContext)
                                 synchronized(this@MainActivity){if(token!=generation)return@detection;detector=engine}
                                 val result=engine.detect(ocrImage){token!=generation}
-                                main.post{if(token==generation&&!isDestroyed){detector=null;detecting=false;zones=result;order=emptyList();frameIndex=0;pageReady=true;busy=false;sync();if(zones.isEmpty())status.text="Aucun bloc trouvé. Utilisez + Bloc pour tracer une zone."}}
+                                main.post{if(token==generation&&!isDestroyed){detector=null;detecting=false;recognizedWords=engine.words;zones=result;order=emptyList();frameIndex=0;pageReady=true;busy=false;sync();if(zones.isEmpty())status.text="Aucun bloc trouvé. Utilisez + Bloc pour tracer une zone."}}
                             }catch(_:Exception){main.post{if(token==generation&&!isDestroyed){detector=null;detecting=false;busy=false;pageReady=true;sync(false);status.text="Analyse indisponible. Tracez vos blocs avec + Bloc."}}}
                             finally{ocrImage.recycle()}
                         }
@@ -196,7 +199,33 @@ class MainActivity:Activity() {
         if(order.isEmpty()||busy)return
         val p=preview?:return;reading=true;canvas.visibility=View.GONE;reader.visibility=View.VISIBLE
         val chosen=ReadingLayout.ordered(zones,order).map{z->if(z.kind==Kind.TEXT)z.copy(box=TextCoverage.safeTextBox(p,z.box))else z}
-        reader.setDocument(chosen,p.width,p.height,scrollPosition);updateControls()
+        reader.setDocument(chosen,p.width,p.height,scrollPosition);if(ocrReading)prepareOcr();updateControls()
+    }
+    private fun selectMode(mode:Int){
+        ocrReading=mode==2;cleanReading=mode!=0
+        getPreferences(0).edit().putBoolean("cleanReading",cleanReading).apply()
+        if(ocrReading)prepareOcr()else reader.showOcr(null)
+        updateControls()
+    }
+    private fun prepareOcr(){
+        val known=recognizedWords
+        if(known!=null){
+            val p=preview?:return
+            val chosen=ReadingLayout.ordered(zones,order).map{if(it.kind==Kind.TEXT)it.copy(box=TextCoverage.safeTextBox(p,it.box))else it}
+            val texts=OcrFlow.textByZone(chosen,known)
+            reader.showOcr(texts)
+            val missed=texts.count{it.value.isBlank()}
+            if(missed>0)status.text="Texte OCR · $missed bloc(s) sans texte reconnu, affichés en image"
+            return
+        }
+        if(ocrLoading)return
+        val image=preview?.copy(Bitmap.Config.ARGB_8888,false)?:return
+        ocrLoading=true;status.text="Préparation du texte OCR local…"
+        val token=generation;val engine=ZoneDetector(applicationContext);detector=engine
+        detectionWorker.execute{try{
+            val words=engine.readWords(image){token!=generation}
+            main.post{if(token==generation&&!isDestroyed){recognizedWords=words;ocrLoading=false;detector=null;if(reading&&ocrReading)prepareOcr()}}
+        }catch(_:Exception){main.post{if(token==generation&&!isDestroyed){ocrLoading=false;detector=null;ocrReading=false;cleanReading=false;reader.showOcr(null);status.text="OCR indisponible. L'original reste affiché.";updateControls()}}}finally{image.recycle()}}
     }
     private fun exitReader(){saveSession();reader.clear();reader.visibility=View.GONE;canvas.visibility=View.VISIBLE;++generation;reading=false;busy=false;canvas.reading=false;canvas.image=preview;readingBitmap?.recycle();readingBitmap=null;sync()}
     private fun editZone(z:Zone){

@@ -7,12 +7,12 @@ Prototype Android natif pour lire un PDF par zones, sans compte ni service dista
 3. Toucher les blocs dans l'ordre souhaité. Les blocs choisis se numérotent.
 4. Appuyer sur **Lire** : les blocs s'enchaînent dans un ruban à faire défiler au doigt. Le texte est cadré à la largeur de l'écran ; les images s'affichent entières. Les surfaces communes à plusieurs blocs sélectionnés ne sont affichées qu'une fois.
 5. Les boutons de page et le choix du numéro restent disponibles pendant la détection locale.
-6. En lecture, le bouton **Texte nettoyé / Original** désactive ou réactive le nettoyage local et le léger épaississement des lettres. Les photos et le PDF original restent inchangés. Le choix est mémorisé sur cet appareil.
+6. En lecture, choisir **Original**, **Nettoyé** (nettoyage local et léger épaississement des lettres) ou **Texte OCR**. Ce dernier recompose les mots reconnus avec une vraie police ; Texte −/+ règle sa taille. La reconnaissance peut contenir des erreurs. Un bloc sans texte reconnu reste affiché en image. Les photos et le PDF original restent inchangés.
 7. Revenir à la page ou corriger les zones par appui long. Ajouter un bloc en traçant un rectangle ; diviser ou fusionner les cadres si nécessaire.
 
 ## État : alpha, pas une application finale
 
-La compilation et les tests locaux ne remplacent pas l'essai sur téléphone. Les mises en page irrégulières, les images en noir et blanc, les encadrés et les petits scans peuvent produire des blocs incorrects ou manquants. Le cadrage manuel reste disponible. L'application ne reconstitue pas automatiquement les articles et ne modifie pas le texte source. Un scan flou reste limité par sa résolution d'origine.
+La compilation et les tests locaux ne remplacent pas l'essai sur téléphone. Les mises en page irrégulières, les images en noir et blanc, les encadrés et les petits scans peuvent produire des blocs incorrects ou manquants. Le cadrage manuel reste disponible. L'application ne reconstitue pas automatiquement les articles et ne modifie pas le texte source. Le mode Texte OCR est une vue séparée, pas une transcription garantie. Un scan flou reste limité par sa résolution d'origine.
 
 L'exemple est entièrement fictif. Aucun journal ou fichier personnel n'est inclus dans le dépôt ou dans les tests.
 
@@ -22,7 +22,7 @@ L'exemple est entièrement fictif. Aucun journal ou fichier personnel n'est incl
 - OCR Tesseract embarqué avec modèles français et anglais, disponible sans téléchargement au premier lancement.
 - Une copie du dernier PDF et ses cadres/parcours sont conservés dans le stockage privé de l'application, hors sauvegarde Android.
 - Le menu permet de supprimer cette copie et le parcours sans toucher à l'original.
-- Aucun mot reconnu n'est enregistré dans des journaux applicatifs ni dans le dépôt.
+- Les mots reconnus servent au mode Texte OCR en mémoire sur l'appareil. Aucun mot reconnu n'est enregistré dans des journaux applicatifs, dans le parcours sauvegardé ou dans le dépôt.
 - Limite d'import de cette alpha : 250 Mo. Les pages sont rendues à la demande, pas toutes chargées en mémoire.
 
 ## Développement

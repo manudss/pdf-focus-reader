@@ -7,6 +7,7 @@ import kotlin.math.*
 
 /** Bundled local OCR. Raw words never leave memory or enter logs. */
 class ZoneDetector(private val context:Context) {
+    var words:List<OcrWord> = emptyList();private set
     private val lifecycle=Any()
     private var active:TessBaseAPI?=null
     @Volatile private var stopped=false
@@ -31,6 +32,7 @@ class ZoneDetector(private val context:Context) {
             api.setPageSegMode(TessBaseAPI.PageSegMode.PSM_AUTO)
             synchronized(lifecycle){if(cancelled())return emptyList();active=api}
             api.setImage(bitmap);api.getHOCRText(0)
+            if(!cancelled())words=recognizedWords(api,bitmap.width.toFloat(),bitmap.height.toFloat(),cancelled)
             if(cancelled())return emptyList()
             val w=bitmap.width.toFloat();val h=bitmap.height.toFloat();val text=mutableListOf<Zone>()
             val it=api.resultIterator
@@ -57,6 +59,16 @@ class ZoneDetector(private val context:Context) {
             return (TextGrouping.merge(withLines)+pictures.mapIndexed{i,b->Zone((withLines.maxOfOrNull{it.id}?:0)+i+1,b,Kind.IMAGE)})
                 .sortedWith(compareBy<Zone>{(it.box.top*35).toInt()}.thenBy{it.box.left}).mapIndexed{i,z->z.copy(id=i+1)}
         }finally{synchronized(lifecycle){active=null;api.recycle()}}
+    }
+    fun readWords(bitmap:Bitmap,obsolete:()->Boolean):List<OcrWord>{detect(bitmap,obsolete);return words}
+    private fun recognizedWords(api:TessBaseAPI,w:Float,h:Float,cancelled:()->Boolean):List<OcrWord>{
+        val out=mutableListOf<OcrWord>();val iterator=api.resultIterator?:return out
+        try{iterator.begin();do{
+            val text=iterator.getUTF8Text(TessBaseAPI.PageIteratorLevel.RIL_WORD).orEmpty().trim()
+            val r=iterator.getBoundingRect(TessBaseAPI.PageIteratorLevel.RIL_WORD);val line=iterator.getBoundingRect(TessBaseAPI.PageIteratorLevel.RIL_TEXTLINE)
+            if(text.isNotEmpty()&&r.width()>0&&r.height()>0)out+=OcrWord(text,Box(r.left/w,r.top/h,r.right/w,r.bottom/h),Box(line.left/w,line.top/h,line.right/w,line.bottom/h))
+        }while(iterator.next(TessBaseAPI.PageIteratorLevel.RIL_WORD)&&!cancelled())}finally{iterator.delete()}
+        return out
     }
     /** Candidate heuristic, not semantic article or image recognition. */
     internal fun pictureCandidates(bitmap:Bitmap,text:List<Box>,cancelled:()->Boolean):List<Box> {

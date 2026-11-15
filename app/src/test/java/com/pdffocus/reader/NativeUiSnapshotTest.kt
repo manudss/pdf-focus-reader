@@ -52,6 +52,12 @@ class NativeUiSnapshotTest {
         assertTrue(reader.currentPosition()>0);snapshot(reader,"continuous-scroll-priming");snapshot(reader,"continuous-scrolled");assertTrue(requests>1)
         reader.clear();assertEquals(0,reader.currentPosition());source.recycle()
     }
+    @Test fun ocrModeDrawsReflowedTextWithRealFont(){
+        val reader=ContinuousReaderView(org.robolectric.RuntimeEnvironment.getApplication());reader.measure(View.MeasureSpec.makeMeasureSpec(1080,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(1700,View.MeasureSpec.EXACTLY));reader.layout(0,0,1080,1700)
+        reader.setDocument(listOf(Zone(1,Box(0f,0f,1f,1f),Kind.TEXT)),600,2600)
+        reader.showOcr(mapOf(1 to "Le plaisir de lire commence par un écran confortable. Le texte reconnu utilise une vraie police, et revient automatiquement à la ligne. Les accents restent présents : été, où, français.\n\n".repeat(10)))
+        snapshot(reader,"ocr-real-font");reader.zoomBy(1.1f);snapshot(reader,"ocr-larger-font");reader.clear()
+    }
     private fun snapshot(v:View,name:String){val b=Bitmap.createBitmap(v.width,v.height,Bitmap.Config.ARGB_8888);v.draw(Canvas(b));val out=File("build/ui-snapshots").apply{mkdirs()};File(out,"$name.png").outputStream().use{b.compress(Bitmap.CompressFormat.PNG,100,it)};b.recycle()}
     private fun findCanvas(v:View):PageCanvas?{if(v is PageCanvas)return v;if(v is ViewGroup)for(i in 0 until v.childCount)findCanvas(v.getChildAt(i))?.let{return it};return null}
 }
