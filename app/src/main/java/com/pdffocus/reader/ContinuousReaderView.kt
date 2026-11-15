@@ -12,8 +12,8 @@ class ContinuousReaderView(context:Context):View(context){
     var onProgress:((Int,Int)->Unit)?=null
     private var bands=listOf<ReadBand>();private var pw=1;private var ph=1
     private var tiles=listOf<Tile>();private var totalHeight=0f;private var offset=0f;private var magnification=1f
-    private val bitmaps=object:android.util.LruCache<Int,Bitmap>(24*1024*1024){override fun sizeOf(key:Int,value:Bitmap)=value.byteCount;override fun entryRemoved(evicted:Boolean,key:Int,old:Bitmap,new:Bitmap?){if(old!==new)old.recycle()}}
-    private val pending=mutableSetOf<Int>();private val paint=Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+    private val bitmaps=object:android.util.LruCache<Int,Bitmap>(32*1024*1024){override fun sizeOf(key:Int,value:Bitmap)=value.byteCount;override fun entryRemoved(evicted:Boolean,key:Int,old:Bitmap,new:Bitmap?){if(old!==new)old.recycle()}}
+    private val pending=mutableSetOf<Int>();private val failed=mutableSetOf<Int>();private val paint=Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     private val scroller=OverScroller(context);private val density=resources.displayMetrics.density
     private var revision=0
     private var horizontal=0f
@@ -25,20 +25,22 @@ class ContinuousReaderView(context:Context):View(context){
     })
     init{setBackgroundColor(Color.rgb(245,243,240));isFocusable=true;contentDescription="Lecture continue. Glissez verticalement pour lire les blocs dans votre ordre."}
     fun setDocument(zones:List<Zone>,pageWidth:Int,pageHeight:Int,position:Int=0){clear();bands=ContinuousLayout.bands(zones);pw=pageWidth;ph=pageHeight;offset=position.toFloat();rebuild()}
-    fun zoomBy(f:Float){val fraction=if(totalHeight>0)offset/totalHeight else 0f;magnification=(magnification*f).coerceIn(1f,2f);rebuild();move(fraction*totalHeight)}
-    fun clear(){revision++;pending.clear();bitmaps.evictAll();tiles=emptyList();bands=emptyList();scroller.forceFinished(true);invalidate()}
-    fun accept(tile:Tile,expected:Int,bitmap:Bitmap?){if(expected!=revision||tiles.none{it.key==tile.key}){bitmap?.recycle();return};pending.remove(tile.key);if(bitmap!=null)bitmaps.put(tile.key,bitmap);invalidate()}
+    fun zoomBy(f:Float){val fraction=if(totalHeight>0)offset/totalHeight else 0f;magnification=(magnification*f).coerceIn(1f,2f);val limit=max(0f,(width*magnification-width)/2);horizontal=horizontal.coerceIn(-limit,limit);rebuild();move(fraction*totalHeight)}
+    fun clear(){revision++;pending.clear();failed.clear();bitmaps.evictAll();tiles=emptyList();bands=emptyList();offset=0f;horizontal=0f;magnification=1f;totalHeight=0f;scroller.forceFinished(true);invalidate()}
+    fun accept(tile:Tile,expected:Int,bitmap:Bitmap?){if(expected!=revision||tiles.none{it.key==tile.key}){bitmap?.recycle();return};pending.remove(tile.key);if(bitmap!=null)bitmaps.put(tile.key,bitmap)else failed.add(tile.key);invalidate()}
     fun currentPosition()=offset.roundToInt()
     override fun onSizeChanged(w:Int,h:Int,oldw:Int,oldh:Int){super.onSizeChanged(w,h,oldw,oldh);if(w>0&&h>0)rebuild()}
     private fun rebuild(){
-        revision++;pending.clear();bitmaps.evictAll();if(width<=0)return
+        revision++;pending.clear();failed.clear();bitmaps.evictAll();if(width<=0)return
         val out=mutableListOf<Tile>();var y=0f;var last=-1
         for(b in bands){
             if(b.ordinal!=last){if(last>=0)y+=12*density;last=b.ordinal}
             var scale=(width-16*density)/(b.original.width*pw)*if(b.kind==Kind.TEXT)magnification else 1f
             if(b.kind==Kind.IMAGE)scale=min(scale,max(300f,height*.9f)/(b.original.height*ph))
             val bandHeight=(b.bottom-b.top)*ph*scale;val fullWidth=b.original.width*pw*scale;val left=(width-fullWidth)/2
-            val pieces=max(1,ceil(bandHeight/900).toInt())
+            // Keep each bitmap below about 2 MiB, even with text zoom.
+            val tileHeight=min(900f,max(64f,2f*1024*1024/(4*max(1f,fullWidth))))
+            val pieces=max(1,ceil(bandHeight/tileHeight).toInt())
             for(i in 0 until pieces){val t=b.top+(b.bottom-b.top)*i/pieces;val bottom=b.top+(b.bottom-b.top)*(i+1)/pieces
                 for(p in b.pieces){val rect=RectF(left+(p.left-b.original.left)*pw*scale,y+(t-b.top)*ph*scale,left+(p.right-b.original.left)*pw*scale,y+(bottom-b.top)*ph*scale);out+=Tile(out.size,Box(p.left,t,p.right,bottom),rect,b.ordinal)}
             }
@@ -53,7 +55,8 @@ class ContinuousReaderView(context:Context):View(context){
         // Ask nearest visible tiles first; never queue a whole newspaper article.
         for(tile in wanted.sortedBy{abs(it.rect.centerY()-(offset+height*.5f))}){
             if(tile.rect.bottom>=offset&&tile.rect.top<=offset+height){paint.color=Color.WHITE;c.drawRect(tile.rect,paint);val image=bitmaps.get(tile.key);if(image!=null&&!image.isRecycled)c.drawBitmap(image,null,tile.rect,paint)}
-            if(bitmaps.get(tile.key)==null&&pending.add(tile.key))onRequest?.invoke(tile,revision)
+            if(tile.key in failed&&tile.rect.bottom>=offset&&tile.rect.top<=offset+height){paint.color=Color.DKGRAY;paint.textSize=14*density;c.drawText("Rendu indisponible · revenez à la page",tile.rect.left+8*density,tile.rect.top+24*density,paint)}
+            if(tile.key !in failed&&bitmaps.get(tile.key)==null&&pending.add(tile.key))onRequest?.invoke(tile,revision)
         }
         c.restore()
     }

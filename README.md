@@ -5,8 +5,9 @@ Prototype Android natif pour lire un PDF par zones, sans compte ni service dista
 1. Ouvrir un PDF ou utiliser l'exemple fictif intégré.
 2. L'analyse locale propose des blocs de texte et d'image.
 3. Toucher les blocs dans l'ordre souhaité. Les blocs choisis se numérotent.
-4. Appuyer sur **Lire** : le texte est cadré à la largeur de l'écran et parcouru par portions qui se chevauchent ; les images s'affichent entières.
-5. Revenir à la page ou corriger les zones par appui long. Ajouter un bloc en traçant un rectangle ; diviser ou fusionner les cadres si nécessaire.
+4. Appuyer sur **Lire** : les blocs s'enchaînent dans un ruban à faire défiler au doigt. Le texte est cadré à la largeur de l'écran ; les images s'affichent entières. Les surfaces communes à plusieurs blocs sélectionnés ne sont affichées qu'une fois.
+5. Les boutons de page et le choix du numéro restent disponibles pendant la détection locale.
+6. Revenir à la page ou corriger les zones par appui long. Ajouter un bloc en traçant un rectangle ; diviser ou fusionner les cadres si nécessaire.
 
 ## État : alpha, pas une application finale
 
@@ -39,9 +40,9 @@ Les travaux sont proposés en branche et pull request. Pas de publication boutiq
 ## Tests
 
 - Ordre choisi, retrait/renumérotation, zones imbriquées.
-- Couverture continue des portions de texte, chevauchement, rotation et images entières.
+- Couverture continue des lignes, conservation du bas des caractères, soustraction des zones communes et images entières.
 - Reprise du parcours et isolation de la sauvegarde entre documents.
-- Tests d'instrumentation Android sur document synthétique : OCR embarqué, ouverture de PDF, sélection et lecture. Captures conservées avec les résultats CI.
+- Tests d'instrumentation Android sur document synthétique : OCR embarqué, ouverture de PDF, sélection, défilement continu et changement de page pendant une détection bloquée. Captures conservées avec les résultats CI.
 
 ## Dépendances
 
