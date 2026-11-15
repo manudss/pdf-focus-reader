@@ -35,7 +35,15 @@ class PageCanvas(context:Context):View(context) {
     override fun onSizeChanged(w:Int,h:Int,oldw:Int,oldh:Int){super.onSizeChanged(w,h,oldw,oldh);if(w>0&&h>0&&(w!=oldw||h!=oldh))post{onViewportReady?.invoke()}}
     override fun onDraw(canvas:Canvas){
         super.onDraw(canvas)
-        val b=image?:return
+        val b=image
+        if(b==null){
+            paint.style=Paint.Style.FILL;paint.color=Color.rgb(37,31,33);paint.textAlign=Paint.Align.CENTER;paint.typeface=Typeface.create("sans-serif",Typeface.BOLD);paint.textSize=21*density
+            canvas.drawText("Votre journal,",width/2f,height/2f-55*density,paint)
+            canvas.drawText("à votre rythme.",width/2f,height/2f-27*density,paint)
+            paint.typeface=Typeface.create("sans-serif",Typeface.NORMAL);paint.textSize=14*density;paint.color=Color.rgb(90,85,85)
+            for((i,line)in listOf("Ouvrez une page.","Touchez vos blocs dans l'ordre.","Lisez sans déplacer la page.").withIndex())canvas.drawText(line,width/2f,height/2f+12*density+i*24*density,paint)
+            paint.textAlign=Paint.Align.LEFT;return
+        }
         if(b.isRecycled)return
         val base=min(width.toFloat()/b.width,height.toFloat()/b.height)
         val s=base*zoom
