@@ -3,6 +3,7 @@ import android.graphics.*
 import android.view.*
 import android.widget.*
 import org.junit.Test
+import org.junit.Assert.*
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
@@ -26,6 +27,17 @@ class NativeUiSnapshotTest {
         page.image=image;page.zones=listOf(Zone(1,Box(.04f,.08f,.46f,.72f),Kind.TEXT),Zone(2,Box(.52f,.08f,.96f,.72f),Kind.TEXT),Zone(3,Box(.04f,.75f,.96f,.95f),Kind.IMAGE));page.selection=listOf(2,1,3)
         snapshot(root,"native-canvas-fixture")
         controller.pause().stop().destroy()
+    }
+    @Test fun pictureCandidatesExcludeRecognizedText(){
+        val context=org.robolectric.RuntimeEnvironment.getApplication()
+        val b=Bitmap.createBitmap(400,600,Bitmap.Config.ARGB_8888);b.eraseColor(Color.WHITE)
+        val random=java.util.Random(7)
+        for(y in 100 until 320)for(x in 20 until 380)if(x<170||x>210)b.setPixel(x,y,Color.rgb(30+random.nextInt(160),30+random.nextInt(160),30+random.nextInt(160)))
+        val text=Box(.04f,.15f,.44f,.55f)
+        val boxes=ZoneDetector(context).pictureCandidates(b,listOf(text)){false}
+        assertTrue(boxes.any{it.left>.45f})
+        assertTrue(boxes.none{it.intersect(text)>.1f*it.area})
+        b.recycle()
     }
     private fun snapshot(v:View,name:String){val b=Bitmap.createBitmap(v.width,v.height,Bitmap.Config.ARGB_8888);v.draw(Canvas(b));val out=File("build/ui-snapshots").apply{mkdirs()};File(out,"$name.png").outputStream().use{b.compress(Bitmap.CompressFormat.PNG,100,it)};b.recycle()}
     private fun findCanvas(v:View):PageCanvas?{if(v is PageCanvas)return v;if(v is ViewGroup)for(i in 0 until v.childCount)findCanvas(v.getChildAt(i))?.let{return it};return null}

@@ -51,7 +51,7 @@ class ZoneDetector(private val context:Context) {
         }finally{api.recycle()}
     }
     /** Candidate heuristic, not semantic article or image recognition. */
-    private fun pictureCandidates(bitmap:Bitmap,text:List<Box>,cancelled:()->Boolean):List<Box> {
+    internal fun pictureCandidates(bitmap:Bitmap,text:List<Box>,cancelled:()->Boolean):List<Box> {
         val cols=64;val rows=max(1,(bitmap.height.toFloat()/bitmap.width*cols).toInt())
         val small=Bitmap.createScaledBitmap(bitmap,cols*4,rows*4,true)
         try {
@@ -65,7 +65,9 @@ class ZoneDetector(private val context:Context) {
                     if(l<215)dark++
                     if(maxOf(r,g,b)-minOf(r,g,b)>22)colored++
                 }
-                grid[y*cols+x]=(dark>=10&&hi-lo>30)||(colored>=7&&dark>=6)
+                // Text can connect a photo to a nearby column or resemble a textured image.
+                val inText=text.any{it.contains((x+.5f)/cols,(y+.5f)/rows)}
+                grid[y*cols+x]=!inText&&((dark>=10&&hi-lo>30)||(colored>=7&&dark>=6))
             }
             val seen=BooleanArray(grid.size);val out=mutableListOf<Box>()
             for(start in grid.indices){
@@ -80,7 +82,7 @@ class ZoneDetector(private val context:Context) {
                 val b=Box(x0.toFloat()/cols,y0.toFloat()/rows,(x1+1f)/cols,(y1+1f)/rows).pad(.004f)
                 if(b.width>.09&&b.height>.045&&b.area>.012&&b.area<.65&&count>16)out+=b
             }
-            return out.filter{b->text.none{t->t.intersect(b)>.92f*b.area&&t.area<1.1f*b.area}}
+            return out.filter{b->text.none{t->t.intersect(b)>.92f*b.area}}
         }finally{if(small!==bitmap)small.recycle()}
     }
 }
