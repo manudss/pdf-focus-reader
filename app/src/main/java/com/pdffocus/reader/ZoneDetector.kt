@@ -46,7 +46,7 @@ class ZoneDetector(private val context:Context) {
             }finally{lineIterator.delete()}
             val withLines=text.map{z->z.copy(lineBottoms=lines.filter{(b,_)->z.box.intersect(b)>b.area*.8f}.map{it.second}.sorted())}
             val pictures=pictureCandidates(bitmap,text.map{it.box},cancelled)
-            return (withLines+pictures.mapIndexed{i,b->Zone(text.size+i+1,b,Kind.IMAGE)})
+            return (TextGrouping.merge(withLines)+pictures.mapIndexed{i,b->Zone(text.size+i+1,b,Kind.IMAGE)})
                 .sortedWith(compareBy<Zone>{(it.box.top*35).toInt()}.thenBy{it.box.left}).mapIndexed{i,z->z.copy(id=i+1)}
         }finally{api.recycle()}
     }

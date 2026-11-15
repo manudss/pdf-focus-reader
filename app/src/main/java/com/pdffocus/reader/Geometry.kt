@@ -39,3 +39,29 @@ object ReadingLayout {
     fun toggle(ids:List<Int>,id:Int)=if(id in ids)ids.filterNot{it==id} else ids+id
     fun smallestHit(zones:List<Zone>,x:Float,y:Float)=zones.filter{it.box.contains(x,y)}.minByOrNull{it.box.area}
 }
+
+/** Join nearby fragments within a column, never across the page's inferred column gutter. */
+object TextGrouping {
+    fun merge(input:List<Zone>):List<Zone> {
+        val widths=input.filter{it.kind==Kind.TEXT&&it.box.height>.035f&&it.box.width>.04f}.map{it.box.width}.sorted()
+        if(widths.isEmpty())return input
+        val maxWidth=(widths[widths.size/2]*1.3f).coerceIn(.08f,.46f)
+        val out=input.toMutableList()
+        var changed=true
+        while(changed){
+            changed=false
+            loop@for(i in out.indices)for(j in i+1 until out.size){
+                val a=out[i];val b=out[j]
+                if(a.kind!=Kind.TEXT||b.kind!=Kind.TEXT)continue
+                val x=a.box;val y=b.box;val union=x.union(y)
+                val contained=x.intersect(y)>.92f*minOf(x.area,y.area)
+                val overlap=(minOf(x.right,y.right)-maxOf(x.left,y.left)).coerceAtLeast(0f)
+                val gap=maxOf(x.top,y.top)-minOf(x.bottom,y.bottom)
+                if(contained||(union.width<=maxWidth&&gap>=-.004f&&gap<=.014f&&overlap>.85f*minOf(x.width,y.width))){
+                    out[i]=a.copy(box=union,lineBottoms=(a.lineBottoms+b.lineBottoms).distinct().sorted());out.removeAt(j);changed=true;break@loop
+                }
+            }
+        }
+        return out.sortedWith(compareBy<Zone>{(it.box.top*35).toInt()}.thenBy{it.box.left})
+    }
+}
