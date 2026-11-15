@@ -41,10 +41,13 @@ class ReaderDeviceTest {
             screenshot(scenario,"detected")
             scenario.onActivity{a->
                 val page=findCanvas(a.window.decorView)!!
-                val selected=page.zones.filter{it.kind==Kind.TEXT}.take(2)
+                val selected=page.zones.filter{it.kind==Kind.TEXT&&it.box.height>.1f}.take(2)
                 assertTrue(selected.isNotEmpty())
                 selected.reversed().forEach{page.onZoneTap!!.invoke(it)}
                 assertEquals(selected.reversed().map{it.id},page.selection)
+            }
+            screenshot(scenario,"selected")
+            scenario.onActivity{a->
                 findButton(a.window.decorView,"Lire (")!!.performClick()
             }
             Thread.sleep(1500);instrumentation.waitForIdleSync();screenshot(scenario,"reader")
