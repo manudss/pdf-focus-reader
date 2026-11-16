@@ -66,6 +66,7 @@ class ReaderDeviceTest {
             ready=false;val finish=System.currentTimeMillis()+90000
             while(System.currentTimeMillis()<finish){scenario.onActivity{a->ready=MainActivity::class.java.getDeclaredField("pageReady").apply{isAccessible=true}.getBoolean(a)&&findCanvas(a.window.decorView)!!.zones.size==6};if(ready)break;Thread.sleep(100)}
             assertTrue("The full detection path must propose six comic panels",ready)
+            clearAutoProposal(scenario)
             scenario.onActivity{a->val page=findCanvas(a.window.decorView)!!;assertTrue(page.zones.all{it.kind==Kind.IMAGE});assertTrue(page.zones.all{it.box.height>.25f});assertTrue(page.selection.isEmpty());page.zones.forEach{page.onZoneTap!!.invoke(it)};assertEquals((1..6).toList(),page.selection)}
             screenshot(scenario,"comic-six-panels")
             scenario.onActivity{a->findButton(a.window.decorView,"Lire (")!!.performClick();findButton(a.window.decorView,"Original")!!.performClick()}
@@ -91,6 +92,7 @@ class ReaderDeviceTest {
             var ready=false;val end=System.currentTimeMillis()+90000
             while(System.currentTimeMillis()<end){scenario.onActivity{a->ready=MainActivity::class.java.getDeclaredField("pageReady").apply{isAccessible=true}.getBoolean(a)};if(ready)break;Thread.sleep(100)}
             assertTrue("Synthetic comic detection must complete",ready)
+            clearAutoProposal(scenario)
             scenario.onActivity{a->val view=findCanvas(a.window.decorView)!!
                 assertEquals("Six panels, not caption fragments",6,view.zones.size);assertTrue(view.zones.all{it.kind==Kind.IMAGE});assertTrue(view.selection.isEmpty())
                 for(b in expected)assertTrue("Caption and drawing must be in the same whole panel",view.zones.any{it.box.intersect(b)/b.area>.98f})
@@ -112,6 +114,7 @@ class ReaderDeviceTest {
             fun captureDialog(name:String){i.waitForIdleSync();scenario.onActivity{a->val dialog=field(a,"groupDialog")as android.app.Dialog;val root=dialog.window!!.decorView;val b=Bitmap.createBitmap(root.width,root.height,Bitmap.Config.ARGB_8888);root.draw(Canvas(b));File(File(c.getExternalFilesDir(null),"screenshots").apply{mkdirs()},"$name.png").outputStream().use{b.compress(Bitmap.CompressFormat.PNG,100,it)};b.recycle()}}
             fun checks(v:View):List<CheckBox>{if(v is CheckBox)return listOf(v);if(v is ViewGroup)return (0 until v.childCount).flatMap{checks(v.getChildAt(it))};return emptyList()}
             awaitReady();scenario.onActivity{a->call(a,"loadPage",1,false)};awaitReady()
+            clearAutoProposal(scenario)
             var original=listOf<Zone>();var originalOrder=listOf<Int>();var groups=listOf<AutoGrouping.Group>()
             scenario.onActivity{a->val canvas=findCanvas(a.window.decorView)!!;canvas.zones.forEach{canvas.onZoneTap!!.invoke(it)};original=canvas.zones;originalOrder=canvas.selection;groups=AutoGrouping.propose(original);File(File(c.getExternalFilesDir(null),"screenshots").apply{mkdirs()},"tutorial-proposals.txt").writeText(original.joinToString("\n")+"\nGROUPS\n"+groups.joinToString("\n"));assertTrue("Unchanged tutorial must group header and its four title/body pairs: $groups",groups.size>=5);call(a,"showAutoGroups")}
             captureDialog("grouping-tutorial-preview")
@@ -123,6 +126,7 @@ class ReaderDeviceTest {
             scenario.onActivity{a->findButton(a.window.decorView,"Nettoyé")!!.performClick()};Thread.sleep(1300);screenshot(scenario,"faithful-tutorial-cleaned")
             scenario.onActivity{a->findButton(a.window.decorView,"Texte OCR")!!.performClick()};Thread.sleep(12000);screenshot(scenario,"harmonized-tutorial-ocr")
             scenario.onActivity{a->call(a,"exitReader");call(a,"loadPage",0,false)};awaitReady()
+            clearAutoProposal(scenario)
             scenario.onActivity{a->val canvas=findCanvas(a.window.decorView)!!;canvas.zones.forEach{canvas.onZoneTap!!.invoke(it)};if(AutoGrouping.propose(canvas.zones).isNotEmpty()){call(a,"showAutoGroups");val d=field(a,"groupDialog")as android.app.Dialog;findButton(d.window!!.decorView,"Appliquer")!!.performClick()};findButton(a.window.decorView,"Lire (")!!.performClick();findButton(a.window.decorView,"Original")!!.performClick()};Thread.sleep(1500);screenshot(scenario,"faithful-cover-original")
         }
     }
@@ -415,6 +419,7 @@ class ReaderDeviceTest {
             var ready=false;val end=System.currentTimeMillis()+90000
             while(System.currentTimeMillis()<end){scenario.onActivity{a->ready=MainActivity::class.java.getDeclaredField("pageReady").apply{isAccessible=true}.getBoolean(a)&&findCanvas(a.window.decorView)!!.zones.isNotEmpty()};if(ready)break;Thread.sleep(100)}
             assertTrue("Magazine fixture must finish native detection",ready)
+            clearAutoProposal(scenario)
             scenario.onActivity{a->
                 val canvas=findCanvas(a.window.decorView)!!
                 val textZones=canvas.zones.filter{it.kind==Kind.TEXT}
@@ -467,6 +472,7 @@ class ReaderDeviceTest {
         var ready=false;val end=System.currentTimeMillis()+90000
         while(System.currentTimeMillis()<end){scenario.onActivity{a->ready=MainActivity::class.java.getDeclaredField("pageReady").apply{isAccessible=true}.getBoolean(a)&&findCanvas(a.window.decorView)!!.zones.isNotEmpty()};if(ready)break;Thread.sleep(100)}
         assertTrue("Fixture must finish native detection",ready)
+        clearAutoProposal(scenario)
     }
     private fun startReadingFirstBlock(scenario:ActivityScenario<MainActivity>){
         scenario.onActivity{a->
@@ -663,6 +669,12 @@ class ReaderDeviceTest {
             twoFingerEvent(MotionEvent.ACTION_POINTER_UP or (1 shl 8),bottom.x-40,bottom.y,bottom.x+40,bottom.y)
             Thread.sleep(300)
             scenario.onActivity{a->assertEquals("Second pass must remove remaining chosen blocks without re-adding",emptyList<Int>(),get(a,"order"))}
+        }
+    }
+    private fun clearAutoProposal(scenario:ActivityScenario<MainActivity>){
+        scenario.onActivity{a->
+            fun walk(v:View):Boolean{if(v.contentDescription=="Tout désélectionner"){v.performClick();return true};if(v is ViewGroup)for(j in 0 until v.childCount)if(walk(v.getChildAt(j)))return true;return false}
+            walk(a.window.decorView)
         }
     }
     private fun findText(v:View,value:String):Boolean{if(v is TextView&&v.text.toString().contains(value))return true;if(v is ViewGroup)for(j in 0 until v.childCount)if(findText(v.getChildAt(j),value))return true;return false}
