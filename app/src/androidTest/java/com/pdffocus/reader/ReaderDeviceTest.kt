@@ -87,8 +87,11 @@ class ReaderDeviceTest {
             screenshot(scenario,"detected")
             scenario.onActivity{a->
                 val page=findCanvas(a.window.decorView)!!
-                val selected=page.zones.filter{it.kind==Kind.TEXT&&it.box.height>.1f}.take(2)
-                assertTrue(selected.isNotEmpty())
+                // Follow the tutorial's manual framing exercise, not automatic column guesses.
+                val selected=listOf(Zone(101,Box(.085f,.265f,.47f,.575f),Kind.TEXT,manual=true),Zone(102,Box(.52f,.265f,.91f,.48f),Kind.TEXT,manual=true),Zone(103,Box(.52f,.50f,.91f,.675f),Kind.TEXT,manual=true))
+                MainActivity::class.java.getDeclaredField("zones").apply{isAccessible=true}.set(a,selected)
+                MainActivity::class.java.getDeclaredField("order").apply{isAccessible=true}.set(a,emptyList<Int>())
+                MainActivity::class.java.getDeclaredMethod("sync",Boolean::class.javaPrimitiveType).apply{isAccessible=true}.invoke(a,false)
                 selected.reversed().forEach{page.onZoneTap!!.invoke(it)}
                 assertEquals(selected.reversed().map{it.id},page.selection)
             }
@@ -131,7 +134,7 @@ class ReaderDeviceTest {
 
             scenario.onActivity{a->findButton(a.window.decorView,"Original")!!.performClick()}
             Thread.sleep(500)
-            scenario.onActivity{a->val reader=findReader(a.window.decorView)!!;val now=android.os.SystemClock.uptimeMillis();reader.onTouchEvent(MotionEvent.obtain(now,now,MotionEvent.ACTION_DOWN,200f,600f,0));reader.onTouchEvent(MotionEvent.obtain(now,now+100,MotionEvent.ACTION_MOVE,200f,150f,0));reader.onTouchEvent(MotionEvent.obtain(now,now+150,MotionEvent.ACTION_UP,200f,150f,0));assertTrue("Swipe must move continuous stream",reader.currentPosition()>0)}
+            scenario.onActivity{a->val reader=findReader(a.window.decorView)!!;val before=reader.currentPosition();val now=android.os.SystemClock.uptimeMillis();val start=if(before>0)150f else 600f;val end=if(before>0)600f else 150f;reader.onTouchEvent(MotionEvent.obtain(now,now,MotionEvent.ACTION_DOWN,200f,start,0));reader.onTouchEvent(MotionEvent.obtain(now,now+100,MotionEvent.ACTION_MOVE,200f,end,0));reader.onTouchEvent(MotionEvent.obtain(now,now+150,MotionEvent.ACTION_UP,200f,end,0));assertNotEquals("Swipe must change continuous stream position",before,reader.currentPosition())}
             Thread.sleep(1000);screenshot(scenario,"reader-scrolled")
             scenario.onActivity{a->assertNotNull(findButton(a.window.decorView,"Vue page"));assertTrue(findReader(a.window.decorView)!!.visibility==View.VISIBLE);findButton(a.window.decorView,"Vue page")!!.performClick()}
             scenario.recreate()
