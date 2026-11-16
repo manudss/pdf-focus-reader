@@ -404,7 +404,8 @@ class MainActivity:Activity() {
                         val reading=if(raster!=null)try{second?.recognize(raster,box,cancelled)}catch(_:Exception){null}finally{raster.recycle()}else null
                         if(reading!=null){val item=OcrEvidence(reading.engine,reading.text,reading.source,reading.confidence);evidence+=item;val choice=OcrConsensus.choose(line.words,item,spelling);choice.words}else line.words
                     }
-                    main.post{if(!cancelled()&&!isDestroyed){repair=corrector;secondChunks[chunk.key]=evidence;improvedChunks[chunk.key]=value;displayOcr()}}
+                    val protected=OcrBaseline.protectHyphenFragments(localRaw[chunk.key].orEmpty(),value,spelling)
+                    main.post{if(!cancelled()&&!isDestroyed){repair=corrector;secondChunks[chunk.key]=evidence;improvedChunks[chunk.key]=protected;displayOcr()}}
                 }
                 if(improving){
                     if(needed.all{it.key in localRaw})engine.recognizeChunks(needed,image,true,cancelled,::publishImproved,source)
