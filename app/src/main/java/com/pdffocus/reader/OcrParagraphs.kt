@@ -2,7 +2,7 @@ package com.pdffocus.reader
 import kotlin.math.*
 /** Reconstruct source lines, not display-width line breaks. Geometry stays in page coordinates. */
 object OcrParagraphs {
- data class Line(val box:Box,val words:List<OcrWord>){val text get()=words.joinToString(" "){it.text.trim().replace(Regex("[\\s\\u00a0\\u202f]+")," ")}}
+ data class Line(val box:Box,val words:List<OcrWord>){val text get()=words.joinToString(" "){it.text.trim().replace(Regex("[\\s\\p{Zs}\\u200b]+")," ")}}
  fun lines(words:List<OcrWord>):List<Line>{
   val groups=mutableListOf<MutableList<OcrWord>>()
   for(w in words.filter{it.text.isNotBlank()}.distinctBy{it.box to it.text}.sortedWith(compareBy({it.line.top},{it.box.left}))){
@@ -29,7 +29,12 @@ object OcrParagraphs {
    val paragraph=separation>max(height*.85f,gap+height*.65f)||
        (indent>max(height*.85f,width*.04f)&&previousIndent<indent-height*.55f&&separation> -height*.15f)||listStart.containsMatchIn(value)
    val last=Regex("\\S+$").find(out)?.value.orEmpty();val first=value.substringBefore(' ')
-   val isLineWrap=!paragraph&&p.box.right>=left+width*.72f&&separation<max(height*1.3f,gap+height*.8f)
+   // A terminal hyphen followed by a wide blank is also a wrap candidate.
+   // The dictionary must still validate the join/compound; whitespace is not proof.
+   val trailingBlank=left+width-p.box.right
+   val terminalHyphen=last.endsWith('-')&&last.dropLast(1).any{it.isLetter()}
+   val wrapEdge=p.box.right>=left+width*.72f||(terminalHyphen&&trailingBlank>height*1.2f)
+   val isLineWrap=!paragraph&&wrapEdge&&separation<max(height*1.3f,gap+height*.8f)
    val joint=if(isLineWrap)join(last,first)else null
    if(joint!=null){out.setLength(out.length-last.length);out.append(joint).append(value.drop(first.length))}else out.append(if(paragraph)"\n\n" else " ").append(value)
    previous=line

@@ -1,11 +1,12 @@
 package com.pdffocus.reader
 import java.text.Normalizer
 /** Local word-list suggestions, not grammar checking. Never selects or rewrites a word. */
-class LocalSpelling(words:Collection<String>) {
+class LocalSpelling(words:Collection<String>):OcrSpelling {
+ override fun valid(word:String)=word in lex
  private val lex=words.filter{it.length in 3..32&&it.first().isLowerCase()}.toHashSet()
  private fun bare(s:String)=Normalizer.normalize(s,Normalizer.Form.NFD).replace(Regex("\\p{M}"),"")
  private val accents=lex.groupBy{bare(it)}.filterValues{it.size<16}
- fun suggestions(word:String,limit:Int=5):List<String>{
+ override fun suggestions(word:String,limit:Int):List<String>{
   if(word.length !in 4..28||!word.first().isLowerCase()||word.any{!it.isLetter()}||word in lex)return emptyList()
   val out=linkedSetOf<String>();fun offer(s:String){if(s!=word&&s in lex)out+=s}
   accents[bare(word)].orEmpty().sorted().forEach{offer(it)}

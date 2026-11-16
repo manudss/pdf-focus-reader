@@ -4,11 +4,11 @@ import java.text.Normalizer
 import kotlin.math.*
 
 /** Local, bounded repairs. A dictionary hit alone is never a reason to rewrite a word. */
-class OcrEnhancer(words:Collection<String>) {
+class OcrEnhancer(words:Collection<String>,private val independentlyValid:((String)->Boolean)?=null) {
  private fun norm(s:String)=s.replace('’','\'')
  private val lex=words.flatMap{listOf(norm(it),norm(it).lowercase())}.toHashSet()
  private fun core(s:String)=norm(s.trim{!it.isLetter()&&it!='\''&&it!='’'})
- private fun valid(s:String):Boolean {val c=core(s);return c in lex||(Regex("^(l|d|j|n|m|t|s|c|qu)'").containsMatchIn(c)&&c.substringAfter('\'') in lex)}
+ private fun valid(s:String):Boolean {val c=core(s);return c in lex||independentlyValid?.invoke(c)==true||(Regex("^(l|d|j|n|m|t|s|c|qu)'").containsMatchIn(c)&&c.substringAfter('\'') in lex)}
  private fun unaccent(s:String)=Normalizer.normalize(s,Normalizer.Form.NFD).replace(Regex("\\p{M}"),"")
  private fun distance(a:String,b:String):Int {var prev=IntArray(b.length+1){it};for((i,c)in a.withIndex()){val next=IntArray(b.length+1);next[0]=i+1;for((j,d)in b.withIndex())next[j+1]=minOf(next[j]+1,prev[j+1]+1,prev[j]+if(c==d)0 else 1);prev=next};return prev.last()}
  fun improve(raw:List<OcrWord>,better:List<OcrWord>):List<OcrWord> = raw.flatMap {w->
@@ -31,7 +31,7 @@ class OcrEnhancer(words:Collection<String>) {
   if(a.isEmpty()||b.isEmpty())return null
   val plain=core(a+b);val compound=core(a+"-"+b)
   // Prefer an attested real compound; avoid inventing or de-hyphenating names.
-  if(compound in lex)return a+"-"+right
+  if(compound in lex||independentlyValid?.invoke(compound)==true)return a+"-"+right
   if(valid(plain)&&!b.first().isUpperCase())return a+right
   // Unknown compounds and names stay unchanged; source geometry alone is not proof.
   return null

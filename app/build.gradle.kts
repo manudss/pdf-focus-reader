@@ -18,6 +18,7 @@ android {
     testOptions { unitTests.isIncludeAndroidResources = true }
 }
 dependencies {
+    implementation("org.carrot2:morfologik-speller:2.1.9")
     implementation("com.microsoft.onnxruntime:onnxruntime-android:1.23.2")
     implementation("cz.adaptech.tesseract4android:tesseract4android:4.9.0")
     androidTestImplementation("androidx.test:runner:1.6.2")

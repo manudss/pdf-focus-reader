@@ -30,6 +30,15 @@ L'exemple est entièrement fictif. Aucun journal ou fichier personnel n'est incl
 - Deux moteurs qui s’accordent peuvent avoir tort. Les tests emploient des PDF fictifs et ne garantissent pas la qualité sur un journal particulier. Les mesures de temps sur émulateur ne sont pas celles d’un téléphone.
 - Le second moteur alourdit l’APK et consomme de la mémoire pendant l’OCR amélioré. Aucun téléchargement de modèle n’est nécessaire.
 
+## Améliorations OCR en préparation
+
+Code expérimental, pas une mise à jour installable publiée :
+- Correcteur orthographique indépendant : 476 104 formes françaises issues du lexique libre Grammalecte 7.7, interrogées par Morfologik. Il ne fait pas d'analyse grammaticale.
+- Plus de poids à Paddle lorsque sa lecture est attestée et la lecture Tesseract ne l'est pas, même si Tesseract se déclare confiant. Un mot déjà valide reste protégé. Les coupures/concaténations sont alignées sans décaler la suite. Les chiffres et les noms propres connus restent protégés.
+- Césures : tiret de fin de ligne avec grand blanc traité comme indice supplémentaire, sous contrôle de la géométrie et du dictionnaire. Les composés attestés gardent leur tiret. Espaces Unicode normalisés.
+- Le filtre Nettoyé reste une vue image. Les quatre lectures brut/nettoyé de Tesseract/Paddle font l'objet d'essais séparés, pas de quatre passes systématiques dans cette version du code.
+- Aucun changement d'identifiant ou de signature de livraison n'est prévu ici. Les APK de tests CI ne sont pas des mises à jour compatibles garanties.
+
 ## Confidentialité
 
 - Aucun compte, publicité, API distante ou permission Internet.

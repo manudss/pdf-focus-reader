@@ -2,3 +2,6 @@
 ced037562e8c80c13122dece28dd477d399af80911a28791a66a63ac1e3445ca  app/src/main/assets/tessdata/fra.traineddata
 
 b20bd37c168a570f583afbc8cd7925603890efbcdc000a59e22c269d160b5f5a  app/src/main/assets/paddle/latin-ppocrv5-mobile.onnx
+
+2d2131a4b69c4e00b45b583edc6460e57463a6ba9907dce81db3134ad857c7a7  app/src/main/assets/spelling/fr.info
+3de20bd5c0305286d22113df5e2da29f224a747c436302fc2f983ddefaea92c8  app/src/main/assets/spelling/fr.dict

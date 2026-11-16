@@ -12,5 +12,9 @@ class OcrParagraphsTest {
   assertEquals("porte- parole",repair.text(line("porte-",0f)+line("parole",.03f)))
   assertEquals("des bru-\n\ntalités",repair.text(line("des bru-",0f)+line("talités",.08f)))
  }
+ @Test fun terminalHyphenWithLargeBlankAndUnicodeSpaces(){
+  assertEquals("des brutalités et intimidation",repair.text(line("des bru-",0f,.1f,.42f)+line("talités et intimidation",.03f)))
+  assertEquals("Un texte lisible",OcrReview.whitespace("Un\u2009\u2009texte\u00a0\u202flisible"))
+ }
  @Test fun slightlyDifferentLineBoxesGroupAsOneLine(){val a=line("Un texte",0f);val b=line("sans doublon",.0004f,.5f,.9f);assertEquals(1,OcrParagraphs.lines(a+b).size)}
 }

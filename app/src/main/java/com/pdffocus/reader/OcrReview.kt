@@ -17,7 +17,7 @@ object OcrReview {
  private data class Token(val value:String,val start:Int,val end:Int)
  private fun tokens(s:String)=Regex("\\S+").findAll(s).map{Token(it.value,it.range.first,it.range.last+1)}.toList()
  /** Normalize runs, not French number spacing, paragraph boundaries or punctuation. */
- fun whitespace(s:String):String=s.replace("\r\n","\n").replace('\r','\n').split(Regex("\n[ \\t]*\n+")).joinToString("\n\n"){it.replace(Regex("[\\s\\u00a0\\u202f]+")," ").trim()}.trim()
+ fun whitespace(s:String):String=s.replace("\r\n","\n").replace('\r','\n').split(Regex("\n[ \\t]*\n+")).joinToString("\n\n"){it.replace(Regex("[\\s\\p{Zs}\\u200b]+")," ").trim()}.trim()
  /** Bounded token alignment retains insertions, deletions and many-to-one hyphen repairs. */
  fun compare(raw:String,corrected:String,source:Box):OcrReviewText {
   val a=tokens(raw);val b=tokens(corrected)

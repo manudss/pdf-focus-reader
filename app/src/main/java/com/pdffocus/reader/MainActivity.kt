@@ -67,7 +67,8 @@ class MainActivity:Activity() {
     private val green=Color.rgb(50,109,93);private val ink=Color.rgb(37,31,33)
     private fun dp(v:Int)=(v*resources.displayMetrics.density).roundToInt()
 
-    private fun loadRepair()=assets.open("tessdata_best/fra-words.txt").bufferedReader().use{OcrEnhancer(it.readLines())}
+    private val spelling by lazy { FrenchSpelling(applicationContext) }
+    private fun loadRepair()=OcrEnhancer(emptyList(),spelling::valid)
     override fun onCreate(savedInstanceState:Bundle?) {
         super.onCreate(savedInstanceState);store=SessionStore(this);cleanReading=getPreferences(0).getBoolean("cleanReading",true)
         val root=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setBackgroundColor(Color.rgb(250,249,246))}
@@ -384,7 +385,7 @@ class MainActivity:Activity() {
             var second:PaddleLineRecognizer?=null
             try{
                 val corrector=repair?:loadRepair()
-                val spelling=assets.open("tessdata_best/fra-words.txt").bufferedReader().use{LocalSpelling(it.readLines())}
+                val spelling=this@MainActivity.spelling
                 if(improving&&!cancelled())second=try{PaddleLineRecognizer(applicationContext)}catch(_:Exception){null}
                 main.post{if(!cancelled())repair=corrector}
                 val localRaw=rawSnapshot.toMutableMap()
@@ -401,7 +402,7 @@ class MainActivity:Activity() {
                         val box=line.box.pad(.0015f)
                         val raster=if(second!=null&&!cancelled())worker.submit<Bitmap?>{if(cancelled())null else document?.ocrRegion(targetPage,box)}.get()else null
                         val reading=if(raster!=null)try{second?.recognize(raster,box,cancelled)}catch(_:Exception){null}finally{raster.recycle()}else null
-                        if(reading!=null){val item=OcrEvidence(reading.engine,reading.text,reading.source,reading.confidence);evidence+=item;OcrConsensus.reconcile(line.words,item,spelling)}else line.words
+                        if(reading!=null){val item=OcrEvidence(reading.engine,reading.text,reading.source,reading.confidence);evidence+=item;val choice=OcrConsensus.choose(line.words,item,spelling);choice.words}else line.words
                     }
                     main.post{if(!cancelled()&&!isDestroyed){repair=corrector;secondChunks[chunk.key]=evidence;improvedChunks[chunk.key]=value;displayOcr()}}
                 }

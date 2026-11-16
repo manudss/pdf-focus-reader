@@ -14,6 +14,14 @@ import java.io.File
 
 @RunWith(AndroidJUnit4::class)
 class ReaderDeviceTest {
+    @Test fun independentFrenchDictionaryLoadsAndRepairsOffline(){
+        val context=InstrumentationRegistry.getInstrumentation().targetContext
+        val spelling=FrenchSpelling(context)
+        assertTrue(spelling.valid("commence"));assertTrue(spelling.valid("logements"));assertFalse(spelling.valid("comence"))
+        val box=Box(0f,0f,1f,.04f)
+        val words=listOf(OcrWord("comence",box,box,99f))
+        assertEquals("commence",OcrConsensus.reconcile(words,OcrEvidence("Paddle","commence",box,.99f),spelling).single().text)
+    }
     @Test fun bundledOcrWorksWithoutNetworkAndFindsSyntheticText(){
         val c=InstrumentationRegistry.getInstrumentation().targetContext
         c.assets.open("tessdata_best/fra-words.txt").bufferedReader().use{assertTrue("Packaged repair lexicon must be readable",it.readLines().size>10000)}
