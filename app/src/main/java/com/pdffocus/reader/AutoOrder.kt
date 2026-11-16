@@ -15,8 +15,8 @@ object AutoOrder {
     private const val SHORT_HEIGHT=.075f
     private fun overlap(l0:Float,r0:Float,l1:Float,r1:Float)=minOf(r0,r1)-maxOf(l0,l1)
 
-    /** Overlap-merge the band's blocks into columns, then read columns left to right, top-down. */
-    private fun columns(band:List<Zone>):List<Zone>{
+    /** Fallback for bands without clear columns: overlap-merge blocks, read left to right, top-down. */
+    private fun legacyColumns(band:List<Zone>):List<Zone>{
         val members=band.map{mutableListOf(it)}.toMutableList()
         val spans=band.map{it.box.left to it.box.right}.toMutableList()
         var merged=true
@@ -33,6 +33,38 @@ object AutoOrder {
         }
         val order=spans.indices.sortedBy{spans[it].first}
         return order.flatMap{members[it].sortedBy{z->z.box.top}}
+    }
+
+    /**
+     * Read the band column by column, left column first, top-down inside each column.
+     * Columns are anchored by the blocks that run through at least half of the band; short
+     * blocks (headings, line fragments, bridged lines) attach to the column their centre sits
+     * in. Chaining x-overlaps across every block is not used: a wide heading or a narrow
+     * full-height strip would glue neighbouring columns into one and interleave their text.
+     */
+    private fun columns(band:List<Zone>):List<Zone>{
+        if(band.size<2)return band.sortedBy{it.box.top}
+        val bandHeight=(band.maxOf{it.box.bottom}-band.minOf{it.box.top}).coerceAtLeast(.01f)
+        val spans=band.filter{it.box.bottom-it.box.top>=bandHeight*.5f}.map{it.box.left to it.box.right}.toMutableList()
+        if(spans.size<2)return legacyColumns(band)
+        // Detection often splits one column into stacked tall pieces: merge touching anchor spans.
+        var merged=true
+        while(merged){
+            merged=false
+            outer@for(i in spans.indices)for(j in i+1 until spans.size){
+                val a=spans[i];val b=spans[j]
+                val distance=maxOf(0f,maxOf(b.first-a.second,a.first-b.second))
+                if(distance<=.004f){spans[i]=minOf(a.first,b.first)to maxOf(a.second,b.second);spans.removeAt(j);merged=true;break@outer}
+            }
+        }
+        if(spans.size<2)return legacyColumns(band)
+        val columns=spans.sortedBy{it.first}.map{it to mutableListOf<Zone>()}
+        for(zone in band){
+            val center=(zone.box.left+zone.box.right)/2
+            val column=columns.firstOrNull{center>=it.first.first&&center<=it.first.second}?:columns.minByOrNull{abs(center-(it.first.first+it.first.second)/2)}!!
+            column.second+=zone
+        }
+        return columns.flatMap{it.second.sortedBy{zone->zone.box.top}}
     }
 
     fun propose(zones:List<Zone>):List<Int>{

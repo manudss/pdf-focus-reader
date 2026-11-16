@@ -55,6 +55,40 @@ class AutoOrderTest {
         assertEquals(listOf(1,2,3,4),proposal)
     }
 
+    @Test fun labelStripsDoNotInterleaveColumns(){
+        // Fictional magazine where detection split each column into a narrow full-height
+        // label strip and stacked text chunks, with a left-aligned title that is not wide
+        // enough to span the page. Chained overlap would glue title, strips and chunks of
+        // two columns into one pseudo-column and interleave them; columns must stay contiguous.
+        val zones=listOf(
+            zone(1,.0573f,.1235f,.4078f,.1785f),                          // left-aligned title, 35% wide
+            zone(2,.0557f,.1998f,.1284f,.9203f),zone(3,.1224f,.1998f,.3046f,.3457f),  // left strip + upper chunk
+            zone(4,.3557f,.1998f,.4332f,.9203f),zone(5,.4272f,.1998f,.6093f,.3457f),  // centre strip + upper chunk
+            zone(6,.6557f,.1998f,.7268f,.9203f),zone(7,.7264f,.1998f,.9117f,.9237f),  // right strip + text
+            zone(8,.1176f,.3098f,.3078f,.8137f),zone(9,.4224f,.3098f,.6125f,.8137f),  // middle chunks
+            zone(10,.1176f,.7778f,.3078f,.9237f),zone(11,.4224f,.7778f,.6125f,.9237f))// bottom chunks
+        assertEquals(listOf(1,2,3,8,10,4,5,9,11,6,7),AutoOrder.propose(zones))
+    }
+
+    @Test fun twoByTwoNewspaperReadsLeftColumnFirst(){
+        // Fictional two-page-column layout: title above two columns split mid-page.
+        val zones=listOf(
+            zone(1,.06f,.10f,.75f,.18f),
+            zone(2,.06f,.22f,.47f,.55f),zone(3,.53f,.22f,.94f,.55f),
+            zone(4,.06f,.60f,.47f,.93f),zone(5,.53f,.60f,.94f,.93f))
+        assertEquals(listOf(1,2,4,3,5),AutoOrder.propose(zones))
+    }
+
+    @Test fun indentedFragmentReadsWithItsColumn(){
+        // A short fragment flush left of its column's text must not become its own column.
+        val zones=listOf(
+            zone(1,.06f,.10f,.70f,.16f),
+            zone(2,.06f,.20f,.15f,.45f),zone(3,.16f,.20f,.33f,.90f),
+            zone(4,.40f,.20f,.67f,.90f))
+        val proposal=AutoOrder.propose(zones)
+        assertEquals(listOf(1,2,3,4),proposal)
+    }
+
     @Test fun imageStaysWithItsColumn(){
         val zones=listOf(
             zone(1,.06f,.12f,.82f,.16f),

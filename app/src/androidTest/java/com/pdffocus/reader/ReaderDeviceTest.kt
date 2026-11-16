@@ -586,6 +586,14 @@ class ReaderDeviceTest {
                 val order=field(a,"order")as List<*>
                 assertEquals("Auto mode must preselect every detected block in proposed order",AutoOrder.propose(zones),order)
                 assertTrue("Auto proposal must not be empty",order.isNotEmpty())
+                // Reading-order properties on this fixture's three columns: title first,
+                // columns contiguous (no interleaving), top-down inside each column.
+                val byId=zones.associateBy{it.id}
+                val ids=(order as List<*>).map{it as Int}
+                fun lane(z:Zone):Int{val cx=(z.box.left+z.box.right)/2;return when{cx<.33f->0;cx<.65f->1;else->2}}
+                assertTrue("Title must read first",byId[ids.first()]!!.box.bottom<.19f)
+                assertEquals("Columns must read contiguously, left first",listOf(0,0,0,0,0,1,1,1,1,2,2),ids.map{lane(byId[it]!!)})
+                for(l in 0..2){val tops=ids.map{byId[it]!!}.filter{lane(it)==l}.map{it.box.top};assertEquals("Column $l must read top-down",tops.sorted(),tops)}
                 assertEquals(true,field(a,"autoProposed"))
                 assertTrue("Toggle must be visible",findButton(a.window.decorView,"Auto")!!.isShown)
                 assertTrue("Clear cross must be visible with a selection",findButton(a.window.decorView,"✕")!!.isShown)
@@ -613,6 +621,47 @@ class ReaderDeviceTest {
             awaitReady()
             scenario.onActivity{a->assertEquals("Auto off must leave new detections unselected",emptyList<Int>(),field(a,"order"));assertTrue(findText(a.window.decorView,"dans votre ordre"))}
             scenario.onActivity{a->findButton(a.window.decorView,"Auto")!!.performClick();assertEquals(true,field(a,"autoSelect"))}
+        }
+    }
+    @Test fun autoSelectProposesReadableOrderOnContinuousText(){
+        // Fictional magazine page with continuous prose columns (no repeated labels):
+        // the middle column carries a paragraph gap, which may split it into two blocks.
+        val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext
+        File(c.filesDir,"current.pdf").delete();SessionStore(c).clear()
+        val pdf=android.graphics.pdf.PdfDocument();val page=pdf.startPage(android.graphics.pdf.PdfDocument.PageInfo.Builder(840,594,1).create())
+        val cv=page.canvas;cv.drawColor(Color.WHITE)
+        val titlePaint=Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.rgb(226,118,27);textSize=30f;typeface=Typeface.create("sans-serif",Typeface.BOLD)}
+        cv.drawText("Un grand titre invente",.06f*840,.165f*594,titlePaint)
+        val words=listOf("conseil","municipal","invente","une","histoire","complete","pour","ce","test","de","lecture","continue","sans","etiquette")
+        val p=Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.BLACK;textSize=9f}
+        for(ci in 0..2){
+            val x=(.06f+ci*.30f)*840;var line=0;var w=ci*3
+            while(line<40){
+                if(ci==1&&line==22){line+=2} // paragraph gap in the middle column
+                val sb=StringBuilder()
+                repeat(5+((w+line)%3)){sb.append(words[(w+line+it)%words.size]).append(' ')}
+                cv.drawText(sb.toString().trim(),x,(.215f+line*.018f)*594,p);w+=7;line++
+            }
+        }
+        pdf.finishPage(page);File(c.filesDir,"current.pdf").outputStream().use{pdf.writeTo(it)};pdf.close()
+        ActivityScenario.launch<MainActivity>(Intent(c,MainActivity::class.java)).use{scenario->
+            fun field(a:MainActivity,n:String)=MainActivity::class.java.getDeclaredField(n).apply{isAccessible=true}.get(a)
+            var ready=false;val end=System.currentTimeMillis()+90000
+            while(System.currentTimeMillis()<end){scenario.onActivity{a->ready=field(a,"pageReady")as Boolean&&findCanvas(a.window.decorView)!!.zones.isNotEmpty()};if(ready)break;Thread.sleep(100)}
+            assertTrue("Detection must finish",ready)
+            scenario.onActivity{a->
+                val zones=findCanvas(a.window.decorView)!!.zones
+                val order=(field(a,"order")as List<*>).map{it as Int}
+                val byId=zones.associateBy{it.id}
+                assertTrue("Proposal must not be empty",order.isNotEmpty())
+                assertTrue("Title must read first",byId[order.first()]!!.box.bottom<.19f)
+                fun lane(z:Zone):Int{val cx=(z.box.left+z.box.right)/2;return when{cx<.345f->0;cx<.645f->1;else->2}}
+                val lanes=order.map{lane(byId[it]!!)}
+                assertEquals("Columns must read contiguously, left first",lanes.sorted(),lanes)
+                for(l in lanes.toSet()){val tops=order.map{byId[it]!!}.filter{lane(it)==l}.map{it.box.top};assertEquals("Column $l must read top-down",tops.sorted(),tops)}
+                File(File(c.getExternalFilesDir(null),"screenshots").apply{mkdirs()},"auto-select-continuous-zones.txt").writeText(zones.joinToString("\n")+"\nORDER\n"+order.joinToString(","))
+            }
+            screenshot(scenario,"auto-select-continuous")
         }
     }
     @Test fun autoSelectProposesOrderOnMultiPageWithSlider(){
