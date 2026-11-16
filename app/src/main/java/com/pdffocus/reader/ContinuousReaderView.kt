@@ -97,7 +97,8 @@ class ContinuousReaderView(context:Context):View(context){
                 continue
             }
             if(b.ordinal!=last){if(last>=0&&last!=b.ordinal)y+=6*density;last=b.ordinal}
-            var scale=(width-16*density)/(b.original.width*pw)*if(b.kind==Kind.TEXT)magnification else 1f
+            val scaleWidth=if(b.kind==Kind.TEXT&&b.original.width<.35f&&b.original.height<.06f)max(b.original.width,.8f)else b.original.width
+            var scale=(width-16*density)/(scaleWidth*pw)*if(b.kind==Kind.TEXT)magnification else 1f
             if(b.kind==Kind.IMAGE)scale=min(scale,min((width-16*density)/(.5f*pw),max(300f,height*.9f)/(b.original.height*ph)))
             val bandHeight=(b.bottom-b.top)*ph*scale;surfaceOut+=Surface(y-6*density,y+bandHeight,palettes[b.zoneId]?:Color.WHITE);val fullWidth=b.original.width*pw*scale;val left=(width-fullWidth)/2
             // Two-dimensional tiles: a zoomed column no longer decodes an entire off-screen width.
@@ -121,6 +122,7 @@ class ContinuousReaderView(context:Context):View(context){
     override fun onDraw(c:Canvas){
         super.onDraw(c);c.save();c.clipRect(0,0,width,height);c.translate(-horizontal,-offset)
         paint.color=(surfaces.firstOrNull{it.bottom>=offset}?:surfaces.lastOrNull())?.color?:Color.WHITE;c.drawRect(horizontal,offset,horizontal+width,offset+height,paint)
+        surfaces.lastOrNull()?.let{paint.color=it.color;c.drawRect(horizontal,max(offset,it.bottom),horizontal+width,offset+height,paint)}
         for(surface in surfaces)if(surface.bottom>=offset&&surface.top<=offset+height){paint.color=surface.color;c.drawRect(horizontal,surface.top,horizontal+width,surface.bottom,paint)}
         for(item in textItems)if(item.top+item.layout.height>=offset&&item.top<=offset+height){c.save();c.translate(16*density,item.top);item.layout.draw(c)
             val underline=Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.rgb(87,117,107);strokeWidth=density;style=Paint.Style.STROKE;pathEffect=DashPathEffect(floatArrayOf(2*density,3*density),0f)}
