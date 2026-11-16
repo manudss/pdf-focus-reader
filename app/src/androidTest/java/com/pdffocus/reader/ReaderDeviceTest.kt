@@ -72,6 +72,35 @@ class ReaderDeviceTest {
             Thread.sleep(700);screenshot(scenario,"comic-original-reader")
         }
     }
+    @Test fun thinInsetComicFramesKeepCaptionsAndDrawingsTogether(){
+        val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext
+        File(c.filesDir,"current.pdf").delete();SessionStore(c).clear()
+        val pdf=android.graphics.pdf.PdfDocument();val page=pdf.startPage(android.graphics.pdf.PdfDocument.PageInfo.Builder(600,840,1).create())
+        val cv=page.canvas;cv.drawColor(Color.WHITE);val paint=Paint(Paint.ANTI_ALIAS_FLAG)
+        val expected=(0..2).flatMap{row->(0..1).map{col->Box(.2f+col*.3f,.2f+row*.19f,.49f+col*.3f,.38f+row*.19f)}}
+        expected.forEachIndexed{index,b->
+            val r=RectF(b.left*600,b.top*840,b.right*600,b.bottom*840)
+            paint.color=Color.rgb(225-index*5,219,190+index*8);paint.style=Paint.Style.FILL;cv.drawRect(r,paint)
+            paint.color=Color.rgb(140,140,140);paint.style=Paint.Style.STROKE;paint.strokeWidth=.8f;cv.drawRect(r,paint)
+            paint.style=Paint.Style.FILL;paint.color=Color.DKGRAY;paint.textSize=10f;cv.drawText("Etape ${index+1} : observer",r.left+6,r.top+14,paint)
+            cv.drawText("Une histoire inventee",r.left+6,r.top+27,paint)
+            paint.color=Color.rgb(68,99,81);cv.drawCircle(r.centerX(),r.centerY()+4,19f,paint);cv.drawRect(r.centerX()-22,r.centerY()+22,r.centerX()+22,r.bottom-8,paint)
+        }
+        pdf.finishPage(page);File(c.filesDir,"current.pdf").outputStream().use{pdf.writeTo(it)};pdf.close()
+        ActivityScenario.launch<MainActivity>(Intent(c,MainActivity::class.java)).use{scenario->
+            var ready=false;val end=System.currentTimeMillis()+90000
+            while(System.currentTimeMillis()<end){scenario.onActivity{a->ready=MainActivity::class.java.getDeclaredField("pageReady").apply{isAccessible=true}.getBoolean(a)};if(ready)break;Thread.sleep(100)}
+            assertTrue("Synthetic comic detection must complete",ready)
+            scenario.onActivity{a->val view=findCanvas(a.window.decorView)!!
+                assertEquals("Six panels, not caption fragments",6,view.zones.size);assertTrue(view.zones.all{it.kind==Kind.IMAGE});assertTrue(view.selection.isEmpty())
+                for(b in expected)assertTrue("Caption and drawing must be in the same whole panel",view.zones.any{it.box.intersect(b)/b.area>.98f})
+                view.zones.reversed().forEach{view.onZoneTap!!.invoke(it)};assertEquals((6 downTo 1).toList(),view.selection)
+            }
+            screenshot(scenario,"comic-thin-inset-six-panels")
+            scenario.onActivity{a->findButton(a.window.decorView,"Lire (")!!.performClick();findButton(a.window.decorView,"Original")!!.performClick()}
+            Thread.sleep(900);screenshot(scenario,"comic-thin-inset-reader")
+        }
+    }
     @Test fun bundledOcrWorksWithoutNetworkAndFindsSyntheticText(){
         val c=InstrumentationRegistry.getInstrumentation().targetContext
         c.assets.open("tessdata_best/fra-words.txt").bufferedReader().use{assertTrue("Packaged repair lexicon must be readable",it.readLines().size>10000)}

@@ -25,4 +25,31 @@ class ComicPanelsTest {
   assertTrue(ComicPanels.find(image(six),w,h){true}.isEmpty())
  }
  @Test fun nestedObjectsDoNotBecomeExtraPanels(){val b=six+Box(.37f,.16f,.85f,.32f);val found=ComicPanels.find(image(b),w,h);assertEquals(6,found.size)}
+ @Test fun thinGrayFramesWithLargeMarginsAndCaptionStripsStayWhole(){
+  for(margin in listOf(.12f,.22f))for(stroke in listOf(1,2)){
+   val frames=(0..2).flatMap{row->(0..1).map{col->Box(margin+col*(1-2*margin)/2,.2f+row*.19f,margin+(col+1)*(1-2*margin)/2-.012f,.38f+row*.19f)}}
+   val p=IntArray(w*h){-1}
+   fun rect(l:Int,t:Int,r:Int,b:Int,c:Int){for(y in t..b)for(x in l..r)p[y*w+x]=c}
+   for(b in frames){val l=(b.left*w).toInt();val r=(b.right*w).toInt();val t=(b.top*h).toInt();val d=(b.bottom*h).toInt();val gray=0xff969696.toInt()
+    rect(l,t,r,t+stroke-1,gray);rect(l,d-stroke+1,r,d,gray);rect(l,t,l+stroke-1,d,gray);rect(r-stroke+1,t,r,d,gray)
+    // Fictitious captions above abstract drawings, not source artwork or text.
+    rect(l+4,t+9,r-4,t+10,0xff303030.toInt());rect(l+4,t+18,r-10,t+19,0xff303030.toInt())
+    rect(l+12,t+34,r-12,d-10,0xff665544.toInt())
+   }
+   val found=ComicPanels.find(p,w,h);assertEquals("margin=$margin stroke=$stroke",6,found.size)
+   for(b in frames)assertTrue(found.any{it.intersect(b)/b.area>.97f})
+  }
+ }
+ @Test fun smallScanDropoutsAreBridgedButOpenFramesAreRejected(){
+  val p=image(six)
+  for(b in six){val x=((b.left+b.right)*w/2).toInt();val y=(b.top*h).toInt();for(dy in 0..2)p[(y+dy)*w+x]=-1}
+  assertEquals(6,ComicPanels.find(p,w,h).size)
+  val open=image(six);for(b in six){val x=(b.left*w).toInt();for(y in ((b.top+.04f)*h).toInt()..((b.bottom-.04f)*h).toInt())for(dx in 0..2)open[y*w+x+dx]=-1}
+  assertTrue(ComicPanels.find(open,w,h).isEmpty())
+ }
+ @Test fun textOnlyRuledFormsDoNotBecomeComics(){
+  val p=image(six,false)
+  for(b in six){val l=(b.left*w).toInt()+8;val r=(b.right*w).toInt()-8;for(y in (b.top*h).toInt()+12 until (b.bottom*h).toInt()-8 step 10)for(x in l..r)for(dy in 0..2)p[(y+dy)*w+x]=0xff333333.toInt()}
+  assertTrue(ComicPanels.find(p,w,h).isEmpty())
+ }
 }

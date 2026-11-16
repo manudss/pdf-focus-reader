@@ -6,8 +6,8 @@ android {
         applicationId = "com.pdffocus.reader.test"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "0.10.3-test"
+        versionCode = 5
+        versionName = "0.10.4-test"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     // Standard extraction-on-install packaging keeps the two local OCR runtimes downloadable.
