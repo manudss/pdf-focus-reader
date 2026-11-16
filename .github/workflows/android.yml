@@ -57,7 +57,8 @@ jobs:
             adb shell am instrument -w -r com.pdffocus.reader.test.test/androidx.test.runner.AndroidJUnitRunner | tee device-tests.txt
             adb logcat -d > device-logcat.txt
             adb pull /sdcard/Android/data/com.pdffocus.reader.test/files/screenshots app/build/device-screenshots || true
-            grep -q 'OK (23 tests)' device-tests.txt
+            grep -q 'OK (25 tests)' device-tests.txt
+
       - uses: actions/upload-artifact@v5
         if: always()
         with:
@@ -72,7 +73,7 @@ jobs:
 
   sign-test:
     needs: [build, device-tests]
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.head.ref == 'feat/guided-reader' || github.event.pull_request.head.ref == 'fix/reading-wide-title-columns' || github.event.pull_request.head.ref == 'feat/page-navigation')
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.head.ref == 'feat/guided-reader' || github.event.pull_request.head.ref == 'fix/reading-wide-title-columns' || github.event.pull_request.head.ref == 'feat/page-navigation' || github.event.pull_request.head.ref == 'feat/auto-select')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

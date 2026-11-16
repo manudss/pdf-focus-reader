@@ -555,6 +555,116 @@ class ReaderDeviceTest {
             screenshot(scenario,"nav-overscroll-next-page")
         }
     }
+    @Test fun autoSelectProposesOnceAndRespectsChoices(){
+        // Fictional magazine page, invented content: auto mode must preselect title then
+        // columns, once, and never recompute after the user changes anything.
+        val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext
+        File(c.filesDir,"current.pdf").delete();SessionStore(c).clear()
+        val pdf=android.graphics.pdf.PdfDocument();val page=pdf.startPage(android.graphics.pdf.PdfDocument.PageInfo.Builder(840,594,1).create())
+        val cv=page.canvas;cv.drawColor(Color.WHITE)
+        val titlePaint=Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.rgb(226,118,27);textSize=30f;typeface=Typeface.create("sans-serif",Typeface.BOLD)}
+        cv.drawText("Un grand titre invente",.06f*840,.165f*594,titlePaint)
+        val p=Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.BLACK;textSize=9f}
+        for((ci,label)in listOf(0 to "Colonne une",1 to "Colonne deux",2 to "Colonne trois")){
+            val x=(.06f+ci*.30f)*840
+            for(line in 0..39)cv.drawText("$label : phrase fictive numero ${line+1} pour ce test.",x,(.215f+line*.018f)*594,p)
+        }
+        pdf.finishPage(page);File(c.filesDir,"current.pdf").outputStream().use{pdf.writeTo(it)};pdf.close()
+        ActivityScenario.launch<MainActivity>(Intent(c,MainActivity::class.java)).use{scenario->
+            fun field(a:MainActivity,n:String)=MainActivity::class.java.getDeclaredField(n).apply{isAccessible=true}.get(a)
+            fun call(a:MainActivity,n:String,vararg args:Any){MainActivity::class.java.declaredMethods.first{it.name==n}.apply{isAccessible=true}.invoke(a,*args)}
+            fun awaitReady(){var ready=false;val end=System.currentTimeMillis()+90000;while(System.currentTimeMillis()<end){scenario.onActivity{a->ready=field(a,"pageReady")as Boolean&&findCanvas(a.window.decorView)!!.zones.isNotEmpty()};if(ready)break;Thread.sleep(100)};assertTrue("Detection must finish",ready)}
+            awaitReady()
+            scenario.onActivity{a->
+                val zones=findCanvas(a.window.decorView)!!.zones
+                val order=field(a,"order")as List<*>
+                assertEquals("Auto mode must preselect every detected block in proposed order",AutoOrder.propose(zones),order)
+                assertTrue("Auto proposal must not be empty",order.isNotEmpty())
+                assertEquals(true,field(a,"autoProposed"))
+                assertTrue("Toggle must be visible",findButton(a.window.decorView,"Auto")!!.isShown)
+                assertTrue("Clear cross must be visible with a selection",findButton(a.window.decorView,"✕")!!.isShown)
+                assertTrue("Status must announce the automatic choice",findText(a.window.decorView,"choisis automatiquement"))
+            }
+            screenshot(scenario,"auto-select-page")
+            // The proposal is computed once: any manual change ends the automatic label.
+            scenario.onActivity{a->val canvas=findCanvas(a.window.decorView)!!;val last=canvas.zones.last{it.id in canvas.selection};canvas.onZoneTap!!.invoke(last);assertTrue("Manual edit must end the automatic label",findText(a.window.decorView,"dans votre ordre"))}
+            // The clear cross empties the page and the empty choice persists: no re-proposal on return.
+            scenario.onActivity{a->findCanvas(a.window.decorView)!!.onZoneTap!!.invoke(findCanvas(a.window.decorView)!!.zones.first())}
+            scenario.onActivity{a->findButton(a.window.decorView,"✕")!!.performClick()}
+            i.waitForIdleSync()
+            scenario.onActivity{a->
+                assertEquals(emptyList<Int>(),field(a,"order"))
+                assertFalse("Cross must hide on an empty selection",findButton(a.window.decorView,"✕")!!.isShown)
+                assertTrue("Zones stay available for manual choice",findCanvas(a.window.decorView)!!.zones.isNotEmpty())
+            }
+            screenshot(scenario,"auto-select-cleared")
+            scenario.onActivity{a->call(a,"loadPage",0,false)}
+            awaitReady()
+            scenario.onActivity{a->assertEquals("Cleared page must stay empty on return (no auto re-proposal)",emptyList<Int>(),field(a,"order"));assertEquals(false,field(a,"autoProposed"))}
+            // Turning Auto off applies to pages prepared later, without touching saved choices.
+            scenario.onActivity{a->findButton(a.window.decorView,"Auto")!!.performClick();assertEquals(false,field(a,"autoSelect"));call(a,"loadPage",0,true)}
+            awaitReady()
+            scenario.onActivity{a->assertEquals("Auto off must leave new detections unselected",emptyList<Int>(),field(a,"order"));assertTrue(findText(a.window.decorView,"dans votre ordre"))}
+            scenario.onActivity{a->findButton(a.window.decorView,"Auto")!!.performClick();assertEquals(true,field(a,"autoSelect"))}
+        }
+    }
+    @Test fun twoFingerHoldRemovesCrossedBlocksOnly(){
+        val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext;File(c.filesDir,"current.pdf").delete();SessionStore(c).clear()
+        ActivityScenario.launch<MainActivity>(Intent(c,MainActivity::class.java)).use{scenario->
+            fun set(a:MainActivity,n:String,v:Any){MainActivity::class.java.getDeclaredField(n).apply{isAccessible=true}.set(a,v)}
+            fun get(a:MainActivity,n:String)=MainActivity::class.java.getDeclaredField(n).apply{isAccessible=true}.get(a)
+            fun call(a:MainActivity,n:String,vararg args:Any){MainActivity::class.java.declaredMethods.first{it.name==n}.apply{isAccessible=true}.invoke(a,*args)}
+            val zones=listOf(Zone(1,Box(.1f,.1f,.8f,.3f),Kind.TEXT),Zone(2,Box(.1f,.35f,.8f,.55f),Kind.TEXT),Zone(3,Box(.1f,.6f,.8f,.8f),Kind.TEXT))
+            scenario.onActivity{a->val image=Bitmap.createBitmap(700,1000,Bitmap.Config.ARGB_8888);image.eraseColor(Color.WHITE);set(a,"preview",image);set(a,"count",1);set(a,"zones",zones);set(a,"order",listOf(1,2,3));val page=findCanvas(a.window.decorView)!!;page.image=image;call(a,"sync",false)}
+            i.waitForIdleSync()
+            var down=0L
+            fun twoFingerEvent(action:Int,x0:Float,y0:Float,x1:Float,y1:Float){
+                scenario.onActivity{a->
+                    val v=findCanvas(a.window.decorView)!!
+                    val pp=arrayOf(MotionEvent.PointerProperties().apply{id=0;toolType=MotionEvent.TOOL_TYPE_FINGER},MotionEvent.PointerProperties().apply{id=1;toolType=MotionEvent.TOOL_TYPE_FINGER})
+                    val pc=arrayOf(MotionEvent.PointerCoords().apply{x=x0;y=y0},MotionEvent.PointerCoords().apply{x=x1;y=y1})
+                    val e=MotionEvent.obtain(down,android.os.SystemClock.uptimeMillis(),action,2,pp,pc,0,0,1f,1f,0,0,0,0)
+                    v.dispatchTouchEvent(e);e.recycle()
+                }
+            }
+            fun screenPoint(nx:Float,ny:Float):PointF{var out=PointF();scenario.onActivity{a->val v=findCanvas(a.window.decorView)!!;val m=PageCanvas::class.java.getDeclaredField("matrix").apply{isAccessible=true}.get(v)as Matrix;val pts=floatArrayOf(nx*700,ny*1000);m.mapPoints(pts);out=PointF(pts[0],pts[1])};return out}
+            // First: a fast two-finger spread (pinch) must NOT remove anything.
+            scenario.onActivity{a->val v=findCanvas(a.window.decorView)!!;down=android.os.SystemClock.uptimeMillis();val e=MotionEvent.obtain(down,down,MotionEvent.ACTION_DOWN,300f,300f,0);v.dispatchTouchEvent(e);e.recycle()}
+            Thread.sleep(60)
+            twoFingerEvent(MotionEvent.ACTION_POINTER_DOWN or (1 shl 8),300f,300f,380f,300f)
+            Thread.sleep(60)
+            twoFingerEvent(MotionEvent.ACTION_MOVE,300f,300f,520f,300f) // span grows: pinch
+            Thread.sleep(700)
+            twoFingerEvent(MotionEvent.ACTION_MOVE,300f,300f,560f,300f)
+            twoFingerEvent(MotionEvent.ACTION_POINTER_UP or (1 shl 8),300f,300f,560f,300f)
+            Thread.sleep(200)
+            scenario.onActivity{a->assertEquals("Pinch before the hold must not remove blocks",listOf(1,2,3),get(a,"order"))}
+            // Then: two fingers held still, then dragged together across block 2 removes it.
+            // The pair starts in the blank gap between blocks 1 and 2, so only block 2 is crossed.
+            val from=screenPoint(.45f,.32f);val to=screenPoint(.45f,.45f)
+            scenario.onActivity{a->val v=findCanvas(a.window.decorView)!!;down=android.os.SystemClock.uptimeMillis();val e=MotionEvent.obtain(down,down,MotionEvent.ACTION_DOWN,from.x-40,from.y,0);v.dispatchTouchEvent(e);e.recycle()}
+            Thread.sleep(60)
+            twoFingerEvent(MotionEvent.ACTION_POINTER_DOWN or (1 shl 8),from.x-40,from.y,from.x+40,from.y)
+            Thread.sleep(800) // hold: the removal sweep activates
+            val mx=(to.x-from.x)/2;val my=(to.y-from.y)/2
+            twoFingerEvent(MotionEvent.ACTION_MOVE,from.x-40+mx,from.y+my,from.x+40+mx,from.y+my)
+            twoFingerEvent(MotionEvent.ACTION_MOVE,to.x-40,to.y,to.x+40,to.y)
+            twoFingerEvent(MotionEvent.ACTION_POINTER_UP or (1 shl 8),to.x-40,to.y,to.x+40,to.y)
+            Thread.sleep(300)
+            scenario.onActivity{a->assertEquals("Two-finger sweep must remove the crossed block only",listOf(1,3),get(a,"order"))}
+            screenshot(scenario,"two-finger-remove")
+            // A full pass from above block 1 to below block 3 removes the rest; unchosen block 2 is never re-added.
+            val top=screenPoint(.45f,.05f);val bottom=screenPoint(.45f,.85f)
+            scenario.onActivity{a->val v=findCanvas(a.window.decorView)!!;down=android.os.SystemClock.uptimeMillis();val e=MotionEvent.obtain(down,down,MotionEvent.ACTION_DOWN,top.x-40,top.y,0);v.dispatchTouchEvent(e);e.recycle()}
+            Thread.sleep(60)
+            twoFingerEvent(MotionEvent.ACTION_POINTER_DOWN or (1 shl 8),top.x-40,top.y,top.x+40,top.y)
+            Thread.sleep(800)
+            twoFingerEvent(MotionEvent.ACTION_MOVE,bottom.x-40,bottom.y,bottom.x+40,bottom.y)
+            twoFingerEvent(MotionEvent.ACTION_POINTER_UP or (1 shl 8),bottom.x-40,bottom.y,bottom.x+40,bottom.y)
+            Thread.sleep(300)
+            scenario.onActivity{a->assertEquals("Second pass must remove remaining chosen blocks without re-adding",emptyList<Int>(),get(a,"order"))}
+        }
+    }
     private fun findText(v:View,value:String):Boolean{if(v is TextView&&v.text.toString().contains(value))return true;if(v is ViewGroup)for(j in 0 until v.childCount)if(findText(v.getChildAt(j),value))return true;return false}
     private fun findButton(v:View,label:String):Button? {if(v is Button&&v.text.toString().startsWith(label))return v;if(v is ViewGroup)for(i in 0 until v.childCount)findButton(v.getChildAt(i),label)?.let{return it};return null}
     private fun findReader(v:View):ContinuousReaderView?{if(v is ContinuousReaderView)return v;if(v is ViewGroup)for(i in 0 until v.childCount)findReader(v.getChildAt(i))?.let{return it};return null}
