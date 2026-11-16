@@ -21,6 +21,10 @@ class ReaderDeviceTest {
         val box=Box(0f,0f,1f,.04f)
         val words=listOf(OcrWord("comence",box,box,99f))
         assertEquals("commence",OcrConsensus.reconcile(words,OcrEvidence("Paddle","commence",box,.99f),spelling).single().text)
+        val merged=listOf(OcrWord("avecun7livrepourchaquevisiteur",box,box,99f))
+        val separated=OcrConsensus.reconcile(merged,OcrEvidence("Paddle","avec un 7 livre pour chaque visiteur",box,.99f),spelling)
+        assertEquals("avec un 7 livre pour chaque visiteur",separated.joinToString(" "){it.text})
+        assertEquals(box,separated.map{it.box}.reduce{a,b->a.union(b)})
     }
     @Test fun bundledOcrWorksWithoutNetworkAndFindsSyntheticText(){
         val c=InstrumentationRegistry.getInstrumentation().targetContext

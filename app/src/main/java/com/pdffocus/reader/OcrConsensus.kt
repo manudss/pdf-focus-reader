@@ -7,10 +7,28 @@ object OcrConsensus {
  data class Choice(val words:List<OcrWord>,val reasons:List<String>,val disagreements:Int)
  private fun core(s:String)=s.trim{!it.isLetterOrDigit()}.replace('’','\'')
  private fun bare(s:String)=Normalizer.normalize(s.lowercase(),Normalizer.Form.NFD).replace(Regex("\\p{M}"),"").filter{it.isLetterOrDigit()}
+ /** Add missing word boundaries only. Character stream, digits and existing source words stay intact. */
+ private fun restoreSpaces(words:List<OcrWord>,tokens:List<String>,spelling:OcrSpelling):List<OcrWord>{
+  if(words.joinToString(""){it.text}!=tokens.joinToString(""))return words
+  val boundaries=mutableSetOf<Int>();var position=0
+  for(t in tokens){position+=t.length;boundaries+=position}
+  val out=mutableListOf<OcrWord>();position=0
+  for(w in words){val start=position;position+=w.text.length
+   val cuts=boundaries.filter{it>start&&it<position}.sorted().map{it-start}
+   if(cuts.isEmpty()){out+=w;continue}
+   val edges=listOf(0)+cuts+listOf(w.text.length)
+   val parts=edges.zipWithNext().map{(a,b)->w.text.substring(a,b)}
+   val valid=parts.all{part->val c=core(part);c.isNotEmpty()&&(c.all{it.isDigit()}||spelling.valid(c)||(part.endsWith('-')&&c.length>=2&&c.all{it.isLetter()}))}
+   if(!valid){out+=w;continue}
+   for((a,b)in edges.zipWithNext())out+=w.copy(text=w.text.substring(a,b),box=Box(w.box.left+w.box.width*a/w.text.length,w.box.top,w.box.left+w.box.width*b/w.text.length,w.box.bottom))
+  }
+  return out
+ }
  private fun distance(a:String,b:String):Int{var p=IntArray(b.length+1){it};for((i,c)in a.withIndex()){val n=IntArray(b.length+1);n[0]=i+1;for((j,d)in b.withIndex())n[j+1]=minOf(n[j]+1,p[j+1]+1,p[j]+if(c==d)0 else 1);p=n};return p.last()}
  fun reconcile(words:List<OcrWord>,second:OcrEvidence,spelling:OcrSpelling)=choose(words,second,spelling).words
- fun choose(words:List<OcrWord>,second:OcrEvidence,spelling:OcrSpelling):Choice{
+ fun choose(sourceWords:List<OcrWord>,second:OcrEvidence,spelling:OcrSpelling):Choice{
   val tokens=second.text.trim().split(Regex("[\\s\\p{Zs}]+")).filter{it.isNotEmpty()}
+  val words=if(second.confidence>=.85f&&sourceWords.size<=120&&tokens.size<=120)restoreSpaces(sourceWords,tokens,spelling)else sourceWords
   if(words.isEmpty()||tokens.isEmpty()||words.size>120||tokens.size>120)return Choice(words,emptyList(),0)
   // Monotone 1:1, 1:2 and 2:1 alignment. Never align the entire line by token index
   // after a split/merge. Insertions/deletions without matching letters remain Tesseract.

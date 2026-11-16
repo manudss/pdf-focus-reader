@@ -3,7 +3,7 @@ import org.junit.Assert.*
 import org.junit.Test
 class OcrConsensusV10Test {
  private val spelling=object:OcrSpelling{
-  private val words=setOf("le","du","jour","étant","arrive","commence","des","logements","lumière","porte-parole","Paris","culte","cuite","50","000")
+  private val words=setOf("le","du","jour","étant","arrive","commence","des","logements","lumière","porte-parole","Paris","culte","cuite","50","000","avec","un","livre","pour","chaque","visiteur","devant")
   override fun valid(word:String)=word in words
   override fun suggestions(word:String,limit:Int)=emptyList<String>()
  }
@@ -20,5 +20,12 @@ class OcrConsensusV10Test {
   assertEquals("commence,",output("comence,","commence."))
   val source=ws("comence,").single();val result=OcrConsensus.choose(listOf(source),OcrEvidence("Paddle","commence.",box,.99f),spelling).words.single()
   assertEquals(source.box,result.box)
+ }
+ @Test fun restoresManyMissingSpacesWithoutChangingDigitsOrLetters(){
+  assertEquals("avec un 7 livre pour chaque visiteur arrive",output("avecun7livrepourchaquevisiteur arrive","avec un 7 livre pour chaque visiteur arrive"))
+  assertEquals("devant un micro-",output("devantunmicro-","devant un micro-"))
+  assertEquals("avecun7livre",output("avecun7livre","avec un 8 livre"))
+  assertEquals("avecun7livre",choose("avecun7livre","avec un 7 livre",.4f).words.single().text)
+  assertEquals("avecunxyz",output("avecunxyz","avec un xyz"))
  }
 }
