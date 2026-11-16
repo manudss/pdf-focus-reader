@@ -75,3 +75,7 @@ Les travaux sont proposés en branche et pull request. Pas de publication boutiq
 ## Dépendances
 
 Voir [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). La mise à disposition publique du dépôt n'accorde pas de droits sur des PDF tiers.
+
+## Signature de PDF Focus Test
+
+La clé de test est conservée dans le secret chiffré GitHub Actions `PDF_FOCUS_TEST_SIGNING_BUNDLE`. Elle n'est jamais un fichier du dépôt ni un artefact. Le travail de signature restaure temporairement ce secret après les tests réussis, vérifie le certificat attendu, signe seulement l'APK de test ARM64, puis supprime les fichiers secrets. Seul l'artefact `pdf-focus-test-signed` constitue la version signée pour essai; les APK debug habituels ne doivent pas être installés comme mises à jour. Empreinte publique du certificat : `bbdae9f61a83de058513b89ba9e57af2ac2e29831a5c25e7445a30c7e8f0ea16`. Ne pas supprimer ce secret : GitHub n'en permet pas la relecture dans l'interface.

@@ -69,3 +69,26 @@ jobs:
             app/build/outputs/androidTest-results/
             app/build/device-screenshots/
           retention-days: 14
+
+  sign-test:
+    needs: [build, device-tests]
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'feat/guided-reader'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Build separate test application
+        run: ./gradlew --no-daemon assembleDebug
+      - name: Restore approved signing secret and sign only test APK
+        env:
+          PDF_FOCUS_TEST_SIGNING_BUNDLE: ${{ secrets.PDF_FOCUS_TEST_SIGNING_BUNDLE }}
+        run: python3 scripts/sign-test-apk.py
+      - uses: actions/upload-artifact@v5
+        with:
+          name: pdf-focus-test-signed
+          path: signed-test/
+          retention-days: 14
