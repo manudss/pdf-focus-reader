@@ -33,4 +33,20 @@ class ContinuousLayoutTest {
   assertEquals(.38f,out.first().pieces.single().width,.00001f)
   assertTrue(out.filter{it.zoneId==1}.all{it.original.right<.5f})
  }
+
+ @Test fun wideTitleAboveAlignedColumnsKeepsColumnExtent(){
+  // Magazine layout: a wide short headline left-aligned with the first of several columns.
+  // The columns must keep their own horizontal extent; the title must not stretch them.
+  val title=z(1,Box(.047f,.128f,.538f,.175f))
+  val col1=z(2,Box(.047f,.191f,.331f,.947f));val col2=z(3,Box(.361f,.219f,.669f,.930f));val col3=z(4,Box(.698f,.219f,1f,.930f))
+  val out=ContinuousLayout.bands(listOf(title,col1,col2,col3))
+  val p1=out.filter{it.zoneId==2}.flatMap{it.pieces};val p2=out.filter{it.zoneId==3}.flatMap{it.pieces};val p3=out.filter{it.zoneId==4}.flatMap{it.pieces}
+  assertTrue(p1.all{it.left>=.046f&&it.right<=.332f});assertTrue(p2.all{it.left>=.360f&&it.right<=.670f});assertTrue(p3.all{it.left>=.697f})
+  assertEquals(col1.box.area,p1.sumOf{it.area.toDouble()}.toFloat(),.000001f)
+  assertEquals(col2.box.area,p2.sumOf{it.area.toDouble()}.toFloat(),.000001f)
+  assertEquals(col3.box.area,p3.sumOf{it.area.toDouble()}.toFloat(),.000001f)
+  // A tall column keeps its own width as the reading scale reference: full-screen column, not the title's width.
+  assertEquals(.284f,out.first{it.zoneId==2}.original.width,.000001f)
+  val pieces=out.flatMap{it.pieces};for(i in pieces.indices)for(j in i+1 until pieces.size)assertEquals(0f,pieces[i].intersect(pieces[j]),.000001f)
+ }
 }
