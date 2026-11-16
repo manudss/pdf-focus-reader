@@ -35,8 +35,18 @@ object AutoGrouping {
   var output=zones;var ids=order
   for(g in groups){
    val chosen=output.filter{it.id in g.ids};if(chosen.size<2)continue
+   var bounds=chosen.map{it.box}.reduce{a,b->a.union(b)}
+   if(chosen.all{it.kind==Kind.TEXT}){
+    // Repeated short-heading groups in the same column can include a leading
+    // marker that OCR omitted from just one heading. Borrow only their small
+    // left margin, never extend across another block or a column gutter.
+    val peers=groups.filter{other->other!==g&&other.box.left<=bounds.left&&bounds.left-other.box.left<=.08f&&abs(other.box.right-bounds.right)<.12f&&other.ids.all{id->zones.firstOrNull{it.id==id}?.kind==Kind.TEXT}}
+    val left=peers.minOfOrNull{it.box.left}?:bounds.left
+    val expanded=bounds.copy(left=left)
+    if(zones.none{it.id !in g.ids&&expanded.intersect(it.box)>bounds.intersect(it.box)+.00001f})bounds=expanded
+   }
    val first=ids.indexOfFirst{it in g.ids};val remaining=ids.filterNot{it in g.ids}
-   val merged=Zone((output.maxOfOrNull{it.id}?:0)+1,chosen.map{it.box}.reduce{a,b->a.union(b)},if(chosen.any{it.kind==Kind.IMAGE})Kind.IMAGE else Kind.TEXT,chosen.flatMap{it.lineBottoms}.distinct().sorted(),true)
+   val merged=Zone((output.maxOfOrNull{it.id}?:0)+1,bounds,if(chosen.any{it.kind==Kind.IMAGE})Kind.IMAGE else Kind.TEXT,chosen.flatMap{it.lineBottoms}.distinct().sorted(),true)
    output=output.filterNot{it.id in g.ids}+merged
    ids=if(first<0)remaining else remaining.toMutableList().apply{add(first.coerceAtMost(size),merged.id)}
   }
