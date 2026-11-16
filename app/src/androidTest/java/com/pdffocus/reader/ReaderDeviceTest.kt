@@ -590,6 +590,7 @@ class ReaderDeviceTest {
                 assertTrue("Toggle must be visible",findButton(a.window.decorView,"Auto")!!.isShown)
                 assertTrue("Clear cross must be visible with a selection",findButton(a.window.decorView,"✕")!!.isShown)
                 assertTrue("Status must announce the automatic choice",findText(a.window.decorView,"choisis automatiquement"))
+                File(File(c.getExternalFilesDir(null),"screenshots").apply{mkdirs()},"auto-select-zones.txt").writeText(zones.joinToString("\n")+"\nORDER\n"+order.joinToString(","))
             }
             screenshot(scenario,"auto-select-page")
             // The proposal is computed once: any manual change ends the automatic label.
@@ -612,6 +613,29 @@ class ReaderDeviceTest {
             awaitReady()
             scenario.onActivity{a->assertEquals("Auto off must leave new detections unselected",emptyList<Int>(),field(a,"order"));assertTrue(findText(a.window.decorView,"dans votre ordre"))}
             scenario.onActivity{a->findButton(a.window.decorView,"Auto")!!.performClick();assertEquals(true,field(a,"autoSelect"))}
+        }
+    }
+    @Test fun autoSelectProposesOrderOnMultiPageWithSlider(){
+        // Integrated screen on a multi-page document: auto proposal, page slider,
+        // Auto toggle and clear cross all visible together.
+        val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext
+        writeThreePageFixture(c)
+        ActivityScenario.launch<MainActivity>(Intent(c,MainActivity::class.java)).use{scenario->
+            fun field(a:MainActivity,n:String)=MainActivity::class.java.getDeclaredField(n).apply{isAccessible=true}.get(a)
+            var ready=false;val end=System.currentTimeMillis()+90000
+            while(System.currentTimeMillis()<end){scenario.onActivity{a->ready=field(a,"pageReady")as Boolean&&findCanvas(a.window.decorView)!!.zones.isNotEmpty()};if(ready)break;Thread.sleep(100)}
+            assertTrue("Detection must finish",ready)
+            scenario.onActivity{a->
+                var seek:SeekBar?=null
+                fun walk(v:View){if(v is SeekBar)seek=v;if(v is ViewGroup)for(j in 0 until v.childCount)walk(v.getChildAt(j))}
+                walk(a.window.decorView)
+                assertNotNull("Page slider must be visible on a multi-page document",seek);assertTrue(seek!!.isShown)
+                assertTrue("Auto toggle must be visible",findButton(a.window.decorView,"Auto")!!.isShown)
+                assertTrue("Clear cross must be visible with the proposal",findButton(a.window.decorView,"✕")!!.isShown)
+                assertTrue("Proposal must not be empty",(field(a,"order")as List<*>).isNotEmpty())
+                assertEquals(true,field(a,"autoProposed"))
+            }
+            screenshot(scenario,"auto-select-slider")
         }
     }
     @Test fun twoFingerHoldRemovesCrossedBlocksOnly(){
