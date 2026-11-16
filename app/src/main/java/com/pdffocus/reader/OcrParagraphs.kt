@@ -26,7 +26,9 @@ object OcrParagraphs {
    val indent=line.box.left-left;val previousIndent=p.box.left-left
    // A short line alone is not a paragraph. Require extra leading, a new first-line indent,
    // or list structure. Equal left/right edges may vary from OCR punctuation and justification.
-   val paragraph=separation>max(height*.85f,gap+height*.65f)||
+   val shortSentenceEnd=p.box.right<left+width*.65f&&Regex("[.!?][\"'»]?$").containsMatchIn(p.text)
+   val modestIndent=indent>max(height*.55f,width*.035f)&&previousIndent<height*.25f&&separation> -height*.15f
+   val paragraph=(shortSentenceEnd&&modestIndent)||separation>max(height*.85f,gap+height*.65f)||
        (indent>max(height*.85f,width*.04f)&&previousIndent<indent-height*.55f&&separation> -height*.15f)||listStart.containsMatchIn(value)
    val last=Regex("\\S+$").find(out)?.value.orEmpty();val first=value.substringBefore(' ')
    // A terminal hyphen followed by a wide blank is also a wrap candidate.

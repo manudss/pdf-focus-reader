@@ -17,4 +17,9 @@ class OcrParagraphsTest {
   assertEquals("Un texte lisible",OcrReview.whitespace("Un\u2009\u2009texte\u00a0\u202flisible"))
  }
  @Test fun slightlyDifferentLineBoxesGroupAsOneLine(){val a=line("Un texte",0f);val b=line("sans doublon",.0004f,.5f,.9f);assertEquals(1,OcrParagraphs.lines(a+b).size)}
+ @Test fun shortSentenceThenModestIndentIsAParagraphOnlyWithAllClues(){
+  assertEquals("Une phrase qui finit.\n\nUn nouveau paragraphe continu.",repair.text(line("Une phrase qui finit.",0f,.1f,.45f)+line("Un nouveau paragraphe",.03f,.13f)+line("continu.",.06f)))
+  assertEquals("Une phrase qui continue dans le même paragraphe",repair.text(line("Une phrase qui continue",0f,.1f,.45f)+line("dans le même paragraphe",.03f,.13f)))
+  assertEquals("Une phrase qui finit. Sans retrait nouveau",repair.text(line("Une phrase qui finit.",0f,.1f,.45f)+line("Sans retrait nouveau",.03f)))
+ }
 }

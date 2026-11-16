@@ -54,9 +54,9 @@ jobs:
             ./gradlew --no-daemon assembleDebug assembleDebugAndroidTest
             adb install -r app/build/outputs/apk/debug/app-x86_64-debug.apk
             adb install -r app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
-            adb shell am instrument -w -r com.pdffocus.reader.test/androidx.test.runner.AndroidJUnitRunner | tee device-tests.txt
+            adb shell am instrument -w -r com.pdffocus.reader.test.test/androidx.test.runner.AndroidJUnitRunner | tee device-tests.txt
             adb logcat -d > device-logcat.txt
-            adb pull /sdcard/Android/data/com.pdffocus.reader/files/screenshots app/build/device-screenshots || true
+            adb pull /sdcard/Android/data/com.pdffocus.reader.test/files/screenshots app/build/device-screenshots || true
             grep -q 'OK (13 tests)' device-tests.txt
       - uses: actions/upload-artifact@v5
         if: always()
