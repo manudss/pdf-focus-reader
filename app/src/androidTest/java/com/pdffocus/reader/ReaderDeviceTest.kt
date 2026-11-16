@@ -102,8 +102,15 @@ class ReaderDeviceTest {
             scenario.onActivity{a->findButton(a.window.decorView,"Nettoyé")!!.performClick();assertNotNull(findButton(a.window.decorView,"Original"))}
             Thread.sleep(800);screenshot(scenario,"reader-cleaned")
             var ocrHeight=0
+            scenario.onActivity{a->findButton(a.window.decorView,"Texte OCR")!!.performClick()}
+            val rawEnd=System.currentTimeMillis()+90000;var rawReady=false
+            while(System.currentTimeMillis()<rawEnd){scenario.onActivity{a->
+                val reader=findReader(a.window.decorView)!!
+                val items=ContinuousReaderView::class.java.getDeclaredField("textItems").apply{isAccessible=true}.get(reader) as List<*>
+                rawReady=items.isNotEmpty()
+            };if(rawReady)break;Thread.sleep(100)}
+            assertTrue("OCR must publish actual text before checking its layout",rawReady)
             scenario.onActivity{a->
-                findButton(a.window.decorView,"Texte OCR")!!.performClick()
                 findButton(a.window.decorView,"Réglages")!!.performClick()
                 val reader=findReader(a.window.decorView)!!
                 val field=ContinuousReaderView::class.java.getDeclaredField("textItems").apply{isAccessible=true}
