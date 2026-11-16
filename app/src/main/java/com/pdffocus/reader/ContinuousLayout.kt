@@ -19,7 +19,7 @@ object ContinuousLayout {
             // Related short headings use their column's scale, not full-screen magnification.
             // Pieces remain the exact selected area when a neighbour supplies the scale only.
             val reference=if(z.kind==Kind.TEXT)aligned.filter{p->
-                p.kind==Kind.TEXT&&p.box.width>=b.width&&abs(p.box.left-b.left)<.025f&&
+                p.kind==Kind.TEXT&&p.box.width>=b.width&&abs(p.box.left-b.left)<.075f&&(min(p.box.right,b.right)-max(p.box.left,b.left))>.65f*min(p.box.width,b.width)&&
                 max(0f,max(p.box.top,b.top)-min(p.box.bottom,b.bottom))<=.035f
             }.maxByOrNull{it.box.width}?.box?.let{Box(min(b.left,it.left),b.top,max(b.right,it.right),b.bottom)}?:b else b
             val overlaps=seen.filter{it.intersect(b)>0}

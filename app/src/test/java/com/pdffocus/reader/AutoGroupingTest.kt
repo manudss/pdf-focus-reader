@@ -24,4 +24,11 @@ class AutoGroupingTest {
   val zones=listOf(z(1,Box(.1f,.1f,.3f,.2f)),z(2,Box(.08f,.08f,.4f,.25f)))
   assertTrue(AutoGrouping.apply(zones,emptyList(),AutoGrouping.propose(zones)).order.isEmpty())
  }
+
+ @Test fun indentedParagraphCanJoinItsHeadingButSpanningTitleCannotJoinBothColumns(){
+  val heading=z(1,Box(.06f,.1f,.29f,.14f));val body=z(2,Box(.13f,.15f,.88f,.22f))
+  assertEquals(1,AutoGrouping.propose(listOf(heading,body)).size)
+  val title=z(1,Box(.05f,.1f,.95f,.16f));val left=z(2,Box(.05f,.17f,.48f,.5f));val right=z(3,Box(.52f,.17f,.95f,.5f))
+  assertTrue(AutoGrouping.propose(listOf(title,left,right)).none{2 in it.ids&&3 in it.ids})
+ }
 }

@@ -120,6 +120,7 @@ class ContinuousReaderView(context:Context):View(context){
     private fun move(value:Float){offset=value.coerceIn(0f,max(0f,totalHeight-height));val ordinal=(tiles.filter{it.rect.bottom>=offset}.map{it.rect.top to it.ordinal}+textItems.filter{it.top+it.layout.height>=offset}.map{it.top to it.ordinal}).minByOrNull{it.first}?.second?:0;onProgress?.invoke(ordinal,offset.roundToInt());invalidate()}
     override fun onDraw(c:Canvas){
         super.onDraw(c);c.save();c.clipRect(0,0,width,height);c.translate(-horizontal,-offset)
+        paint.color=(surfaces.firstOrNull{it.bottom>=offset}?:surfaces.lastOrNull())?.color?:Color.WHITE;c.drawRect(horizontal,offset,horizontal+width,offset+height,paint)
         for(surface in surfaces)if(surface.bottom>=offset&&surface.top<=offset+height){paint.color=surface.color;c.drawRect(horizontal,surface.top,horizontal+width,surface.bottom,paint)}
         for(item in textItems)if(item.top+item.layout.height>=offset&&item.top<=offset+height){c.save();c.translate(16*density,item.top);item.layout.draw(c)
             val underline=Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.rgb(87,117,107);strokeWidth=density;style=Paint.Style.STROKE;pathEffect=DashPathEffect(floatArrayOf(2*density,3*density),0f)}

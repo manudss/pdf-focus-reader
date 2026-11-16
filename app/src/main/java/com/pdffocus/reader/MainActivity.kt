@@ -33,6 +33,8 @@ class MainActivity:Activity() {
     private var currentOrdinal=0
 
     private var recognizedWords:List<OcrWord>?=null
+    private val readingColors=mutableMapOf<Box,Int>()
+    private fun readingColor(box:Box)=readingColors.getOrPut(box){preview?.let{ReadingPalette.background(it,box)}?:Color.WHITE}
     private var scrollPosition=0
     private var documentLoading=false
     private var detecting=false
@@ -284,7 +286,7 @@ class MainActivity:Activity() {
     }
     private fun loadPage(index:Int,force:Boolean=false){
         pageSummary?.dismiss()
-        articleIds=null;articleReason=""
+        articleIds=null;articleReason="";readingColors.clear()
         if(index !in 0 until count)return
         if(pageReady)saveSession()
         pendingNew=null;merging=false;mergeIds=emptySet();canvas.mergeMode=false;canvas.mergeIds=emptySet();adjusting=null;canvas.adjustingZone=null;canvas.editBox=null;detector?.cancel();ocrRun++;chunkPlan=emptyList();rawChunks.clear();improvedChunks.clear();secondChunks.clear();ocrNotice="";detecting=false;pageReady=false;recognizedWords=null;ocrLoading=false
@@ -324,12 +326,12 @@ class MainActivity:Activity() {
         if(order.isEmpty()||busy)return
         val p=preview?:return;readingSettings=false;currentOrdinal=frameIndex;reading=true;canvas.visibility=View.GONE;reader.visibility=View.VISIBLE
         val chosen=BlockSeams.align(p,ReadingLayout.ordered(zones,order).map{z->if(z.kind==Kind.TEXT&&!z.manual)z.copy(box=TextCoverage.safeTextBox(p,z.box))else z})
-        reader.setDocument(chosen.map{ReadingWhitespace.trim(p,it)},p.width,p.height,scrollPosition,chosen.associate{it.id to ReadingPalette.background(p,it.box)});if(ocrReading)prepareOcr();updateControls()
+        reader.setDocument(chosen.map{ReadingWhitespace.trim(p,it)},p.width,p.height,scrollPosition,chosen.associate{it.id to readingColor(it.box)});if(ocrReading)prepareOcr();updateControls()
     }
     private fun selectMode(mode:Int){
         ocrReading=mode==2;cleanReading=mode!=0
         getPreferences(0).edit().putBoolean("cleanReading",cleanReading).apply()
-        if(ocrReading)prepareOcr(true)else {preview?.let{image->reader.setBackgrounds(ReadingLayout.ordered(zones,order).associate{it.id to ReadingPalette.background(image,it.box)})};reader.showOcr(null);ocrRun++;detector?.cancel();ocrLoading=false}
+        if(ocrReading)prepareOcr(true)else {preview?.let{reader.setBackgrounds(ReadingLayout.ordered(zones,order).associate{it.id to readingColor(it.box)})};reader.showOcr(null);ocrRun++;detector?.cancel();ocrLoading=false}
         updateControls()
     }
     private fun plainText(words:List<OcrWord>):String = OcrFlow.textByZone(listOf(Zone(1,Box(0f,0f,1f,1f),Kind.TEXT)),words)[1].orEmpty()
@@ -354,7 +356,7 @@ class MainActivity:Activity() {
                 val edits=review.edits.map{edit->val terms=Regex("[\\p{L}]{4,}").findAll(edit.corrected+" "+edit.raw).map{it.value.lowercase()}.toSet();edit.copy(readings=evidence.filter{e->Regex("[\\p{L}]{4,}").findAll(e.text).any{it.value.lowercase() in terms}}.take(2))}
                 review.copy(edits=edits,keptRaw=store.ocrChoices(page,review.fingerprint()))}}else emptyMap()
         val shown=texts.mapValues{(key,value)->reviews[key]?.rendered()?.first?:value}
-        if(reading&&ocrReading){preview?.let{image->reader.setBackgrounds(plan.associate{it.key to ReadingPalette.background(image,it.box)})};reader.showOcrStream(plan,shown,ocrLoading,force,reviewTexts=reviews)}
+        if(reading&&ocrReading){preview?.let{reader.setBackgrounds(plan.associate{it.key to readingColor(it.box)})};reader.showOcrStream(plan,shown,ocrLoading,force,reviewTexts=reviews)}
     }
 
     private fun showOcrComparison(key:Int,id:Int,y:Float){
@@ -437,7 +439,7 @@ class MainActivity:Activity() {
         val choices=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL}
         suggestions.forEachIndexed{index,g->choices.addView(CheckBox(this).apply{isChecked=true;text="Groupe ${index+1} · ${g.ids.size} blocs\n${g.reason}";minHeight=dp(54);setTextColor(ink);setOnCheckedChangeListener{_,checked->if(checked)selected+=index else selected-=index;refreshPreview()}})}
         panel.addView(ScrollView(this).apply{addView(choices)},LinearLayout.LayoutParams(-1,dp(minOf(180,suggestions.size*58))))
-        panel.addView(text("Ordre conservé à la première position choisie. Aucun bloc non choisi n'est ajouté au parcours. Annulation disponible dans Menu.",12))
+        panel.addView(text("Chaque groupe prend la place de son premier bloc choisi. Un groupe absent du parcours n'y est pas ajouté. Annulation dans Menu.",12))
         val row=LinearLayout(this);row.addView(button("Annuler"){dialog.dismiss()},LinearLayout.LayoutParams(0,dp(54),1f));row.addView(button("Appliquer",true){
             if(page!=targetPage||zones!=originalZones||order!=originalOrder){dialog.dismiss();return@button}
             if(selected.isNotEmpty()){
@@ -445,7 +447,7 @@ class MainActivity:Activity() {
                 chunkPlan=emptyList();rawChunks.clear();improvedChunks.clear();secondChunks.clear();scrollPosition=0;sync()
             };dialog.dismiss()
         },LinearLayout.LayoutParams(0,dp(54),1f));panel.addView(row)
-        dialog.setContentView(panel);dialog.setOnDismissListener{view.image=null;groupDialog=null};dialog.show();dialog.window?.setLayout(-1,-1)
+        dialog.setContentView(panel);dialog.setOnDismissListener{view.image=null;if(groupDialog===dialog)groupDialog=null};dialog.show();dialog.window?.setLayout(-1,-1)
     }
     private fun undoAutoGroups(){
         val saved=groupUndo
