@@ -85,8 +85,6 @@ jobs:
         with:
           name: pdf-focus-reader-alpha
           path: app/build
-      - name: Install stable signing tools
-        run: sdkmanager 'build-tools;35.0.0'
       - name: Restore approved signing secret and sign only test APK
         env:
           PDF_FOCUS_TEST_SIGNING_BUNDLE: ${{ secrets.PDF_FOCUS_TEST_SIGNING_BUNDLE }}
