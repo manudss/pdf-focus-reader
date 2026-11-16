@@ -42,7 +42,15 @@ object ComicPanels {
    if(coverage(top.left,top.top,bottom.bottom)<.94f||coverage(top.right,top.top,bottom.bottom)<.94f)continue
    boxes+=Box(top.left.toFloat()/width,top.top.toFloat()/height,top.right.toFloat()/width,bottom.bottom.toFloat()/height)
   }
-  val outer=boxes.distinct().filter{b->boxes.none{a->a!=b&&a.area>b.area*1.02f&&a.intersect(b)>.96f*b.area}}
+  // Flat dark mastheads are not panels: a frame needs a varying interior.
+  val candidates=boxes.filter{b->
+   var ink=0;var total=0
+   val l=((b.left+b.width*.1f)*width).toInt();val r=((b.right-b.width*.1f)*width).toInt()
+   val t=((b.top+b.height*.1f)*height).toInt();val d=((b.bottom-b.height*.1f)*height).toInt()
+   for(y in t..d step 3)for(x in l..r step 3){total++;if(dark(x,y))ink++}
+   total>0&&ink.toFloat()/total<.9f
+  }
+  val outer=candidates.distinct().filter{b->candidates.none{a->a!=b&&a.area>b.area*1.02f&&a.intersect(b)>.96f*b.area}}
    .sortedByDescending{it.area}.fold(mutableListOf<Box>()){out,b->if(out.none{it.intersect(b)>.94f*min(it.area,b.area)})out+=b;out}
   if(outer.size !in 3..16)return emptyList()
   val area=outer.sumOf{it.area.toDouble()}
