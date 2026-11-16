@@ -15,8 +15,12 @@ object ContinuousLayout {
         }
         val coherent=aligned.map{z->
             val b=z.box
-            val related=aligned.filter{p->p.id!=z.id&&p.kind==Kind.TEXT&&z.kind==Kind.TEXT&&min(p.box.height,b.height)<.075f&&abs(p.box.left-b.left)<.075f&&
-                (min(p.box.right,b.right)-max(p.box.left,b.left))>.4f*min(p.box.width,b.width)&&max(p.box.top,b.top)-min(p.box.bottom,b.bottom) in -.035f.. .035f}
+            val related=aligned.filter{p->
+                val x=p.box;val horizontal=min(x.right,b.right)-max(x.left,b.left);val gap=max(x.top,b.top)-min(x.bottom,b.bottom)
+                p.id!=z.id&&p.kind==Kind.TEXT&&z.kind==Kind.TEXT&&(
+                    min(x.height,b.height)<.075f&&abs(x.left-b.left)<.075f&&horizontal>.4f*min(x.width,b.width)&&gap in -.035f.. .035f ||
+                    gap in -.01f..0f&&horizontal>.8f*min(x.width,b.width)&&min(x.width,b.width)/max(x.width,b.width)>.72f)
+            }
             if(related.isEmpty())z else z.copy(box=Box(min(b.left,related.minOf{it.box.left}),b.top,max(b.right,related.maxOf{it.box.right}),b.bottom))
         }
         val seen=mutableListOf<Box>();val result=mutableListOf<ReadBand>()
