@@ -12,7 +12,7 @@ try:
  digest=hashlib.sha256(cert).hexdigest()
  assert digest=='bbdae9f61a83de058513b89ba9e57af2ac2e29831a5c25e7445a30c7e8f0ea16', 'Signing identity mismatch'
  out=pathlib.Path('signed-test');out.mkdir(exist_ok=True)
- src=pathlib.Path('app/build/outputs/apk/debug/app-arm64-v8a-debug.apk');dest=out/'pdf-focus-test-0.10.1-arm64.apk'
+ src=pathlib.Path('app/build/outputs/apk/debug/app-arm64-v8a-debug.apk');dest=out/'pdf-focus-test-0.10.2-arm64.apk'
  subprocess.run([str(bt/'apksigner'),'sign','--ks',str(key),'--ks-pass','file:'+str(password),'--key-pass','file:'+str(keypassword),'--ks-key-alias',bundle['alias'],'--out',str(dest),str(src)],check=True,capture_output=True)
  subprocess.run([str(bt/'apksigner'),'verify','--verbose',str(dest)],check=True,capture_output=True)
  (out/'SHA256SUMS.txt').write_text(hashlib.sha256(dest.read_bytes()).hexdigest()+'  '+dest.name+'\nCertificate SHA256 '+digest+'\n')

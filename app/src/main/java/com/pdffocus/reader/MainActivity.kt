@@ -3,7 +3,6 @@ package com.pdffocus.reader
 import android.app.*
 import android.content.*
 import android.graphics.*
-import android.graphics.pdf.PdfDocument as AndroidPdf
 import android.net.Uri
 import android.os.*
 import android.provider.OpenableColumns
@@ -553,10 +552,8 @@ class MainActivity:Activity() {
     private fun clearDocument(){if(busy){toast("Attendez la fin de l’analyse avant de supprimer.");return};AlertDialog.Builder(this).setTitle("Supprimer la copie locale ?").setMessage("Le fichier original n'est pas modifié. Le parcours enregistré sera effacé.").setPositiveButton("Supprimer"){_,_->++generation;main.removeCallbacks(saveProgress);reader.clear();reader.visibility=View.GONE;canvas.visibility=View.VISIBLE;pageReady=false;worker.execute{document?.close();document=null;File(filesDir,"current.pdf").delete()};count=0;store.clear();preview?.recycle();preview=null;readingBitmap?.recycle();readingBitmap=null;canvas.image=null;canvas.zones=emptyList();canvas.selection=emptyList();reading=false;busy=false;title.text="PDF Focus Test";info.text="Sans compte et hors ligne";status.text="Document local supprimé.";updateControls()}.setNegativeButton("Annuler",null).show()}
     private fun showLicenses(){val names=assets.list("licenses").orEmpty();AlertDialog.Builder(this).setTitle("Licences").setItems(names){_,which->val view=TextView(this).apply{text=assets.open("licenses/"+names[which]).bufferedReader().use{it.readText()};setPadding(dp(16),dp(12),dp(16),dp(12));textSize=12f};val scroll=ScrollView(this).apply{addView(view)};AlertDialog.Builder(this).setTitle(names[which]).setView(scroll).setPositiveButton("Fermer",null).show()}.setNegativeButton("Fermer",null).show()}
     private fun toast(message:String)=Toast.makeText(this,message,Toast.LENGTH_SHORT).show()
-    /** Built-in copyright-safe fixture, also useful on a fresh offline install. */
-    private fun demo(){openDocument("Journal de démonstration"){target->val pdf=AndroidPdf();val p=pdf.startPage(AndroidPdf.PageInfo.Builder(700,1000,1).create());val c=p.canvas;val paint=Paint(Paint.ANTI_ALIAS_FLAG);c.drawColor(Color.WHITE);paint.color=ink;paint.textSize=33f;paint.typeface=Typeface.DEFAULT_BOLD;c.drawText("Le journal des idées",40f,70f,paint);paint.textSize=18f;c.drawText("Un document fictif pour découvrir la lecture par blocs",40f,110f,paint);paint.typeface=Typeface.DEFAULT;paint.textSize=17f;val lines=listOf("Le plaisir de lire commence","par un écran confortable.","Choisissez les blocs dans","l'ordre qui vous convient.","Le texte reste celui du PDF.","Il n'est pas réécrit par l'OCR.","Faites glisser pour lire","sans perdre le fil.","Une photo peut se glisser","entre deux paragraphes.","La page d'origine reste","accessible à tout moment.")
-        for(col in 0..1)for(i in 0 until 28)c.drawText(lines[i%lines.size],40f+col*330f,170f+i*25f,paint)
-        paint.color=Color.rgb(84,153,130);c.drawRect(40f,880f,660f,960f,paint);paint.color=Color.WHITE;paint.textSize=22f;c.drawText("Illustration fictive · aucun document personnel",65f,927f,paint);pdf.finishPage(p);target.outputStream().use{pdf.writeTo(it)};pdf.close()}}
+    /** Original tutorial bundled for explicit offline discovery; never replaces a resumed document. */
+    private fun demo(){openDocument("PDF Focus - Découverte"){target->assets.open("examples/decouverte.pdf").use{input->target.outputStream().use{output->input.copyTo(output)}}}}
     @Deprecated("Activity back callback")
     override fun onBackPressed(){if(articleIds!=null)finishArticle(false)else if(merging)finishMerge(false)else if(adjusting!=null)finishAdjustment(false)else if(reading)exitReader()else if(adding){adding=false;replaceId=null;canvas.drawMode=false;sync()}else super.onBackPressed()}
     override fun onDestroy(){pageSummary?.dismiss();editDialog?.dismiss();main.removeCallbacks(saveProgress);if(pageReady)saveSession();reader.clear();++generation;detector?.cancel();detectionWorker.shutdown();super.onDestroy();worker.execute{document?.close();document=null};worker.shutdown()}

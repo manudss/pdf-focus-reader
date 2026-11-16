@@ -30,6 +30,31 @@ class ReaderDeviceTest {
         val guarded=OcrBaseline.protectHyphenFragments(listOf(fragment),listOf(fragment.copy(text="préè-"),following),spelling)
         assertEquals("préparer",OcrEnhancer(emptyList(),spelling::valid).text(guarded))
     }
+    @Test fun originalTutorialHasNinePagesAndReadableRasterAndComic(){
+        val c=InstrumentationRegistry.getInstrumentation().targetContext
+        val bytes=c.assets.open("examples/decouverte.pdf").use{it.readBytes()}
+        assertEquals("e97350400c96f146d89ef72fd35e186984e17ba0aa2e156784ce36bbcb29ed69",java.security.MessageDigest.getInstance("SHA-256").digest(bytes).joinToString(""){"%02x".format(it)})
+        val f=File(c.cacheDir,"tutorial-check.pdf");f.writeBytes(bytes)
+        PdfDocument(f).use{doc->
+            assertEquals(9,doc.count)
+            for(index in listOf(2,6,8)){
+                val b=doc.preview(index);assertTrue(b.width>500&&b.height>800)
+                File(File(c.getExternalFilesDir(null),"screenshots").apply{mkdirs()},"tutorial-page-${index+1}.png").outputStream().use{b.compress(Bitmap.CompressFormat.PNG,100,it)}
+                if(index==8){
+                    val parts=listOf(OcrChunk(1,1,0,Box(0f,0f,1f,1f),Kind.TEXT));var text=""
+                    ZoneDetector(c).recognizeChunks(parts,b,false,{false}){_,words->text=words.joinToString(" "){it.text}}
+                    assertTrue("Raster tutorial page must produce offline OCR",text.length>80)
+                }
+                if(index==6){
+                    val case=Zone(1,Box(.5f,.15f,.93f,.36f),Kind.IMAGE,manual=true)
+                    val original=doc.readingRegion(index,case.box,600,600,false)
+                    val unchanged=doc.readingRegion(index,case.box,600,600,case.kind==Kind.TEXT)
+                    assertTrue("Image blocks must preserve original comic pixels",original.sameAs(unchanged));original.recycle();unchanged.recycle()
+                    assertEquals(listOf(3,1,2),listOf(3,1,2).fold(emptyList<Int>()){ids,id->ReadingLayout.toggle(ids,id)})
+                };b.recycle()
+            }
+        };f.delete()
+    }
     @Test fun bundledOcrWorksWithoutNetworkAndFindsSyntheticText(){
         val c=InstrumentationRegistry.getInstrumentation().targetContext
         c.assets.open("tessdata_best/fra-words.txt").bufferedReader().use{assertTrue("Packaged repair lexicon must be readable",it.readLines().size>10000)}
@@ -55,6 +80,10 @@ class ReaderDeviceTest {
                 Thread.sleep(250)
             }
             assertTrue("Synthetic PDF must load and detect blocks",ready)
+            scenario.onActivity{a->MainActivity::class.java.getDeclaredMethod("loadPage",Int::class.javaPrimitiveType,Boolean::class.javaPrimitiveType).apply{isAccessible=true}.invoke(a,2,false)}
+            val pageEnd=System.currentTimeMillis()+90000;ready=false
+            while(System.currentTimeMillis()<pageEnd){scenario.onActivity{a->ready=MainActivity::class.java.getDeclaredField("pageReady").apply{isAccessible=true}.getBoolean(a)&&findCanvas(a.window.decorView)!!.zones.isNotEmpty()};if(ready)break;Thread.sleep(100)}
+            assertTrue("Tutorial column page must finish loading",ready)
             screenshot(scenario,"detected")
             scenario.onActivity{a->
                 val page=findCanvas(a.window.decorView)!!
