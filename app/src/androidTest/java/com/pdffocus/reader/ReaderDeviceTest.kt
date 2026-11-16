@@ -55,6 +55,23 @@ class ReaderDeviceTest {
             }
         };f.delete()
     }
+    @Test fun framedComicProposesSixWholeImagePanelsWithoutOcrFragments(){
+        val instrumentation=InstrumentationRegistry.getInstrumentation();val c=instrumentation.targetContext
+        File(c.filesDir,"current.pdf").delete();SessionStore(c).clear()
+        ActivityScenario.launch<MainActivity>(Intent(c,MainActivity::class.java)).use{scenario->
+            scenario.onActivity{a->findButton(a.window.decorView,"Essayer un exemple")!!.performClick()}
+            var ready=false;val end=System.currentTimeMillis()+90000
+            while(System.currentTimeMillis()<end){scenario.onActivity{a->ready=MainActivity::class.java.getDeclaredField("pageReady").apply{isAccessible=true}.getBoolean(a)};if(ready)break;Thread.sleep(100)};assertTrue(ready)
+            scenario.onActivity{a->MainActivity::class.java.getDeclaredMethod("loadPage",Int::class.javaPrimitiveType,Boolean::class.javaPrimitiveType).apply{isAccessible=true}.invoke(a,6,false)}
+            ready=false;val finish=System.currentTimeMillis()+90000
+            while(System.currentTimeMillis()<finish){scenario.onActivity{a->ready=MainActivity::class.java.getDeclaredField("pageReady").apply{isAccessible=true}.getBoolean(a)&&findCanvas(a.window.decorView)!!.zones.size==6};if(ready)break;Thread.sleep(100)}
+            assertTrue("The full detection path must propose six comic panels",ready)
+            scenario.onActivity{a->val page=findCanvas(a.window.decorView)!!;assertTrue(page.zones.all{it.kind==Kind.IMAGE});assertTrue(page.zones.all{it.box.height>.25f});assertTrue(page.selection.isEmpty());page.zones.forEach{page.onZoneTap!!.invoke(it)};assertEquals((1..6).toList(),page.selection)}
+            screenshot(scenario,"comic-six-panels")
+            scenario.onActivity{a->findButton(a.window.decorView,"Lire (")!!.performClick();findButton(a.window.decorView,"Original")!!.performClick()}
+            Thread.sleep(700);screenshot(scenario,"comic-original-reader")
+        }
+    }
     @Test fun bundledOcrWorksWithoutNetworkAndFindsSyntheticText(){
         val c=InstrumentationRegistry.getInstrumentation().targetContext
         c.assets.open("tessdata_best/fra-words.txt").bufferedReader().use{assertTrue("Packaged repair lexicon must be readable",it.readLines().size>10000)}
