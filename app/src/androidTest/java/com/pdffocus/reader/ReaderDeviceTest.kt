@@ -274,6 +274,117 @@ class ReaderDeviceTest {
             out.recycle();reader.clear()
         }
     }
+    @Test fun readingPinchZoomPreviewsLiveAndRebuildsOnce(){
+        val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext
+        i.runOnMainSync{
+            val reader=ContinuousReaderView(c)
+            reader.measure(View.MeasureSpec.makeMeasureSpec(1440,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(2400,View.MeasureSpec.EXACTLY));reader.layout(0,0,1440,2400)
+            // Landmarks drawn from zone coordinates, not tile ids: stripes and "repere N" labels
+            // persist when the commit re-tiles the document, so the same content can be tracked
+            // across the preview and the rebuild.
+            reader.onRequest={tile,revision->
+                val w=kotlin.math.ceil(tile.rect.width()).toInt();val h=kotlin.math.ceil(tile.rect.height()).toInt()
+                val b=Bitmap.createBitmap(w,h,Bitmap.Config.ARGB_8888);val cv=Canvas(b)
+                val span=(tile.source.bottom-tile.source.top).coerceAtLeast(.0001f)
+                for(stripe in 0..47){
+                    val f0=stripe/48f;val f1=(stripe+1)/48f
+                    if(f1<tile.source.top||f0>tile.source.bottom)continue
+                    val y0=((maxOf(f0,tile.source.top)-tile.source.top)/span)*h;val y1=((minOf(f1,tile.source.bottom)-tile.source.top)/span)*h
+                    val band=Paint().apply{color=if(stripe%2==0)Color.rgb(40,80,60)else Color.rgb(226,239,231)}
+                    cv.drawRect(0f,y0,w.toFloat(),y1,band)
+                    if(stripe==0)continue
+                    // Labels scale with the zone, not with the tile bitmap: a fixed zone-fraction
+                    // height mapped into this tile, drawn in every tile it overlaps (the canvas
+                    // clips), so glyphs survive re-tiling like real rasterized text.
+                    val lp=Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.rgb(37,31,33);textSize=(.004f/span)*h}
+                    val ly=((f0+.004f-tile.source.top)/span)*h
+                    cv.drawText("repere $stripe",((.05f-tile.source.left)/(tile.source.right-tile.source.left))*w,ly,lp)
+                    cv.drawText("repere $stripe",((.5f-tile.source.left)/(tile.source.right-tile.source.left))*w,ly,lp)
+                }
+                reader.accept(tile,revision,b)
+            }
+            reader.setDocument(listOf(Zone(1,Box(0f,0f,1f,1f),Kind.TEXT)),600,12000)
+            val out=Bitmap.createBitmap(1440,2400,Bitmap.Config.ARGB_8888)
+            repeat(3){reader.draw(Canvas(out))}
+            fun field(n:String)=ContinuousReaderView::class.java.getDeclaredField(n).apply{isAccessible=true}
+            // Stripe scan away from the label columns: parity of the red channel.
+            fun light(x:Int,y:Int)=Color.red(out.getPixel(x,y))>128
+            fun stripeLight(x:Int,y:Int):Boolean{var l=0;for(dx in -2..2)for(dy in -2..2)if(light(x+dx,y+dy))l++;return l>=13}
+            fun boundaries(x:Int):List<Float>{val r=mutableListOf<Float>();var prev=light(x,0);for(y in 1 until out.height){val p=light(x,y);if(p!=prev){r+=y-.5f;prev=p}};return r}
+            val beforeBounds=boundaries(650)
+            assertTrue("Fixture must show several landmarks",beforeBounds.size>=2)
+            // Dark text pixels: red and green both low (excludes the green stripe background).
+            fun labelBox(boundaryY:Float):Pair<Float,Float>?{
+                var top=-1f;var bottom=-1f
+                for(y in boundaryY.toInt()+4 until minOf(out.height,boundaryY.toInt()+300)){
+                    var dark=0
+                    for(x in 60 until minOf(out.width,1380)){val px=out.getPixel(x,y);if(Color.red(px)<100&&Color.green(px)<60)dark++}
+                    if(dark>=5){if(top<0f)top=y.toFloat();bottom=y.toFloat()}
+                }
+                return if(top<0f)null else top to bottom
+            }
+            // Anchor the gesture focus at the centre of the stripe around mid-viewport.
+            val lo=beforeBounds.lastOrNull{it<=1400f}?:0f;val hi=beforeBounds.firstOrNull{it>1400f}?:2400f
+            val fy=(lo+hi)/2
+            val beforeLabel=labelBox(lo)
+            assertNotNull("The stripe boundary above the focus must carry its label",beforeLabel)
+            val beforeLight=stripeLight(720,fy.toInt())
+            val before=field("revision").getInt(reader)
+            val down=android.os.SystemClock.uptimeMillis()
+            fun props(id:Int)=MotionEvent.PointerProperties().apply{this.id=id;toolType=MotionEvent.TOOL_TYPE_FINGER}
+            fun coords(x:Float,y:Float)=MotionEvent.PointerCoords().apply{this.x=x;this.y=y}
+            fun send(action:Int,count:Int,time:Long,vararg points:Pair<Float,Float>){
+                val pp=(0 until count).map{props(it)}.toTypedArray();val pc=points.map{coords(it.first,it.second)}.toTypedArray()
+                val e=MotionEvent.obtain(down,time,action,count,pp,pc,0,0,1f,1f,0,0,0,0);reader.onTouchEvent(e);e.recycle()
+            }
+            send(MotionEvent.ACTION_DOWN,1,down,720f to fy)
+            send(MotionEvent.ACTION_POINTER_DOWN or (1 shl 8),2,down+40,470f to fy,970f to fy) // span 500px, above the minimum scaling span (~27mm)
+            // Span grows across several frames: the old code rebuilt the whole layout per frame.
+            var span=500f
+            // The detector anchors its baseline on the first move, so 8 frames are
+            // needed for the accumulated factor to pass the 2x clamp.
+            for(step in 1..8){
+                span+=100f
+                send(MotionEvent.ACTION_MOVE,2,down+40+step*25,720f-span/2 to fy,720f+span/2 to fy)
+                assertEquals("Pinch frame $step must not rebuild tiles, layouts or the bitmap cache",before,field("revision").getInt(reader))
+                assertTrue("Pinch frame $step must be in live preview",field("pinchLive").getBoolean(reader))
+            }
+            assertEquals("Magnification stays put during the live preview",1f,field("magnification").getFloat(reader),0.001f)
+            repeat(2){reader.draw(Canvas(out))}
+            assertEquals("The landmark under the focus must stay put during the preview",beforeLight,stripeLight(720,fy.toInt()))
+            File(File(c.getExternalFilesDir(null),"screenshots").apply{mkdirs()},"reading-pinch-preview.png").outputStream().use{out.compress(Bitmap.CompressFormat.PNG,100,it)}
+            send(MotionEvent.ACTION_POINTER_UP or (1 shl 8),2,down+400,20f to fy,1420f to fy)
+            send(MotionEvent.ACTION_UP,1,down+440,20f to fy)
+            assertFalse("Preview must end with the gesture",field("pinchLive").getBoolean(reader))
+            assertEquals("The whole gesture commits with exactly one rebuild",before+1,field("revision").getInt(reader))
+            assertEquals("Commit clamps the accumulated factor at 2x",2f,field("magnification").getFloat(reader),0.001f)
+            repeat(3){reader.draw(Canvas(out))}
+            // Evidence before assertions: a failure must still ship the post-commit frame.
+            File(File(c.getExternalFilesDir(null),"screenshots").apply{mkdirs()},"reading-pinch-zoomed.png").outputStream().use{out.compress(Bitmap.CompressFormat.PNG,100,it)}
+            // Content continuity across the commit: the same stripes, twice as large, scaled
+            // around the focus - the landmark under the focus must still be under the focus.
+            assertEquals("The landmark under the focus must survive the commit",beforeLight,stripeLight(720,fy.toInt()))
+            val afterBounds=boundaries(650)
+            for(b in beforeBounds){
+                val expected=fy+2f*(b-fy)
+                if(expected<0f||expected>=out.height)continue
+                assertTrue("Landmark at $b must reappear near ${expected.toInt()} after the 2x commit (found $afterBounds)",afterBounds.any{kotlin.math.abs(it-expected)<=14f})
+            }
+            if(beforeBounds.size>=2&&afterBounds.size>=2){
+                val p0=beforeBounds[1]-beforeBounds[0];val p1=afterBounds[1]-afterBounds[0]
+                assertTrue("Stripe scale must double at commit ($p0 -> $p1)",p1>p0*1.7f&&p1<p0*2.3f)
+            }
+            // Glyph-level continuity: the same label, twice as tall, at the doubled offset below
+            // its boundary, and not clipped by the new tile grid (a clipped label collapses).
+            val lo1=fy+2f*(lo-fy)
+            val afterLabel=labelBox(lo1)
+            assertNotNull("The same label must survive the commit",afterLabel)
+            val h0=beforeLabel!!.second-beforeLabel.first;val h1=afterLabel!!.second-afterLabel.first
+            assertTrue("Glyph height must double across the commit ($h0 -> $h1)",h1>h0*1.7f&&h1<h0*2.3f)
+            assertTrue("Glyph offset below its boundary must scale with the zoom",kotlin.math.abs((afterLabel.first-lo1)-2f*(beforeLabel.first-lo))<=20f)
+            out.recycle();reader.clear()
+        }
+    }
     @Test fun textCropRetainsDescendersAndRasterBottom(){
         val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext
         val f=File(c.cacheDir,"crop.pdf");val pdf=android.graphics.pdf.PdfDocument();val p=pdf.startPage(android.graphics.pdf.PdfDocument.PageInfo.Builder(400,600,1).create())
