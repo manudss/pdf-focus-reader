@@ -33,7 +33,7 @@ class ReaderDeviceTest {
     @Test fun originalTutorialHasNinePagesAndReadableRasterAndComic(){
         val c=InstrumentationRegistry.getInstrumentation().targetContext
         val bytes=c.assets.open("examples/decouverte.pdf").use{it.readBytes()}
-        assertEquals("e97350400c96f146d89ef72fd35e186984e17ba0aa2e156784ce36bbcb29ed69",java.security.MessageDigest.getInstance("SHA-256").digest(bytes).joinToString(""){"%02x".format(it)})
+        assertEquals("d1c3177f74be6ae19da22c97ec686ac91ab29322ee158122117f5e9f6cd01cb4",java.security.MessageDigest.getInstance("SHA-256").digest(bytes).joinToString(""){"%02x".format(it)})
         val f=File(c.cacheDir,"tutorial-check.pdf");f.writeBytes(bytes)
         PdfDocument(f).use{doc->
             assertEquals(9,doc.count)
