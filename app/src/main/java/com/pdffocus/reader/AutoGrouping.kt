@@ -18,7 +18,7 @@ object AutoGrouping {
     val mixedOverlap=overlap>=min(a.area,b.area)*.12f&&(aa+bb).any{it.kind==Kind.IMAGE}
     val gap=max(a.top,b.top)-min(a.bottom,b.bottom)
     val short=min(a.height,b.height)<.075f
-    val aligned=abs(a.left-b.left)<.075f&&(min(a.right,b.right)-max(a.left,b.left))>.65f*min(a.width,b.width)&&min(a.width,b.width)/max(a.width,b.width)>.07f
+    val aligned=abs(a.left-b.left)<.075f&&(min(a.right,b.right)-max(a.left,b.left))>.4f*min(a.width,b.width)&&min(a.width,b.width)/max(a.width,b.width)>.07f
     val heading=aa.all{it.kind==Kind.TEXT}&&bb.all{it.kind==Kind.TEXT}&&short&&aligned&&gap in -.035f.. .035f
     if(!embedded&&!mixedOverlap&&!heading)continue
     val merged=a.union(b);val ids=groups[i]+groups[j]
