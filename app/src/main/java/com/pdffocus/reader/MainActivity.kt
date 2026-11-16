@@ -53,6 +53,10 @@ class MainActivity:Activity() {
     private lateinit var menuButton:Button
     private lateinit var progress:ProgressBar
     private lateinit var pages:LinearLayout
+    private lateinit var pageNav:LinearLayout
+    private lateinit var pageSeek:SeekBar
+    private lateinit var pageSeekLabel:TextView
+    private lateinit var pageSeekTotal:TextView
     private var count=0;private var page=0;private var zones=listOf<Zone>();private var order=listOf<Int>()
     private var preview:Bitmap?=null;private var readingBitmap:Bitmap?=null
     private var frameIndex=0;private var reading=false;private var busy=false
@@ -86,6 +90,20 @@ class MainActivity:Activity() {
         val viewport=android.widget.FrameLayout(this);root.addView(viewport,LinearLayout.LayoutParams(-1,0,1f))
         canvas=PageCanvas(this);viewport.addView(canvas,android.widget.FrameLayout.LayoutParams(-1,-1))
         reader=ContinuousReaderView(this).apply{visibility=View.GONE};viewport.addView(reader,android.widget.FrameLayout.LayoutParams(-1,-1))
+        // Page slider (validated mockup B): directly under the page preview, above the actions.
+        pageNav=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(16),0,dp(16),dp(2))}
+        pageSeekLabel=text("",12).apply{gravity=Gravity.CENTER}
+        pageSeek=SeekBar(this).apply{progressTintList=android.content.res.ColorStateList.valueOf(green);progressBackgroundTintList=android.content.res.ColorStateList.valueOf(Color.rgb(226,231,226));thumbTintList=android.content.res.ColorStateList.valueOf(green)}
+        pageSeek.setOnSeekBarChangeListener(object:SeekBar.OnSeekBarChangeListener{
+            override fun onProgressChanged(s:SeekBar?,p:Int,fromUser:Boolean){if(count>0)pageSeekLabel.text="Page ${p+1} / $count"}
+            override fun onStartTrackingTouch(s:SeekBar?){}
+            override fun onStopTrackingTouch(s:SeekBar?){s?.let{sliderPage(it.progress)}}
+        })
+        val seekRow=LinearLayout(this).apply{gravity=Gravity.CENTER_VERTICAL}
+        pageSeekTotal=text("",12)
+        seekRow.addView(text("1",12));seekRow.addView(pageSeek,LinearLayout.LayoutParams(0,-2,1f));seekRow.addView(pageSeekTotal)
+        pageNav.addView(pageSeekLabel);pageNav.addView(seekRow)
+        pageNav.visibility=View.GONE;root.addView(pageNav)
         reader.onRequest={tile,revision->val token=generation;val targetPage=page;val cleanup=cleanReading&&!ocrReading&&tile.kind==Kind.TEXT;worker.execute{var image:Bitmap?=null;try{if(token==generation&&!reader.needsRender(tile,revision)){main.post{reader.skipRequest(tile,revision)};return@execute};if(token==generation)image=document?.readingRegion(targetPage,tile.source,max(1,ceil(tile.rect.width()).toInt()),max(1,ceil(tile.rect.height()).toInt()),cleanup)}catch(_:Exception){};main.post{if(token==generation&&reading)reader.accept(tile,revision,image)else image?.recycle()}}}
         reader.onOcrMark={key,id,_,y->showOcrComparison(key,id,y)}
         reader.onProgress={ordinal,position->currentOrdinal=ordinal;scrollPosition=position;if(reading){info.text="Page ${page+1} sur $count · bloc ${ordinal+1} sur ${order.size}";progress.progress=((ordinal+1)*1000/maxOf(1,order.size))};status.text=if(ocrReading)"OCR ${if(enhancedOcr)"amélioré" else "brut"} · erreurs possibles${if(ocrLoading)" · suite en cours" else ""}${ocrNotice}" else "Lecture continue · bloc ${ordinal+1} / ${order.size} · glissez pour la suite";if(reading&&pageReady){main.removeCallbacks(saveProgress);main.postDelayed(saveProgress,400)}}
@@ -106,9 +124,18 @@ class MainActivity:Activity() {
             }
         }
         canvas.onViewportReady={}
+        canvas.onPageSwipe={dir->if(!documentLoading&&!reading){val target=page+dir;if(target in 0 until count)loadPage(target)}}
+        reader.onReturnToPage={exitReader()}
+        reader.onNextPage={if(page<count-1){exitReader();loadPage(page+1)}}
         updateControls();handleIntent(intent)
         if(intent?.action !in listOf(Intent.ACTION_VIEW,Intent.ACTION_SEND)&&File(filesDir,"current.pdf").exists())resumeLast()
     }
+    private fun refreshPageNav(){
+        pageNav.visibility=if(!reading&&count>1)View.VISIBLE else View.GONE
+        if(count>0){pageSeekTotal.text=count.toString();if(pageSeek.max!=count-1)pageSeek.max=count-1;if(pageSeek.progress!=page)pageSeek.progress=page;pageSeekLabel.text="Page ${page+1} / $count"}
+        pageSeek.isEnabled=!documentLoading
+    }
+    internal fun sliderPage(p:Int){if(!documentLoading&&p in 0 until count&&p!=page)loadPage(p)}
     private fun text(value:String,size:Int=14,bold:Boolean=false)=TextView(this).apply{text=value;textSize=size.toFloat();setTextColor(ink);if(bold)setTypeface(null,Typeface.BOLD);setPadding(0,dp(3),0,dp(3))}
     private fun shape(color:Int,radius:Int,stroke:Int=Color.TRANSPARENT)=android.graphics.drawable.GradientDrawable().apply{setColor(color);cornerRadius=dp(radius).toFloat();if(stroke!=Color.TRANSPARENT)setStroke(dp(1),stroke)}
     private fun iconName(label:String):String=when{
@@ -236,6 +263,7 @@ class MainActivity:Activity() {
             pages.addView(next,LinearLayout.LayoutParams(0,dp(44),1f))
         }
         setEnabledRecursive(controls,!busy)
+        refreshPageNav()
     }
     private fun setEnabledRecursive(v:View,enabled:Boolean){v.isEnabled=v.isEnabled&&enabled;if(v is android.view.ViewGroup)for(i in 0 until v.childCount)setEnabledRecursive(v.getChildAt(i),enabled)}
     private fun sync(save:Boolean=true){
@@ -326,6 +354,7 @@ class MainActivity:Activity() {
     private fun startReader(){
         if(order.isEmpty()||busy)return
         val p=preview?:return;readingSettings=false;currentOrdinal=frameIndex;reading=true;canvas.visibility=View.GONE;reader.visibility=View.VISIBLE
+        reader.endTitle="Fin de la page ${page+1}";reader.hasNextPage=page<count-1
         val chosen=BlockSeams.align(p,ReadingLayout.ordered(zones,order).map{z->if(z.kind==Kind.TEXT&&!z.manual)z.copy(box=TextCoverage.safeTextBox(p,z.box))else z})
         reader.setDocument(chosen.map{ReadingWhitespace.trim(p,it)},p.width,p.height,scrollPosition,chosen.associate{it.id to readingColor(it.box)});if(ocrReading)prepareOcr();updateControls()
     }
