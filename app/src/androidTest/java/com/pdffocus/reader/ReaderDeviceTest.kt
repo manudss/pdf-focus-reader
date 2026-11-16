@@ -396,6 +396,54 @@ class ReaderDeviceTest {
         println("Second recognizer synthetic line: ${android.os.SystemClock.elapsedRealtime()-start}ms; native heap delta ${android.os.Debug.getNativeHeapAllocatedSize()-before} bytes (not peak or phone timing)")
         image.recycle()
     }
+    @Test fun magazineWideTitleKeepsColumnsApartInCleanedReading(){
+        // Fictional magazine page: a wide short title left-aligned above three text
+        // columns, mirroring a reported reading defect. Content is invented.
+        val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext
+        File(c.filesDir,"current.pdf").delete();SessionStore(c).clear()
+        val pdf=android.graphics.pdf.PdfDocument();val page=pdf.startPage(android.graphics.pdf.PdfDocument.PageInfo.Builder(840,594,1).create())
+        val cv=page.canvas;cv.drawColor(Color.WHITE)
+        val titlePaint=Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.rgb(226,118,27);textSize=30f;typeface=Typeface.create("sans-serif",Typeface.BOLD)}
+        cv.drawText("Un grand titre invente",.06f*840,.165f*594,titlePaint)
+        val p=Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.BLACK;textSize=9f}
+        for((ci,label)in listOf(0 to "Colonne une",1 to "Colonne deux",2 to "Colonne trois")){
+            val x=(.06f+ci*.30f)*840
+            for(line in 0..39)cv.drawText("$label : phrase fictive numero ${line+1} pour ce test.",x,(.215f+line*.018f)*594,p)
+        }
+        pdf.finishPage(page);File(c.filesDir,"current.pdf").outputStream().use{pdf.writeTo(it)};pdf.close()
+        ActivityScenario.launch<MainActivity>(Intent(c,MainActivity::class.java)).use{scenario->
+            var ready=false;val end=System.currentTimeMillis()+90000
+            while(System.currentTimeMillis()<end){scenario.onActivity{a->ready=MainActivity::class.java.getDeclaredField("pageReady").apply{isAccessible=true}.getBoolean(a)&&findCanvas(a.window.decorView)!!.zones.isNotEmpty()};if(ready)break;Thread.sleep(100)}
+            assertTrue("Magazine fixture must finish native detection",ready)
+            scenario.onActivity{a->
+                val canvas=findCanvas(a.window.decorView)!!
+                val textZones=canvas.zones.filter{it.kind==Kind.TEXT}
+                val titles=textZones.filter{it.box.height<.075f&&it.box.width>.35f}
+                assertTrue("Fixture must yield a wide short title zone: ${canvas.zones}",titles.isNotEmpty())
+                val columns=textZones.filter{it.box.height>.3f}.sortedBy{it.box.left}
+                assertTrue("Fixture must yield three tall column zones: ${canvas.zones}",columns.size>=3)
+                (titles.sortedBy{it.box.top}+columns.take(3)).forEach{canvas.onZoneTap!!.invoke(it)}
+                val chosen=ReadingLayout.ordered(canvas.zones,canvas.selection)
+                val bands=ContinuousLayout.bands(chosen)
+                for(band in bands.filter{it.kind==Kind.TEXT}){
+                    val zone=chosen.first{it.id==band.zoneId}
+                    for(piece in band.pieces){
+                        assertTrue("Band of zone ${zone.id} exceeds its own extent: $piece in ${zone.box}",piece.left>=zone.box.left-.001f&&piece.right<=zone.box.right+.001f)
+                    }
+                }
+                val pieces=bands.flatMap{it.pieces};for(x in pieces.indices)for(y in x+1 until pieces.size)assertEquals(0f,pieces[x].intersect(pieces[y]),.000001f)
+            }
+            screenshot(scenario,"magazine-selected")
+            scenario.onActivity{a->findButton(a.window.decorView,"Lire (")!!.performClick()}
+            Thread.sleep(2000);i.waitForIdleSync()
+            scenario.onActivity{a->findButton(a.window.decorView,"Nettoyé")!!.performClick()}
+            Thread.sleep(1500);screenshot(scenario,"magazine-cleaned-top")
+            scenario.onActivity{a->val reader=findReader(a.window.decorView)!!;val now=android.os.SystemClock.uptimeMillis();reader.onTouchEvent(MotionEvent.obtain(now,now,MotionEvent.ACTION_DOWN,540f,2000f,0));reader.onTouchEvent(MotionEvent.obtain(now,now+150,MotionEvent.ACTION_MOVE,540f,200f,0));reader.onTouchEvent(MotionEvent.obtain(now,now+200,MotionEvent.ACTION_UP,540f,200f,0))}
+            Thread.sleep(1500);screenshot(scenario,"magazine-cleaned-middle")
+            scenario.onActivity{a->val reader=findReader(a.window.decorView)!!;val now=android.os.SystemClock.uptimeMillis();reader.onTouchEvent(MotionEvent.obtain(now,now,MotionEvent.ACTION_DOWN,540f,2000f,0));reader.onTouchEvent(MotionEvent.obtain(now,now+150,MotionEvent.ACTION_MOVE,540f,200f,0));reader.onTouchEvent(MotionEvent.obtain(now,now+200,MotionEvent.ACTION_UP,540f,200f,0));assertTrue("Reading must scroll through the columns",reader.currentPosition()>1500)}
+            Thread.sleep(1500);screenshot(scenario,"magazine-cleaned-end")
+        }
+    }
     private fun findText(v:View,value:String):Boolean{if(v is TextView&&v.text.toString().contains(value))return true;if(v is ViewGroup)for(j in 0 until v.childCount)if(findText(v.getChildAt(j),value))return true;return false}
     private fun findButton(v:View,label:String):Button? {if(v is Button&&v.text.toString().startsWith(label))return v;if(v is ViewGroup)for(i in 0 until v.childCount)findButton(v.getChildAt(i),label)?.let{return it};return null}
     private fun findReader(v:View):ContinuousReaderView?{if(v is ContinuousReaderView)return v;if(v is ViewGroup)for(i in 0 until v.childCount)findReader(v.getChildAt(i))?.let{return it};return null}
