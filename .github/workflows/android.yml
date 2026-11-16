@@ -81,8 +81,12 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Build separate test application
-        run: ./gradlew --no-daemon assembleDebug
+      - uses: actions/download-artifact@v5
+        with:
+          name: pdf-focus-reader-alpha
+          path: app/build
+      - name: Install stable signing tools
+        run: sdkmanager 'build-tools;35.0.0'
       - name: Restore approved signing secret and sign only test APK
         env:
           PDF_FOCUS_TEST_SIGNING_BUNDLE: ${{ secrets.PDF_FOCUS_TEST_SIGNING_BUNDLE }}
