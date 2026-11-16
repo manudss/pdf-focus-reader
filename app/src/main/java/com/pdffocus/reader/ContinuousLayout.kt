@@ -13,12 +13,18 @@ object ContinuousLayout {
             val parent=valid.filter{it.id!=z.id&&it.box.area>b.area*1.02f&&it.box.intersect(b)>=b.area*.999f}.maxByOrNull{it.box.area}
             if(parent==null)z else z.copy(box=Box(parent.box.left,b.top,parent.box.right,b.bottom))
         }
+        val coherent=aligned.map{z->
+            val b=z.box
+            val related=aligned.filter{p->p.id!=z.id&&p.kind==Kind.TEXT&&z.kind==Kind.TEXT&&min(p.box.height,b.height)<.075f&&abs(p.box.left-b.left)<.075f&&
+                (min(p.box.right,b.right)-max(p.box.left,b.left))>.65f*min(p.box.width,b.width)&&max(p.box.top,b.top)-min(p.box.bottom,b.bottom) in -.035f.. .035f}
+            if(related.isEmpty())z else z.copy(box=Box(min(b.left,related.minOf{it.box.left}),b.top,max(b.right,related.maxOf{it.box.right}),b.bottom))
+        }
         val seen=mutableListOf<Box>();val result=mutableListOf<ReadBand>()
-        aligned.forEachIndexed{ordinal,z->
+        coherent.forEachIndexed{ordinal,z->
             val b=z.box
             // Related short headings use their column's scale, not full-screen magnification.
             // Pieces remain the exact selected area when a neighbour supplies the scale only.
-            val reference=if(z.kind==Kind.TEXT)aligned.filter{p->
+            val reference=if(z.kind==Kind.TEXT)coherent.filter{p->
                 p.kind==Kind.TEXT&&p.box.width>=b.width&&abs(p.box.left-b.left)<.075f&&(min(p.box.right,b.right)-max(p.box.left,b.left))>.65f*min(p.box.width,b.width)&&
                 max(0f,max(p.box.top,b.top)-min(p.box.bottom,b.bottom))<=.035f
             }.maxByOrNull{it.box.width}?.box?.let{Box(min(b.left,it.left),b.top,max(b.right,it.right),b.bottom)}?:b else b

@@ -30,7 +30,7 @@ class ContinuousLayoutTest {
   val title=z(1,Box(.1f,.1f,.25f,.14f));val body=z(2,Box(.1f,.15f,.48f,.4f));val other=z(3,Box(.52f,.1f,.9f,.4f))
   val out=ContinuousLayout.bands(listOf(title,body,other))
   assertEquals(.38f,out.first().original.width,.00001f)
-  assertEquals(title.box,out.first().pieces.single())
+  assertEquals(.38f,out.first().pieces.single().width,.00001f)
   assertTrue(out.filter{it.zoneId==1}.all{it.original.right<.5f})
  }
 }

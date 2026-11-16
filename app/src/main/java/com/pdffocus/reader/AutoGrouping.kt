@@ -15,15 +15,15 @@ object AutoGrouping {
     val aa=members(groups[i]);val bb=members(groups[j]);if((aa+bb).any{it.manual})continue
     val a=box(groups[i]);val b=box(groups[j]);val overlap=a.intersect(b)
     val embedded=overlap>=min(a.area,b.area)*.92f
-    val mixedOverlap=overlap>=min(a.area,b.area)*.35f&&(aa+bb).any{it.kind==Kind.IMAGE}
+    val mixedOverlap=overlap>=min(a.area,b.area)*.12f&&(aa+bb).any{it.kind==Kind.IMAGE}
     val gap=max(a.top,b.top)-min(a.bottom,b.bottom)
     val short=min(a.height,b.height)<.075f
-    val aligned=abs(a.left-b.left)<.075f&&(min(a.right,b.right)-max(a.left,b.left))>.65f*min(a.width,b.width)&&min(a.width,b.width)/max(a.width,b.width)>.25f
-    val heading=aa.all{it.kind==Kind.TEXT}&&bb.all{it.kind==Kind.TEXT}&&short&&aligned&&gap in -.005f.. .035f
+    val aligned=abs(a.left-b.left)<.075f&&(min(a.right,b.right)-max(a.left,b.left))>.65f*min(a.width,b.width)&&min(a.width,b.width)/max(a.width,b.width)>.07f
+    val heading=aa.all{it.kind==Kind.TEXT}&&bb.all{it.kind==Kind.TEXT}&&short&&aligned&&gap in -.035f.. .035f
     if(!embedded&&!mixedOverlap&&!heading)continue
     val merged=a.union(b);val ids=groups[i]+groups[j]
     val texts=(aa+bb).filter{it.kind==Kind.TEXT}
-    if(texts.indices.any{u->(u+1 until texts.size).any{v->val x=texts[u].box;val y=texts[v].box;(x.right<=y.left||y.right<=x.left)&&(min(x.bottom,y.bottom)-max(x.top,y.top))>.2f*min(x.height,y.height)}})continue
+    if(!embedded&&!mixedOverlap&&texts.indices.any{u->(u+1 until texts.size).any{v->val x=texts[u].box;val y=texts[v].box;(x.right<=y.left||y.right<=x.left)&&(min(x.bottom,y.bottom)-max(x.top,y.top))>.2f*min(x.height,y.height)}})continue
     // A candidate must not swallow any separate column, case or other block.
     if(zones.any{it.id !in ids&&merged.intersect(it.box)>.08f*it.box.area&&a.intersect(it.box)<.08f*it.box.area&&b.intersect(it.box)<.08f*it.box.area})continue
     groups[i]=ids;groups.removeAt(j);changed=true;break@loop
