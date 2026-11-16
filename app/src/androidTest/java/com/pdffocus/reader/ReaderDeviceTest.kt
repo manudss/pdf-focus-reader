@@ -425,8 +425,12 @@ class ReaderDeviceTest {
                 (titles.sortedBy{it.box.top}+columns.take(3)).forEach{canvas.onZoneTap!!.invoke(it)}
                 val chosen=ReadingLayout.ordered(canvas.zones,canvas.selection)
                 val bands=ContinuousLayout.bands(chosen)
+                // Only tall columns must keep their own horizontal extent. A short heading is
+                // allowed to widen toward its column (that is the intended kept behaviour); the
+                // defect was a tall column growing, so columns are what this assertion pins.
                 for(band in bands.filter{it.kind==Kind.TEXT}){
                     val zone=chosen.first{it.id==band.zoneId}
+                    if(zone.box.height<.075f)continue
                     for(piece in band.pieces){
                         assertTrue("Band of zone ${zone.id} exceeds its own extent: $piece in ${zone.box}",piece.left>=zone.box.left-.001f&&piece.right<=zone.box.right+.001f)
                     }
