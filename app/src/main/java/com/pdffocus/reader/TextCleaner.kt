@@ -17,7 +17,7 @@ object TextCleaner {
         for(y in 0 until height)for(x in 0 until width){var i=0;for(dy in -1..1)for(dx in -1..1)values[i++]=gray[(y+dy).coerceIn(0,height-1)*width+(x+dx).coerceIn(0,width-1)];java.util.Arrays.sort(values);median[y*width+x]=values[4]}
         return IntArray(pixels.size){i->
             val p=pixels[i];val r=(p shr 16)and 255;val g=(p shr 8)and 255;val b=p and 255
-            if(maxOf(r,g,b)-minOf(r,g,b)>35)p // Leave colored text and annotations unchanged.
+            if(maxOf(r,g,b)-minOf(r,g,b)>35||(maxOf(r,g,b)-minOf(r,g,b)>8&&minOf(r,g,b)>180))p // Keep tinted paper as well as coloured text and annotations.
             else {
                 var value=median[i]
                 if(thicker){val y=i/width;val x=i%width;var darkest=value;for(dy in -1..1)for(dx in -1..1)darkest=min(darkest,median[(y+dy).coerceIn(0,height-1)*width+(x+dx).coerceIn(0,width-1)]);value=(value*.65f+darkest*.35f).roundToInt()}

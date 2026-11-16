@@ -52,4 +52,10 @@ class ComicPanelsTest {
   for(b in six){val l=(b.left*w).toInt()+8;val r=(b.right*w).toInt()-8;for(y in (b.top*h).toInt()+12 until (b.bottom*h).toInt()-8 step 10)for(x in l..r)for(dy in 0..2)p[(y+dy)*w+x]=0xff333333.toInt()}
   assertTrue(ComicPanels.find(p,w,h).isEmpty())
  }
+
+ @Test fun solidMastheadAboveFramesDoesNotBecomeAnExtraPanel(){
+  val p=image(six,color=true)
+  for(y in 0..45)for(x in 0 until w)p[y*w+x]=0xff214c3b.toInt()
+  assertEquals(6,ComicPanels.find(p,w,h).size)
+ }
 }

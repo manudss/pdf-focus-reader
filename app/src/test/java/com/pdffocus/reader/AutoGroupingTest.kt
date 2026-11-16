@@ -1,0 +1,27 @@
+package com.pdffocus.reader
+import org.junit.Assert.*
+import org.junit.Test
+class AutoGroupingTest {
+ private fun z(i:Int,b:Box,kind:Kind=Kind.TEXT)=Zone(i,b,kind)
+ @Test fun nestedHeaderBecomesOneSuggestedGroupNotAnImmediateMutation(){
+  val zones=listOf(z(1,Box(.1f,.1f,.6f,.15f)),z(2,Box(.1f,.17f,.7f,.2f)),z(3,Box(.02f,.03f,.98f,.24f),Kind.IMAGE))
+  val groups=AutoGrouping.propose(zones);assertEquals(1,groups.size);assertEquals(setOf(1,2,3),groups.single().ids)
+  assertEquals(3,zones.size);assertEquals(zones,AutoGrouping.apply(zones,listOf(2,1),emptyList()).zones)
+  val applied=AutoGrouping.apply(zones,listOf(2,1),groups);assertEquals(1,applied.zones.size);assertEquals(Kind.IMAGE,applied.zones.single().kind);assertEquals(1,applied.order.size)
+ }
+ @Test fun titleAndBodyAreGroupedPerColumnNeverAcrossGutter(){
+  val zones=(0..1).flatMap{x->val left=.05f+x*.48f;listOf(z(1+x*2,Box(left,.1f,left+.2f,.14f)),z(2+x*2,Box(left,.15f,left+.4f,.5f)))}
+  val groups=AutoGrouping.propose(zones);assertEquals(2,groups.size);assertTrue(groups.all{it.ids.size==2&&it.box.width<.45f})
+  val chosen=groups.take(1);val result=AutoGrouping.apply(zones,listOf(4,1,2,3),chosen)
+  assertEquals(3,result.zones.size);assertEquals(4,result.order.first());assertEquals(3,result.order.last())
+ }
+ @Test fun independentPanelsAndManualEditsStaySeparate(){
+  val frames=(0..2).flatMap{y->(0..1).map{x->z(1+x+y*2,Box(.05f+x*.48f,.1f+y*.28f,.48f+x*.48f,.36f+y*.28f),Kind.IMAGE)}}
+  assertTrue(AutoGrouping.propose(frames).isEmpty())
+  assertTrue(AutoGrouping.propose(listOf(frames[0],frames[0].copy(id=9,manual=true))).isEmpty())
+ }
+ @Test fun unselectedGroupsDoNotEnterReadingOrder(){
+  val zones=listOf(z(1,Box(.1f,.1f,.3f,.2f)),z(2,Box(.08f,.08f,.4f,.25f)))
+  assertTrue(AutoGrouping.apply(zones,emptyList(),AutoGrouping.propose(zones)).order.isEmpty())
+ }
+}

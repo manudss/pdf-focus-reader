@@ -101,6 +101,45 @@ class ReaderDeviceTest {
             Thread.sleep(900);screenshot(scenario,"comic-thin-inset-reader")
         }
     }
+    @Test fun assistedGroupsPreviewSubsetCancelApplyUndoAndFaithfulReading(){
+        val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext
+        File(c.filesDir,"current.pdf").delete();SessionStore(c).clear()
+        c.assets.open("examples/decouverte.pdf").use{input->File(c.filesDir,"current.pdf").outputStream().use{input.copyTo(it)}}
+        ActivityScenario.launch<MainActivity>(Intent(c,MainActivity::class.java)).use{scenario->
+            fun field(a:MainActivity,n:String)=MainActivity::class.java.getDeclaredField(n).apply{isAccessible=true}.get(a)
+            fun call(a:MainActivity,n:String,vararg args:Any)=MainActivity::class.java.declaredMethods.first{it.name==n}.apply{isAccessible=true}.invoke(a,*args)
+            fun awaitReady(){var ready=false;val end=System.currentTimeMillis()+90000;while(System.currentTimeMillis()<end){scenario.onActivity{a->ready=field(a,"pageReady")as Boolean};if(ready)break;Thread.sleep(100)};assertTrue(ready)}
+            fun captureDialog(name:String){i.waitForIdleSync();val b=i.uiAutomation.takeScreenshot();File(File(c.getExternalFilesDir(null),"screenshots").apply{mkdirs()},"$name.png").outputStream().use{b.compress(Bitmap.CompressFormat.PNG,100,it)};b.recycle()}
+            fun checks(v:View):List<CheckBox>{if(v is CheckBox)return listOf(v);if(v is ViewGroup)return (0 until v.childCount).flatMap{checks(v.getChildAt(it))};return emptyList()}
+            awaitReady();scenario.onActivity{a->call(a,"loadPage",1,false)};awaitReady()
+            var original=listOf<Zone>();var originalOrder=listOf<Int>();var groups=listOf<AutoGrouping.Group>()
+            scenario.onActivity{a->val canvas=findCanvas(a.window.decorView)!!;canvas.zones.forEach{canvas.onZoneTap!!.invoke(it)};original=canvas.zones;originalOrder=canvas.selection;groups=AutoGrouping.propose(original);assertTrue("Unchanged tutorial must expose suggested overlaps",groups.isNotEmpty());call(a,"showAutoGroups")}
+            captureDialog("grouping-tutorial-preview")
+            scenario.onActivity{a->val d=field(a,"groupDialog")as android.app.Dialog;val boxes=checks(d.window!!.decorView);assertEquals(groups.size,boxes.size);if(boxes.size>1){boxes.last().performClick();assertFalse(boxes.last().isChecked)};findButton(d.window!!.decorView,"Annuler")!!.performClick();assertEquals(original,findCanvas(a.window.decorView)!!.zones);assertEquals(originalOrder,findCanvas(a.window.decorView)!!.selection);call(a,"showAutoGroups")}
+            scenario.onActivity{a->val d=field(a,"groupDialog")as android.app.Dialog;val boxes=checks(d.window!!.decorView);boxes.drop(1).forEach{it.performClick()};findButton(d.window!!.decorView,"Appliquer")!!.performClick();assertEquals(original.size-groups.first().ids.size+1,findCanvas(a.window.decorView)!!.zones.size);call(a,"undoAutoGroups");assertEquals(original,findCanvas(a.window.decorView)!!.zones);assertEquals(originalOrder,findCanvas(a.window.decorView)!!.selection);call(a,"showAutoGroups");val next=field(a,"groupDialog")as android.app.Dialog;findButton(next.window!!.decorView,"Appliquer")!!.performClick()}
+            screenshot(scenario,"grouping-tutorial-applied")
+            scenario.onActivity{a->findButton(a.window.decorView,"Lire (")!!.performClick();findButton(a.window.decorView,"Original")!!.performClick()};Thread.sleep(1300);screenshot(scenario,"faithful-tutorial-original")
+            scenario.onActivity{a->findButton(a.window.decorView,"Nettoyé")!!.performClick()};Thread.sleep(1300);screenshot(scenario,"faithful-tutorial-cleaned")
+            scenario.onActivity{a->findButton(a.window.decorView,"Texte OCR")!!.performClick()};Thread.sleep(12000);screenshot(scenario,"harmonized-tutorial-ocr")
+            scenario.onActivity{a->call(a,"exitReader");call(a,"loadPage",0,false)};awaitReady()
+            scenario.onActivity{a->val canvas=findCanvas(a.window.decorView)!!;canvas.zones.forEach{canvas.onZoneTap!!.invoke(it)};if(AutoGrouping.propose(canvas.zones).isNotEmpty()){call(a,"showAutoGroups");val d=field(a,"groupDialog")as android.app.Dialog;findButton(d.window!!.decorView,"Appliquer")!!.performClick()};findButton(a.window.decorView,"Lire (")!!.performClick();findButton(a.window.decorView,"Original")!!.performClick()};Thread.sleep(1500);screenshot(scenario,"faithful-cover-original")
+        }
+    }
+    @Test fun faithfulReaderUsesLocalBackgroundAndCommonHeadingScale(){
+        val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext
+        i.runOnMainSync{
+            val bg=Color.rgb(247,241,223);val reader=ContinuousReaderView(c)
+            reader.measure(View.MeasureSpec.makeMeasureSpec(700,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(1000,View.MeasureSpec.EXACTLY));reader.layout(0,0,700,1000)
+            val zones=listOf(Zone(1,Box(.1f,.1f,.25f,.14f),Kind.TEXT),Zone(2,Box(.1f,.15f,.8f,.5f),Kind.TEXT))
+            reader.onRequest={tile,revision->val b=Bitmap.createBitmap(kotlin.math.ceil(tile.rect.width()).toInt(),kotlin.math.ceil(tile.rect.height()).toInt(),Bitmap.Config.ARGB_8888);b.eraseColor(bg);reader.accept(tile,revision,b)}
+            reader.setDocument(zones,700,1000,backgrounds=mapOf(1 to bg,2 to bg))
+            val b=Bitmap.createBitmap(700,1000,Bitmap.Config.ARGB_8888);repeat(3){reader.draw(Canvas(b))}
+            assertEquals("Margins around heading must use the source paper",bg,b.getPixel(2,15))
+            val tiles=ContinuousReaderView::class.java.getDeclaredField("tiles").apply{isAccessible=true}.get(reader)as List<*>
+            val first=tiles.first()as ContinuousReaderView.Tile;assertTrue("Heading must not be blown up to fill the screen",first.rect.width()<350)
+            reader.clear();b.recycle()
+        }
+    }
     @Test fun bundledOcrWorksWithoutNetworkAndFindsSyntheticText(){
         val c=InstrumentationRegistry.getInstrumentation().targetContext
         c.assets.open("tessdata_best/fra-words.txt").bufferedReader().use{assertTrue("Packaged repair lexicon must be readable",it.readLines().size>10000)}

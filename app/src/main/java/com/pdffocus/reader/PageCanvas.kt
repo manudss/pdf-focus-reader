@@ -13,6 +13,7 @@ class PageCanvas(context:Context):View(context) {
     var drawMode=false;set(value){field=value;draft=null;invalidate()}
     var mergeMode=false;set(value){field=value;invalidate()}
     var mergeIds:Set<Int> = emptySet();set(value){field=value;invalidate()}
+    var groupBoxes:List<Box> = emptyList();set(value){field=value;invalidate()}
     var adjustingZone:Int?=null
     var editBox:Box?=null;set(value){field=value;invalidate()}
     private var editStart:PointF?=null
@@ -84,7 +85,8 @@ class PageCanvas(context:Context):View(context) {
                 canvas.drawText(if(merged)"✓" else number.toString(),rect.left+6*density,rect.top+19*density,paint)
             }
         }
-        if(mergeMode&&mergeIds.size>=2){zones.filter{it.id in mergeIds}.map{it.box}.reduceOrNull{a,b->a.union(b)}?.let{box->val rect=screenRect(box);rect.inset(-4*density,-4*density);paint.color=Color.rgb(128,91,167);paint.style=Paint.Style.STROKE;paint.strokeWidth=2*density;paint.pathEffect=DashPathEffect(floatArrayOf(8*density,4*density),0f);canvas.drawRect(rect,paint);paint.pathEffect=null}}
+        if(mergeMode&&groupBoxes.isNotEmpty()){for(box in groupBoxes){val rect=screenRect(box);rect.inset(-3*density,-3*density);paint.color=Color.rgb(128,91,167);paint.style=Paint.Style.STROKE;paint.strokeWidth=3*density;canvas.drawRect(rect,paint)}}
+        if(mergeMode&&groupBoxes.isEmpty()&&mergeIds.size>=2){zones.filter{it.id in mergeIds}.map{it.box}.reduceOrNull{a,b->a.union(b)}?.let{box->val rect=screenRect(box);rect.inset(-4*density,-4*density);paint.color=Color.rgb(128,91,167);paint.style=Paint.Style.STROKE;paint.strokeWidth=2*density;paint.pathEffect=DashPathEffect(floatArrayOf(8*density,4*density),0f);canvas.drawRect(rect,paint);paint.pathEffect=null}}
         draft?.let{box->val rect=RectF(box.left*b.width,box.top*b.height,box.right*b.width,box.bottom*b.height);matrix.mapRect(rect);paint.color=Color.rgb(37,122,100);paint.style=Paint.Style.STROKE;paint.strokeWidth=3*density;canvas.drawRect(rect,paint)}
         editBox?.let{box->
             val rect=screenRect(box);paint.color=Color.rgb(57,126,108);paint.style=Paint.Style.STROKE;paint.strokeWidth=2*density;canvas.drawRect(rect,paint)

@@ -324,12 +324,12 @@ class MainActivity:Activity() {
         if(order.isEmpty()||busy)return
         val p=preview?:return;readingSettings=false;currentOrdinal=frameIndex;reading=true;canvas.visibility=View.GONE;reader.visibility=View.VISIBLE
         val chosen=BlockSeams.align(p,ReadingLayout.ordered(zones,order).map{z->if(z.kind==Kind.TEXT&&!z.manual)z.copy(box=TextCoverage.safeTextBox(p,z.box))else z})
-        reader.setDocument(chosen.map{ReadingWhitespace.trim(p,it)},p.width,p.height,scrollPosition);if(ocrReading)prepareOcr();updateControls()
+        reader.setDocument(chosen.map{ReadingWhitespace.trim(p,it)},p.width,p.height,scrollPosition,chosen.associate{it.id to ReadingPalette.background(p,it.box)});if(ocrReading)prepareOcr();updateControls()
     }
     private fun selectMode(mode:Int){
         ocrReading=mode==2;cleanReading=mode!=0
         getPreferences(0).edit().putBoolean("cleanReading",cleanReading).apply()
-        if(ocrReading)prepareOcr(true)else {reader.showOcr(null);ocrRun++;detector?.cancel();ocrLoading=false}
+        if(ocrReading)prepareOcr(true)else {preview?.let{image->reader.setBackgrounds(ReadingLayout.ordered(zones,order).associate{it.id to ReadingPalette.background(image,it.box)})};reader.showOcr(null);ocrRun++;detector?.cancel();ocrLoading=false}
         updateControls()
     }
     private fun plainText(words:List<OcrWord>):String = OcrFlow.textByZone(listOf(Zone(1,Box(0f,0f,1f,1f),Kind.TEXT)),words)[1].orEmpty()
@@ -354,7 +354,7 @@ class MainActivity:Activity() {
                 val edits=review.edits.map{edit->val terms=Regex("[\\p{L}]{4,}").findAll(edit.corrected+" "+edit.raw).map{it.value.lowercase()}.toSet();edit.copy(readings=evidence.filter{e->Regex("[\\p{L}]{4,}").findAll(e.text).any{it.value.lowercase() in terms}}.take(2))}
                 review.copy(edits=edits,keptRaw=store.ocrChoices(page,review.fingerprint()))}}else emptyMap()
         val shown=texts.mapValues{(key,value)->reviews[key]?.rendered()?.first?:value}
-        if(reading&&ocrReading)reader.showOcrStream(plan,shown,ocrLoading,force,reviewTexts=reviews)
+        if(reading&&ocrReading){preview?.let{image->reader.setBackgrounds(plan.associate{it.key to ReadingPalette.background(image,it.box)})};reader.showOcrStream(plan,shown,ocrLoading,force,reviewTexts=reviews)}
     }
 
     private fun showOcrComparison(key:Int,id:Int,y:Float){
@@ -420,6 +420,38 @@ class MainActivity:Activity() {
         }
     }
     private fun exitReader(){ocrRun++;detector?.cancel();ocrLoading=false;saveSession();reader.clear();reader.visibility=View.GONE;canvas.visibility=View.VISIBLE;++generation;reading=false;busy=false;canvas.reading=false;canvas.image=preview;readingBitmap?.recycle();readingBitmap=null;sync()}
+    private data class GroupUndo(val page:Int,val zones:List<Zone>,val order:List<Int>,val applied:AutoGrouping.Result)
+    private var groupUndo:GroupUndo?=null
+    private var groupDialog:Dialog?=null
+    private fun showAutoGroups(){
+        if(busy||!pageReady||reading){toast("Revenez à la vue page pour regrouper.");return}
+        val image=preview?:return;val suggestions=AutoGrouping.propose(zones)
+        if(suggestions.isEmpty()){toast("Aucun regroupement assez sûr. La fusion manuelle reste disponible.");return}
+        val originalZones=zones;val originalOrder=order;val targetPage=page
+        val selected=suggestions.indices.toMutableSet();val dialog=Dialog(this);groupDialog=dialog
+        val panel=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(16),dp(12),dp(16),dp(12));setBackgroundColor(Color.rgb(250,249,246))}
+        panel.addView(text("Vérifier les regroupements",23,true));panel.addView(text("Suggestions seulement. Colonnes et cases distinctes restent séparées.",12))
+        val view=PageCanvas(this).apply{this.image=image;this.zones=originalZones;mergeMode=true}
+        fun refreshPreview(){view.mergeIds=selected.flatMap{suggestions[it].ids}.toSet();view.groupBoxes=selected.map{suggestions[it].box}}
+        refreshPreview();panel.addView(view,LinearLayout.LayoutParams(-1,0,1f))
+        val choices=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL}
+        suggestions.forEachIndexed{index,g->choices.addView(CheckBox(this).apply{isChecked=true;text="Groupe ${index+1} · ${g.ids.size} blocs\n${g.reason}";minHeight=dp(54);setTextColor(ink);setOnCheckedChangeListener{_,checked->if(checked)selected+=index else selected-=index;refreshPreview()}})}
+        panel.addView(ScrollView(this).apply{addView(choices)},LinearLayout.LayoutParams(-1,dp(minOf(180,suggestions.size*58))))
+        panel.addView(text("Ordre conservé à la première position choisie. Aucun bloc non choisi n'est ajouté au parcours. Annulation disponible dans Menu.",12))
+        val row=LinearLayout(this);row.addView(button("Annuler"){dialog.dismiss()},LinearLayout.LayoutParams(0,dp(54),1f));row.addView(button("Appliquer",true){
+            if(page!=targetPage||zones!=originalZones||order!=originalOrder){dialog.dismiss();return@button}
+            if(selected.isNotEmpty()){
+                val result=AutoGrouping.apply(zones,order,selected.sorted().map{suggestions[it]});groupUndo=GroupUndo(page,zones,order,result);zones=result.zones;order=result.order
+                chunkPlan=emptyList();rawChunks.clear();improvedChunks.clear();secondChunks.clear();scrollPosition=0;sync()
+            };dialog.dismiss()
+        },LinearLayout.LayoutParams(0,dp(54),1f));panel.addView(row)
+        dialog.setContentView(panel);dialog.setOnDismissListener{view.image=null;groupDialog=null};dialog.show();dialog.window?.setLayout(-1,-1)
+    }
+    private fun undoAutoGroups(){
+        val saved=groupUndo
+        if(saved==null||saved.page!=page||saved.applied.zones!=zones||saved.applied.order!=order||reading||busy){toast("Annulation indisponible : aucun regroupement récent, ou la page a été modifiée.");return}
+        zones=saved.zones;order=saved.order;groupUndo=null;chunkPlan=emptyList();rawChunks.clear();improvedChunks.clear();secondChunks.clear();scrollPosition=0;sync();toast("Regroupement annulé.")
+    }
     private fun beginMerge(z:Zone){merging=true;mergeIds=setOf(z.id);canvas.mergeMode=true;canvas.mergeIds=mergeIds;updateControls()}
     private fun confirmMerge(){
         val chosen=zones.filter{it.id in mergeIds};if(chosen.size<2)return
@@ -547,8 +579,8 @@ class MainActivity:Activity() {
         panel.addView(grid,LinearLayout.LayoutParams(-1,0,1f));panel.addView(text("Glissez pour parcourir les $count pages.",12));dialog.setContentView(panel);dialog.setOnDismissListener{adapter.close();grid.adapter=null;pageSummary=null};dialog.show();dialog.window?.apply{setBackgroundDrawableResource(android.R.color.transparent);setLayout(-1,-1)};grid.setSelection((page/3)*3)
     }
     private fun goToPage(){if(documentLoading)return;val input=EditText(this).apply{inputType=android.text.InputType.TYPE_CLASS_NUMBER;hint="1 à $count"};AlertDialog.Builder(this).setTitle("Aller à la page").setView(input).setPositiveButton("Ouvrir"){_,_->val p=input.text.toString().toIntOrNull();if(p!=null&&p in 1..count)loadPage(p-1)else toast("Numéro de page invalide")}.setNegativeButton("Annuler",null).show()}
-    private fun menu(){val items=arrayOf("Ouvrir un autre PDF","Réessayer la détection","Confidentialité et aide","Supprimer le document local","Licences des composants")
-        AlertDialog.Builder(this).setItems(items){_,which->when(which){0->pickPdf();1->if(count>0&&!busy)AlertDialog.Builder(this).setMessage("Remplacer les blocs et le parcours de cette page ?").setPositiveButton("Remplacer"){_,_->loadPage(page,true)}.setNegativeButton("Annuler",null).show();2->AlertDialog.Builder(this).setTitle("PDF Focus Test · prototype").setMessage("Le PDF, les zones et les parcours restent sur cet appareil. Aucune permission Internet, publicité ou compte. Une copie privée du dernier PDF est conservée pour reprendre la lecture.\n\nLa détection peut manquer ou fusionner des zones. + Bloc permet de cadrer à la main ; un double tap ouvre la correction. Maintenez et glissez pour choisir plusieurs blocs. Pincez pour zoomer et faites glisser la page agrandie.\n\nLe zoom ne recrée pas les détails d'un scan flou. Ce prototype n'a pas encore été testé sur votre téléphone.").setPositiveButton("Fermer",null).show();3->clearDocument();4->showLicenses()}}.show()}
+    private fun menu(){val items=arrayOf("Ouvrir un autre PDF","Réessayer la détection","Confidentialité et aide","Supprimer le document local","Licences des composants","Proposer des regroupements","Annuler le dernier regroupement")
+        AlertDialog.Builder(this).setItems(items){_,which->when(which){0->pickPdf();1->if(count>0&&!busy)AlertDialog.Builder(this).setMessage("Remplacer les blocs et le parcours de cette page ?").setPositiveButton("Remplacer"){_,_->loadPage(page,true)}.setNegativeButton("Annuler",null).show();2->AlertDialog.Builder(this).setTitle("PDF Focus Test · prototype").setMessage("Le PDF, les zones et les parcours restent sur cet appareil. Aucune permission Internet, publicité ou compte. Une copie privée du dernier PDF est conservée pour reprendre la lecture.\n\nLa détection peut manquer ou fusionner des zones. + Bloc permet de cadrer à la main ; un double tap ouvre la correction. Maintenez et glissez pour choisir plusieurs blocs. Pincez pour zoomer et faites glisser la page agrandie.\n\nLe zoom ne recrée pas les détails d'un scan flou. Ce prototype n'a pas encore été testé sur votre téléphone.").setPositiveButton("Fermer",null).show();3->clearDocument();4->showLicenses();5->showAutoGroups();6->undoAutoGroups()}}.show()}
     private fun clearDocument(){if(busy){toast("Attendez la fin de l’analyse avant de supprimer.");return};AlertDialog.Builder(this).setTitle("Supprimer la copie locale ?").setMessage("Le fichier original n'est pas modifié. Le parcours enregistré sera effacé.").setPositiveButton("Supprimer"){_,_->++generation;main.removeCallbacks(saveProgress);reader.clear();reader.visibility=View.GONE;canvas.visibility=View.VISIBLE;pageReady=false;worker.execute{document?.close();document=null;File(filesDir,"current.pdf").delete()};count=0;store.clear();preview?.recycle();preview=null;readingBitmap?.recycle();readingBitmap=null;canvas.image=null;canvas.zones=emptyList();canvas.selection=emptyList();reading=false;busy=false;title.text="PDF Focus Test";info.text="Sans compte et hors ligne";status.text="Document local supprimé.";updateControls()}.setNegativeButton("Annuler",null).show()}
     private fun showLicenses(){val names=assets.list("licenses").orEmpty();AlertDialog.Builder(this).setTitle("Licences").setItems(names){_,which->val view=TextView(this).apply{text=assets.open("licenses/"+names[which]).bufferedReader().use{it.readText()};setPadding(dp(16),dp(12),dp(16),dp(12));textSize=12f};val scroll=ScrollView(this).apply{addView(view)};AlertDialog.Builder(this).setTitle(names[which]).setView(scroll).setPositiveButton("Fermer",null).show()}.setNegativeButton("Fermer",null).show()}
     private fun toast(message:String)=Toast.makeText(this,message,Toast.LENGTH_SHORT).show()

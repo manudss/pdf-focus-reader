@@ -16,6 +16,7 @@ class ContinuousReaderView(context:Context):View(context){
     private var textItems=listOf<TextItem>()
     private var reviews=mapOf<Int,OcrReviewText>()
     var onOcrMark:((Int,Int,Float,Float)->Unit)?=null
+    fun setBackgrounds(values:Map<Int,Int>){if(palettes!=values){palettes=values;rebuild()}}
     fun review(key:Int)=reviews[key]
     fun chooseRaw(key:Int,id:Int,keep:Boolean){val r=reviews[key]?:return;val anchor=textItems.lastOrNull{it.top<=offset};val relative=anchor?.let{offset-it.top}?:offset;reviews=reviews+(key to r.chooseRaw(id,keep));ocrTexts=ocrTexts.orEmpty()+(key to reviews.getValue(key).rendered().first);rebuild();val next=anchor?.let{a->textItems.firstOrNull{it.key==a.key}};if(next!=null)move(next.top+relative)}
     private var ocrPlan:List<OcrChunk>?=null
@@ -43,6 +44,9 @@ class ContinuousReaderView(context:Context):View(context){
     private val textPaint=TextPaint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.rgb(37,31,33);typeface=Typeface.create("serif",Typeface.NORMAL)}
     var onRequest:((Tile,Int)->Unit)?=null
     var onProgress:((Int,Int)->Unit)?=null
+    private var palettes=mapOf<Int,Int>()
+    private data class Surface(val top:Float,val bottom:Float,val color:Int)
+    private var surfaces=listOf<Surface>()
     private var bands=listOf<ReadBand>();private var pw=1;private var ph=1
     @Volatile private var tiles=listOf<Tile>();private var totalHeight=0f;@Volatile private var offset=0f;private var magnification=1f
     private val cacheBytes=(Runtime.getRuntime().maxMemory()/6).coerceIn(32L*1024*1024,96L*1024*1024).toInt()
@@ -66,9 +70,9 @@ class ContinuousReaderView(context:Context):View(context){
         override fun onFling(a:MotionEvent?,b:MotionEvent,vx:Float,vy:Float):Boolean{scroller.fling(0,offset.roundToInt(),0,(-vy).roundToInt(),0,0,0,max(0f,totalHeight-height).roundToInt());postInvalidateOnAnimation();return true}
     })
     init{setBackgroundColor(Color.WHITE);isFocusable=true;contentDescription="Lecture continue. Glissez verticalement pour lire les blocs dans votre ordre."}
-    fun setDocument(zones:List<Zone>,pageWidth:Int,pageHeight:Int,position:Int=0){clear();bands=ContinuousLayout.bands(zones);pw=pageWidth;ph=pageHeight;offset=position.toFloat();rebuild()}
+    fun setDocument(zones:List<Zone>,pageWidth:Int,pageHeight:Int,position:Int=0,backgrounds:Map<Int,Int> = emptyMap()){clear();palettes=backgrounds;bands=ContinuousLayout.bands(zones);pw=pageWidth;ph=pageHeight;offset=position.toFloat();rebuild()}
     fun zoomBy(f:Float){if(ocrTexts!=null){val fraction=if(totalHeight>0)offset/totalHeight else 0f;fontSize=(fontSize*f).coerceIn(14f,38f);rebuild();move(fraction*totalHeight);return};val fraction=if(totalHeight>0)offset/totalHeight else 0f;magnification=(magnification*f).coerceIn(1f,2f);val limit=max(0f,(width*magnification-width)/2);horizontal=horizontal.coerceIn(-limit,limit);rebuild();move(fraction*totalHeight)}
-    fun clear(){ocrPlan=null;reviews=emptyMap();exposed.clear();streamLoading=false;ocrTexts=null;textItems=emptyList();revision++;pending.clear();failed.clear();bitmaps.evictAll();tiles=emptyList();bands=emptyList();offset=0f;horizontal=0f;magnification=1f;totalHeight=0f;scroller.forceFinished(true);invalidate()}
+    fun clear(){ocrPlan=null;reviews=emptyMap();exposed.clear();streamLoading=false;ocrTexts=null;textItems=emptyList();revision++;pending.clear();failed.clear();bitmaps.evictAll();tiles=emptyList();bands=emptyList();surfaces=emptyList();palettes=emptyMap();offset=0f;horizontal=0f;magnification=1f;totalHeight=0f;scroller.forceFinished(true);invalidate()}
     /** Worker-side guard: discard queued work made obsolete by zoom, mode or a long swipe. */
     fun needsRender(tile:Tile,expected:Int)=expected==revision&&tile.rect.bottom>=offset-height*.5f&&tile.rect.top<=offset+height*1.5f&&tile.rect.right>=horizontal-width*.25f&&tile.rect.left<=horizontal+width*1.25f
     fun skipRequest(tile:Tile,expected:Int){if(expected==revision){pending.remove(tile.key);invalidate()}}
@@ -79,22 +83,23 @@ class ContinuousReaderView(context:Context):View(context){
     override fun onSizeChanged(w:Int,h:Int,oldw:Int,oldh:Int){val atEnd=oldh>0&&totalHeight>oldh&&offset>=totalHeight-oldh-2f;super.onSizeChanged(w,h,oldw,oldh);if(w>0&&h>0){rebuild();if(atEnd)move(totalHeight-h)}}
     private fun rebuild(){
         revision++;pending.clear();failed.clear();bitmaps.evictAll();if(width<=0)return
-        val out=mutableListOf<Tile>();val textOut=mutableListOf<TextItem>();val done=mutableSetOf<Int>();var y=0f;var last=-1
+        val surfaceOut=mutableListOf<Surface>();val out=mutableListOf<Tile>();val textOut=mutableListOf<TextItem>();val done=mutableSetOf<Int>();var y=0f;var last=-1
         val activeBands=ocrPlan?.let{plan->ContinuousLayout.bands(plan.map{Zone(it.key,it.box,it.kind)}).map{it.copy(ordinal=plan[it.ordinal].ordinal)}}?:bands
         for(b in activeBands){
             val recognized=ocrTexts?.get(b.zoneId)
             if(b.kind==Kind.TEXT&&!recognized.isNullOrBlank()){
                 if(!done.add(b.zoneId))continue
                 if(last>=0&&last!=b.ordinal)y+=6*density;last=b.ordinal
+                textPaint.color=ReadingPalette.foreground(palettes[b.zoneId]?:Color.WHITE)
                 textPaint.textSize=fontSize*resources.displayMetrics.scaledDensity
-                val layout=StaticLayout.Builder.obtain(recognized,0,recognized.length,textPaint,max(1,width-32*density.toInt())).setAlignment(Layout.Alignment.ALIGN_NORMAL).setIncludePad(true).setLineSpacing(4*density,1.12f).build()
-                textOut+=TextItem(layout,y,b.ordinal,b.zoneId);y+=layout.height
+                val layout=StaticLayout.Builder.obtain(recognized,0,recognized.length,TextPaint(textPaint),max(1,width-32*density.toInt())).setAlignment(Layout.Alignment.ALIGN_NORMAL).setIncludePad(true).setLineSpacing(4*density,1.12f).build()
+                textOut+=TextItem(layout,y,b.ordinal,b.zoneId);surfaceOut+=Surface(y-6*density,y+layout.height,palettes[b.zoneId]?:Color.WHITE);y+=layout.height
                 continue
             }
             if(b.ordinal!=last){if(last>=0&&last!=b.ordinal)y+=6*density;last=b.ordinal}
             var scale=(width-16*density)/(b.original.width*pw)*if(b.kind==Kind.TEXT)magnification else 1f
-            if(b.kind==Kind.IMAGE)scale=min(scale,max(300f,height*.9f)/(b.original.height*ph))
-            val bandHeight=(b.bottom-b.top)*ph*scale;val fullWidth=b.original.width*pw*scale;val left=(width-fullWidth)/2
+            if(b.kind==Kind.IMAGE)scale=min(scale,min((width-16*density)/(.5f*pw),max(300f,height*.9f)/(b.original.height*ph)))
+            val bandHeight=(b.bottom-b.top)*ph*scale;surfaceOut+=Surface(y-6*density,y+bandHeight,palettes[b.zoneId]?:Color.WHITE);val fullWidth=b.original.width*pw*scale;val left=(width-fullWidth)/2
             // Two-dimensional tiles: a zoomed column no longer decodes an entire off-screen width.
             val tileHeight=512f
             val rows=max(1,ceil(bandHeight/tileHeight).toInt())
@@ -110,11 +115,12 @@ class ContinuousReaderView(context:Context):View(context){
             y+=bandHeight
         }
         streamTail=y;if(streamLoading)y+=72*density
-        textItems=textOut;tiles=out;totalHeight=y+24*density;move(offset);invalidate()
+        surfaces=surfaceOut;textItems=textOut;tiles=out;totalHeight=y+24*density;move(offset);invalidate()
     }
     private fun move(value:Float){offset=value.coerceIn(0f,max(0f,totalHeight-height));val ordinal=(tiles.filter{it.rect.bottom>=offset}.map{it.rect.top to it.ordinal}+textItems.filter{it.top+it.layout.height>=offset}.map{it.top to it.ordinal}).minByOrNull{it.first}?.second?:0;onProgress?.invoke(ordinal,offset.roundToInt());invalidate()}
     override fun onDraw(c:Canvas){
         super.onDraw(c);c.save();c.clipRect(0,0,width,height);c.translate(-horizontal,-offset)
+        for(surface in surfaces)if(surface.bottom>=offset&&surface.top<=offset+height){paint.color=surface.color;c.drawRect(horizontal,surface.top,horizontal+width,surface.bottom,paint)}
         for(item in textItems)if(item.top+item.layout.height>=offset&&item.top<=offset+height){c.save();c.translate(16*density,item.top);item.layout.draw(c)
             val underline=Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.rgb(87,117,107);strokeWidth=density;style=Paint.Style.STROKE;pathEffect=DashPathEffect(floatArrayOf(2*density,3*density),0f)}
             for(mark in reviews[item.key]?.rendered()?.second.orEmpty())for(line in 0 until item.layout.lineCount){val start=max(mark.start,item.layout.getLineStart(line));val end=min(mark.end,item.layout.getLineEnd(line));if(end<start||end==start&&mark.end!=mark.start)continue;val left=item.layout.getPrimaryHorizontal(start);val right=item.layout.getPrimaryHorizontal(end);val y=item.layout.getLineBaseline(line)+3*density;c.drawLine(left,y,max(left+5*density,right),y,underline)}
@@ -122,7 +128,7 @@ class ContinuousReaderView(context:Context):View(context){
         val visible=tiles.filter{it.rect.bottom>=offset&&it.rect.top<=offset+height&&it.rect.right>=horizontal&&it.rect.left<=horizontal+width}
         // Draw all available visible pixels before touching the cache's prefetch entries.
         for(tile in visible){
-            paint.color=Color.WHITE;c.drawRect(tile.rect,paint)
+            paint.color=palettes[tile.chunkKey]?:Color.WHITE;c.drawRect(tile.rect,paint)
             val image=bitmaps.get(tile.key);if(image!=null&&!image.isRecycled)c.drawBitmap(image,null,tile.rect,paint)
             if(tile.key in failed){paint.color=Color.DKGRAY;paint.textSize=14*density;c.drawText("Rendu indisponible · revenez à la page",tile.rect.left+8*density,tile.rect.top+24*density,paint)}
         }
