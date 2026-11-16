@@ -52,7 +52,7 @@ class ContinuousReaderView(context:Context):View(context){
     internal var footerTop=0f
     private var overpull=0f
     private val overpullThreshold get()=110*density
-    private fun footerHeight()=if(endTitle.isEmpty())0f else 230*density
+    private fun footerHeight()=if(endTitle.isEmpty())0f else 244*density
     private var palettes=mapOf<Int,Int>()
     private data class Surface(val top:Float,val bottom:Float,val color:Int)
     private var surfaces=listOf<Surface>()
@@ -181,7 +181,7 @@ class ContinuousReaderView(context:Context):View(context){
         rememberExposed()
     }
     private fun drawEndCard(c:Canvas){
-        val l=horizontal+8*density;val r=horizontal+width-8*density;val top=footerTop+8*density;val bottom=footerTop+222*density
+        val l=horizontal+8*density;val r=horizontal+width-8*density;val top=footerTop+8*density;val bottom=footerTop+236*density
         val green=Color.rgb(50,109,93);val grey=Color.rgb(120,118,112)
         paint.style=Paint.Style.FILL;paint.color=Color.WHITE;c.drawRoundRect(RectF(l,top,r,bottom),18*density,18*density,paint)
         paint.style=Paint.Style.STROKE;paint.strokeWidth=density;paint.color=Color.rgb(205,203,198);c.drawRoundRect(RectF(l,top,r,bottom),18*density,18*density,paint);paint.style=Paint.Style.FILL
@@ -198,8 +198,12 @@ class ContinuousReaderView(context:Context):View(context){
             val b2=RectF(bl,top+138*density,br,top+192*density)
             paint.color=green;c.drawRoundRect(b2,16*density,16*density,paint)
             paint.color=Color.WHITE;c.drawText("Préparer la page suivante  ›",(l+r)/2,b2.centerY()+6*density,paint)
-            paint.typeface=Typeface.create("sans-serif",Typeface.NORMAL);paint.textSize=12*density;paint.color=grey
-            c.drawText("Elle s'ouvre pour choisir ses blocs, sans lancer sa lecture.",(l+r)/2,top+212*density,paint)
+            paint.typeface=Typeface.create("sans-serif",Typeface.NORMAL);paint.color=grey
+            val caption="Elle s'ouvre pour choisir ses blocs, sans lancer sa lecture."
+            var captionSize=12*density;paint.textSize=captionSize
+            val available=r-l-32*density
+            while(paint.measureText(caption)>available&&captionSize>9*density){captionSize-=density;paint.textSize=captionSize}
+            c.drawText(caption,(l+r)/2,top+212*density,paint)
         }
         paint.textAlign=Paint.Align.LEFT
     }

@@ -483,6 +483,21 @@ class ReaderDeviceTest {
         while(System.currentTimeMillis()<end){scenario.onActivity{a->found=findButton(a.window.decorView,label)!=null};if(found)break;Thread.sleep(100)}
         assertTrue("Expected page control $label",found)
     }
+    @Test fun endCardKeepsBottomPaddingOnNarrowViewport(){
+        val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext
+        i.runOnMainSync{
+            val reader=ContinuousReaderView(c)
+            reader.measure(View.MeasureSpec.makeMeasureSpec(820,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(2400,View.MeasureSpec.EXACTLY));reader.layout(0,0,820,2400)
+            reader.onRequest={tile,revision->val b=Bitmap.createBitmap(kotlin.math.ceil(tile.rect.width()).toInt(),kotlin.math.ceil(tile.rect.height()).toInt(),Bitmap.Config.ARGB_8888);b.eraseColor(Color.rgb(40,80,60));reader.accept(tile,revision,b)}
+            reader.endTitle="Fin de la page 1";reader.hasNextPage=true
+            reader.setDocument(listOf(Zone(1,Box(0f,0f,1f,1f),Kind.TEXT)),600,12000)
+            reader.move(Float.MAX_VALUE)
+            val out=Bitmap.createBitmap(820,2400,Bitmap.Config.ARGB_8888)
+            repeat(2){reader.draw(Canvas(out))}
+            File(File(c.getExternalFilesDir(null),"screenshots").apply{mkdirs()},"nav-end-card-narrow.png").outputStream().use{out.compress(Bitmap.CompressFormat.PNG,100,it)}
+            out.recycle();reader.clear()
+        }
+    }
     @Test fun pageSliderChangesPage(){
         val c=InstrumentationRegistry.getInstrumentation().targetContext
         writeThreePageFixture(c)
