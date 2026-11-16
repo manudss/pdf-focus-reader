@@ -24,6 +24,7 @@ class OcrConsensusV10Test {
  @Test fun restoresManyMissingSpacesWithoutChangingDigitsOrLetters(){
   assertEquals("avec un 7 livre pour chaque visiteur arrive",output("avecun7livrepourchaquevisiteur arrive","avec un 7 livre pour chaque visiteur arrive"))
   assertEquals("devant un micro-",output("devantunmicro-","devant un micro-"))
+  assertEquals("avec un 7 livre arrive.",output("avecun7livre arrive.","avec un 7 livre arrive,"))
   assertEquals("avecun7livre",output("avecun7livre","avec un 8 livre"))
   assertEquals("avecun7livre",choose("avecun7livre","avec un 7 livre",.4f).words.single().text)
   assertEquals("avecunxyz",output("avecunxyz","avec un xyz"))

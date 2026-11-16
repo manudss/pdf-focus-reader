@@ -9,12 +9,17 @@ object OcrConsensus {
  private fun bare(s:String)=Normalizer.normalize(s.lowercase(),Normalizer.Form.NFD).replace(Regex("\\p{M}"),"").filter{it.isLetterOrDigit()}
  /** Add missing word boundaries only. Character stream, digits and existing source words stay intact. */
  private fun restoreSpaces(words:List<OcrWord>,tokens:List<String>,spelling:OcrSpelling):List<OcrWord>{
-  if(words.joinToString(""){it.text}!=tokens.joinToString(""))return words
-  val boundaries=mutableSetOf<Int>();var position=0
-  for(t in tokens){position+=t.length;boundaries+=position}
-  val out=mutableListOf<OcrWord>();position=0
-  for(w in words){val start=position;position+=w.text.length
-   val cuts=boundaries.filter{it>start&&it<position}.sorted().map{it-start}
+  val out=mutableListOf<OcrWord>()
+  for(w in words){
+   val matches=mutableListOf<List<String>>()
+   for(i in tokens.indices){var joined="";for(j in i until minOf(tokens.size,i+20)){
+    joined+=tokens[j]
+    if(joined.length>w.text.length)break
+    if(j>i&&joined==w.text)matches+=tokens.subList(i,j+1)
+   }}
+   val match=matches.distinct().singleOrNull()
+   val cuts=mutableListOf<Int>();var offset=0
+   if(match!=null)for(t in match.dropLast(1)){offset+=t.length;cuts+=offset}
    if(cuts.isEmpty()){out+=w;continue}
    val edges=listOf(0)+cuts+listOf(w.text.length)
    val parts=edges.zipWithNext().map{(a,b)->w.text.substring(a,b)}
