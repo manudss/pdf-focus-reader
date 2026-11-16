@@ -25,6 +25,10 @@ class ReaderDeviceTest {
         val separated=OcrConsensus.reconcile(merged,OcrEvidence("Paddle","avec un 7 livre pour chaque visiteur",box,.99f),spelling)
         assertEquals("avec un 7 livre pour chaque visiteur",separated.joinToString(" "){it.text})
         assertEquals(box,separated.map{it.box}.reduce{a,b->a.union(b)})
+        val fragment=OcrWord("pré-",box,box,99f)
+        val following=OcrWord("parer",Box(0f,.05f,1f,.09f),Box(0f,.05f,1f,.09f),99f)
+        val guarded=OcrBaseline.protectHyphenFragments(listOf(fragment),listOf(fragment.copy(text="préè-"),following),spelling)
+        assertEquals("préparer",OcrEnhancer(emptyList(),spelling::valid).text(guarded))
     }
     @Test fun bundledOcrWorksWithoutNetworkAndFindsSyntheticText(){
         val c=InstrumentationRegistry.getInstrumentation().targetContext
