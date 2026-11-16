@@ -443,7 +443,7 @@ class MainActivity:Activity() {
         val row=LinearLayout(this);row.addView(button("Annuler"){dialog.dismiss()},LinearLayout.LayoutParams(0,dp(54),1f));row.addView(button("Appliquer",true){
             if(page!=targetPage||zones!=originalZones||order!=originalOrder){dialog.dismiss();return@button}
             if(selected.isNotEmpty()){
-                val result=AutoGrouping.apply(zones,order,selected.sorted().map{suggestions[it]});groupUndo=GroupUndo(page,zones,order,result);zones=result.zones;order=result.order
+                val result=AutoGrouping.apply(zones,order,selected.sorted().map{suggestions[it]},suggestions);groupUndo=GroupUndo(page,zones,order,result);zones=result.zones;order=result.order
                 chunkPlan=emptyList();rawChunks.clear();improvedChunks.clear();secondChunks.clear();scrollPosition=0;sync()
             };dialog.dismiss()
         },LinearLayout.LayoutParams(0,dp(54),1f));panel.addView(row)

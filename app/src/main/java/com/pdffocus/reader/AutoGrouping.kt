@@ -29,9 +29,10 @@ object AutoGrouping {
     groups[i]=ids;groups.removeAt(j);changed=true;break@loop
    }
   }
-  return groups.filter{it.size>1}.map{ids->val bs=members(ids);Group(ids,box(ids),if(bs.any{a->bs.any{b->a.id!=b.id&&a.box.intersect(b.box)>.5f*min(a.box.area,b.box.area)}})"Blocs imbriqués ou superposés" else "Titre et texte de la même colonne")}
+  val proposed=groups.filter{it.size>1}.map{ids->val bs=members(ids);Group(ids,box(ids),if(bs.any{a->bs.any{b->a.id!=b.id&&a.box.intersect(b.box)>.5f*min(a.box.area,b.box.area)}})"Blocs imbriqués ou superposés" else "Titre et texte de la même colonne")}
+  return proposed.map{g->g.copy(box=apply(zones,emptyList(),listOf(g),proposed).zones.last().box)}
  }
- fun apply(zones:List<Zone>,order:List<Int>,groups:List<Group>):Result{
+ fun apply(zones:List<Zone>,order:List<Int>,groups:List<Group>,context:List<Group> = groups):Result{
   var output=zones;var ids=order
   for(g in groups){
    val chosen=output.filter{it.id in g.ids};if(chosen.size<2)continue
@@ -40,7 +41,7 @@ object AutoGrouping {
     // Repeated short-heading groups in the same column can include a leading
     // marker that OCR omitted from just one heading. Borrow only their small
     // left margin, never extend across another block or a column gutter.
-    val peers=groups.filter{other->other!==g&&other.box.left<=bounds.left&&bounds.left-other.box.left<=.08f&&abs(other.box.right-bounds.right)<.12f&&other.ids.all{id->zones.firstOrNull{it.id==id}?.kind==Kind.TEXT}}
+    val peers=context.filter{other->other!==g&&other.box.left<=bounds.left&&bounds.left-other.box.left<=.08f&&abs(other.box.right-bounds.right)<.12f&&other.ids.all{id->zones.firstOrNull{it.id==id}?.kind==Kind.TEXT}}
     val left=peers.minOfOrNull{it.box.left}?:bounds.left
     val expanded=bounds.copy(left=left)
     if(zones.none{it.id !in g.ids&&expanded.intersect(it.box)>bounds.intersect(it.box)+.00001f})bounds=expanded
