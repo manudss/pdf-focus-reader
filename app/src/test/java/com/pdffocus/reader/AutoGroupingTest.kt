@@ -25,6 +25,20 @@ class AutoGroupingTest {
   assertTrue(AutoGrouping.apply(zones,emptyList(),AutoGrouping.propose(zones)).order.isEmpty())
  }
 
+ @Test fun proposalsAreLimitedToChosenZones(){
+  val zones=(0..1).flatMap{x->val left=.05f+x*.48f;listOf(z(1+x*2,Box(left,.1f,left+.2f,.14f)),z(2+x*2,Box(left,.15f,left+.4f,.5f)))}
+  assertEquals(2,AutoGrouping.propose(zones).size)
+  assertEquals(listOf(setOf(1,2)),AutoGrouping.propose(zones,setOf(1,2)).map{it.ids})
+  assertTrue(AutoGrouping.propose(zones,setOf(1,3)).isEmpty())
+  assertTrue(AutoGrouping.propose(zones,emptySet()).isEmpty())
+ }
+ @Test fun groupPaletteIsSixDistinctColoursAwayFromSelectionAndGrey(){
+  val colors=AutoGrouping.GroupColors;assertEquals(6,colors.size);assertEquals(colors.size,colors.toSet().size)
+  fun ch(c:Int)=intArrayOf((c shr 16)and 255,(c shr 8)and 255,c and 255)
+  fun dist(a:Int,b:Int)=ch(a).zip(ch(b)).sumOf{(x,y)->kotlin.math.abs(x-y)}
+  val forbidden=listOf(0xFF257A64,0xFF326D5D,0xFF5A6262).map{it.toInt()}
+  colors.forEach{c->forbidden.forEach{f->assertTrue("palette colour ${Integer.toHexString(c)} too close to ${Integer.toHexString(f)}",dist(c,f)>=80)}}
+ }
  @Test fun indentedParagraphCanJoinItsHeadingButSpanningTitleCannotJoinBothColumns(){
   val heading=z(1,Box(.06f,.1f,.29f,.14f));val body=z(2,Box(.13f,.15f,.88f,.22f))
   assertEquals(1,AutoGrouping.propose(listOf(heading,body)).size)

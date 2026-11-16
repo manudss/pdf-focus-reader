@@ -4,8 +4,13 @@ import kotlin.math.*
 object AutoGrouping {
  data class Group(val ids:Set<Int>,val box:Box,val reason:String)
  data class Result(val zones:List<Zone>,val order:List<Int>)
- fun propose(zones:List<Zone>):List<Group>{
-  val groups=zones.map{setOf(it.id)}.toMutableList()
+ /** One distinct colour per suggested group, away from selection green and unselected grey; the numbered chip keeps identity past six. */
+ val GroupColors=listOf(0xFF805BA7,0xFFD67C24,0xFF4170BE,0xFFB24A6E,0xFF8C6239,0xFF4A4FB0).map{it.toInt()}
+ fun color(index:Int)=GroupColors[index%GroupColors.size]
+ /** Only candidate zones may join a group; every zone still counts as an obstacle a frame must not swallow. */
+ fun propose(zones:List<Zone>,candidates:Set<Int>?=null):List<Group>{
+  val pool=if(candidates==null)zones else zones.filter{it.id in candidates}
+  val groups=pool.map{setOf(it.id)}.toMutableList()
   fun members(ids:Set<Int>)=zones.filter{it.id in ids}
   fun box(ids:Set<Int>)=members(ids).map{it.box}.reduce{a,b->a.union(b)}
   var changed=true

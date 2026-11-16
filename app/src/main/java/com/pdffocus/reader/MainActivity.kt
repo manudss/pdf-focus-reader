@@ -126,6 +126,7 @@ class MainActivity:Activity() {
         label.startsWith("Réglages")->"settings"
         label.startsWith("Ordre")->"order"
         label.startsWith("Fusion")->"merge"
+        label.startsWith("Regrouper")->"group"
         label=="À gauche"||label=="Monter"->"minus"
         label=="À droite"||label=="Descendre"->"add"
         label.startsWith("Recentrer")->"center"
@@ -225,7 +226,7 @@ class MainActivity:Activity() {
             row(button("Annuler le cadrage"){adding=false;replaceId=null;canvas.drawMode=false;sync()})
         }else{
             val read=button("Lire (${order.size})",true){startReader()}.apply{isEnabled=order.isNotEmpty()&&!busy}
-            row(button("Ajouter"){adding=true;canvas.drawMode=true;updateControls()},button("Ordre"){showOrder()},button("Fusionner"){(order.firstOrNull()?.let{id->zones.find{it.id==id}}?:zones.firstOrNull())?.let{beginMerge(it)}}.apply{isEnabled=zones.isNotEmpty()})
+            row(button("Ajouter"){adding=true;canvas.drawMode=true;updateControls()},button("Ordre"){showOrder()},button("Fusionner"){(order.firstOrNull()?.let{id->zones.find{it.id==id}}?:zones.firstOrNull())?.let{beginMerge(it)}}.apply{isEnabled=zones.isNotEmpty()},button("Regrouper"){showAutoGroups()}.apply{isEnabled=zones.isNotEmpty()})
             row(read)
             controls.addView(text("Maintenez-glissez pour choisir · Double tap pour corriger",11))
             val prev=button("Précédente"){loadPage(page-1)}.apply{isEnabled=page>0&&!documentLoading}
@@ -427,19 +428,22 @@ class MainActivity:Activity() {
     private var groupDialog:Dialog?=null
     private fun showAutoGroups(){
         if(busy||!pageReady||reading){toast("Revenez à la vue page pour regrouper.");return}
-        val image=preview?:return;val suggestions=AutoGrouping.propose(zones)
-        if(suggestions.isEmpty()){toast("Aucun regroupement assez sûr. La fusion manuelle reste disponible.");return}
+        val image=preview?:return
+        if(order.isEmpty()){toast("Choisissez d'abord vos blocs à lire.");return}
+        val chosen=order.toSet()
+        val suggestions=AutoGrouping.propose(zones,chosen)
+        if(suggestions.isEmpty()){toast("Aucun regroupement assez sûr parmi vos blocs choisis. La fusion manuelle reste disponible.");return}
         val originalZones=zones;val originalOrder=order;val targetPage=page
         val selected=suggestions.indices.toMutableSet();val dialog=Dialog(this);groupDialog=dialog
         val panel=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(16),dp(12),dp(16),dp(12));setBackgroundColor(Color.rgb(250,249,246))}
-        panel.addView(text("Vérifier les regroupements",23,true));panel.addView(text("Suggestions seulement. Colonnes et cases distinctes restent séparées.",12))
-        val view=PageCanvas(this).apply{this.image=image;this.zones=originalZones;mergeMode=true}
-        fun refreshPreview(){view.mergeIds=selected.flatMap{suggestions[it].ids}.toSet();view.groupBoxes=selected.map{suggestions[it].box}}
+        panel.addView(text("Vérifier les regroupements",23,true));panel.addView(text("Suggestions seulement, limitées aux blocs déjà choisis. Colonnes et cases distinctes restent séparées.",12))
+        val view=PageCanvas(this).apply{this.image=image;this.zones=originalZones;mergeMode=true;chosenIds=chosen}
+        fun refreshPreview(){view.mergeIds=selected.flatMap{suggestions[it].ids}.toSet();view.mergeColors=selected.flatMap{i->suggestions[i].ids.map{id->id to AutoGrouping.color(i)}}.toMap();view.groupBoxes=selected.sorted().map{i->PageCanvas.GroupBox(suggestions[i].box,AutoGrouping.color(i),i+1)}}
         refreshPreview();panel.addView(view,LinearLayout.LayoutParams(-1,0,1f))
         val choices=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL}
-        suggestions.forEachIndexed{index,g->choices.addView(CheckBox(this).apply{isChecked=true;text="Groupe ${index+1} · ${g.ids.size} blocs\n${g.reason}";minHeight=dp(54);setTextColor(ink);setOnCheckedChangeListener{_,checked->if(checked)selected+=index else selected-=index;refreshPreview()}})}
+        suggestions.forEachIndexed{index,g->choices.addView(CheckBox(this).apply{isChecked=true;text="Groupe ${index+1} · ${g.ids.size} blocs\n${g.reason}";minHeight=dp(54);setTextColor(ink);buttonTintList=android.content.res.ColorStateList.valueOf(AutoGrouping.color(index));setOnCheckedChangeListener{_,checked->if(checked)selected+=index else selected-=index;refreshPreview()}})}
         panel.addView(ScrollView(this).apply{addView(choices)},LinearLayout.LayoutParams(-1,dp(minOf(180,suggestions.size*58))))
-        panel.addView(text("Chaque groupe prend la place de son premier bloc choisi. Un groupe absent du parcours n'y est pas ajouté. Annulation dans Menu.",12))
+        panel.addView(text("Chaque groupe prend la place de son premier bloc choisi. Une case décochée retire la proposition. Annulation dans Menu.",12))
         val row=LinearLayout(this);row.addView(button("Annuler"){dialog.dismiss()},LinearLayout.LayoutParams(0,dp(54),1f));row.addView(button("Appliquer",true){
             if(page!=targetPage||zones!=originalZones||order!=originalOrder){dialog.dismiss();return@button}
             if(selected.isNotEmpty()){
@@ -581,8 +585,8 @@ class MainActivity:Activity() {
         panel.addView(grid,LinearLayout.LayoutParams(-1,0,1f));panel.addView(text("Glissez pour parcourir les $count pages.",12));dialog.setContentView(panel);dialog.setOnDismissListener{adapter.close();grid.adapter=null;pageSummary=null};dialog.show();dialog.window?.apply{setBackgroundDrawableResource(android.R.color.transparent);setLayout(-1,-1)};grid.setSelection((page/3)*3)
     }
     private fun goToPage(){if(documentLoading)return;val input=EditText(this).apply{inputType=android.text.InputType.TYPE_CLASS_NUMBER;hint="1 à $count"};AlertDialog.Builder(this).setTitle("Aller à la page").setView(input).setPositiveButton("Ouvrir"){_,_->val p=input.text.toString().toIntOrNull();if(p!=null&&p in 1..count)loadPage(p-1)else toast("Numéro de page invalide")}.setNegativeButton("Annuler",null).show()}
-    private fun menu(){val items=arrayOf("Ouvrir un autre PDF","Réessayer la détection","Confidentialité et aide","Supprimer le document local","Licences des composants","Proposer des regroupements","Annuler le dernier regroupement")
-        AlertDialog.Builder(this).setItems(items){_,which->when(which){0->pickPdf();1->if(count>0&&!busy)AlertDialog.Builder(this).setMessage("Remplacer les blocs et le parcours de cette page ?").setPositiveButton("Remplacer"){_,_->loadPage(page,true)}.setNegativeButton("Annuler",null).show();2->AlertDialog.Builder(this).setTitle("PDF Focus Test · prototype").setMessage("Le PDF, les zones et les parcours restent sur cet appareil. Aucune permission Internet, publicité ou compte. Une copie privée du dernier PDF est conservée pour reprendre la lecture.\n\nLa détection peut manquer ou fusionner des zones. + Bloc permet de cadrer à la main ; un double tap ouvre la correction. Maintenez et glissez pour choisir plusieurs blocs. Pincez pour zoomer et faites glisser la page agrandie.\n\nLe zoom ne recrée pas les détails d'un scan flou. Ce prototype n'a pas encore été testé sur votre téléphone.").setPositiveButton("Fermer",null).show();3->clearDocument();4->showLicenses();5->showAutoGroups();6->undoAutoGroups()}}.show()}
+    private fun menu(){val items=arrayOf("Ouvrir un autre PDF","Réessayer la détection","Confidentialité et aide","Supprimer le document local","Licences des composants","Annuler le dernier regroupement")
+        AlertDialog.Builder(this).setItems(items){_,which->when(which){0->pickPdf();1->if(count>0&&!busy)AlertDialog.Builder(this).setMessage("Remplacer les blocs et le parcours de cette page ?").setPositiveButton("Remplacer"){_,_->loadPage(page,true)}.setNegativeButton("Annuler",null).show();2->AlertDialog.Builder(this).setTitle("PDF Focus Test · prototype").setMessage("Le PDF, les zones et les parcours restent sur cet appareil. Aucune permission Internet, publicité ou compte. Une copie privée du dernier PDF est conservée pour reprendre la lecture.\n\nLa détection peut manquer ou fusionner des zones. + Bloc permet de cadrer à la main ; un double tap ouvre la correction. Maintenez et glissez pour choisir plusieurs blocs. Pincez pour zoomer et faites glisser la page agrandie.\n\nLe zoom ne recrée pas les détails d'un scan flou. Ce prototype n'a pas encore été testé sur votre téléphone.").setPositiveButton("Fermer",null).show();3->clearDocument();4->showLicenses();5->undoAutoGroups()}}.show()}
     private fun clearDocument(){if(busy){toast("Attendez la fin de l’analyse avant de supprimer.");return};AlertDialog.Builder(this).setTitle("Supprimer la copie locale ?").setMessage("Le fichier original n'est pas modifié. Le parcours enregistré sera effacé.").setPositiveButton("Supprimer"){_,_->++generation;main.removeCallbacks(saveProgress);reader.clear();reader.visibility=View.GONE;canvas.visibility=View.VISIBLE;pageReady=false;worker.execute{document?.close();document=null;File(filesDir,"current.pdf").delete()};count=0;store.clear();preview?.recycle();preview=null;readingBitmap?.recycle();readingBitmap=null;canvas.image=null;canvas.zones=emptyList();canvas.selection=emptyList();reading=false;busy=false;title.text="PDF Focus Test";info.text="Sans compte et hors ligne";status.text="Document local supprimé.";updateControls()}.setNegativeButton("Annuler",null).show()}
     private fun showLicenses(){val names=assets.list("licenses").orEmpty();AlertDialog.Builder(this).setTitle("Licences").setItems(names){_,which->val view=TextView(this).apply{text=assets.open("licenses/"+names[which]).bufferedReader().use{it.readText()};setPadding(dp(16),dp(12),dp(16),dp(12));textSize=12f};val scroll=ScrollView(this).apply{addView(view)};AlertDialog.Builder(this).setTitle(names[which]).setView(scroll).setPositiveButton("Fermer",null).show()}.setNegativeButton("Fermer",null).show()}
     private fun toast(message:String)=Toast.makeText(this,message,Toast.LENGTH_SHORT).show()

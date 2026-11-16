@@ -13,7 +13,10 @@ class PageCanvas(context:Context):View(context) {
     var drawMode=false;set(value){field=value;draft=null;invalidate()}
     var mergeMode=false;set(value){field=value;invalidate()}
     var mergeIds:Set<Int> = emptySet();set(value){field=value;invalidate()}
-    var groupBoxes:List<Box> = emptyList();set(value){field=value;invalidate()}
+    var mergeColors:Map<Int,Int> = emptyMap();set(value){field=value;invalidate()}
+    var chosenIds:Set<Int> = emptySet();set(value){field=value;invalidate()}
+    var groupBoxes:List<GroupBox> = emptyList();set(value){field=value;invalidate()}
+    data class GroupBox(val box:Box,val color:Int,val number:Int)
     var adjustingZone:Int?=null
     var editBox:Box?=null;set(value){field=value;invalidate()}
     private var editStart:PointF?=null
@@ -74,10 +77,11 @@ class PageCanvas(context:Context):View(context) {
             if(zone.id==adjustingZone)continue
             val number=if(mergeMode)0 else selection.indexOf(zone.id)+1
             val merged=mergeMode&&zone.id in mergeIds
+            val chosenSolo=mergeMode&&!merged&&zone.id in chosenIds
             val rect=RectF(zone.box.left*b.width,zone.box.top*b.height,zone.box.right*b.width,zone.box.bottom*b.height);matrix.mapRect(rect)
-            paint.color=if(merged)Color.rgb(128,91,167)else if(number>0)Color.rgb(37,122,100)else Color.rgb(90,98,98)
-            paint.style=Paint.Style.STROKE;paint.strokeWidth=if(number>0||merged)3*density else density
-            paint.pathEffect=if(number>0||merged)null else DashPathEffect(floatArrayOf(5*density,3*density),0f)
+            paint.color=if(merged)mergeColors[zone.id]?:Color.rgb(128,91,167)else if(number>0||chosenSolo)Color.rgb(37,122,100)else Color.rgb(90,98,98)
+            paint.style=Paint.Style.STROKE;paint.strokeWidth=if(number>0||merged)3*density else if(chosenSolo)1.5f*density else density
+            paint.pathEffect=if(number>0||merged||chosenSolo)null else DashPathEffect(floatArrayOf(5*density,3*density),0f)
             canvas.drawRect(rect,paint);paint.pathEffect=null
             if(number>0||merged){
                 paint.style=Paint.Style.FILL;canvas.drawRoundRect(RectF(rect.left,rect.top,rect.left+27*density,rect.top+25*density),3*density,3*density,paint)
@@ -85,7 +89,11 @@ class PageCanvas(context:Context):View(context) {
                 canvas.drawText(if(merged)"✓" else number.toString(),rect.left+6*density,rect.top+19*density,paint)
             }
         }
-        if(mergeMode&&groupBoxes.isNotEmpty()){for(box in groupBoxes){val rect=screenRect(box);rect.inset(-3*density,-3*density);paint.color=Color.rgb(128,91,167);paint.style=Paint.Style.STROKE;paint.strokeWidth=3*density;canvas.drawRect(rect,paint)}}
+        if(mergeMode&&groupBoxes.isNotEmpty()){for(gb in groupBoxes){val rect=screenRect(gb.box);rect.inset(-3*density,-3*density);paint.color=gb.color;paint.style=Paint.Style.STROKE;paint.strokeWidth=3*density;canvas.drawRect(rect,paint)
+            val label=gb.number.toString();paint.textSize=12*density;paint.typeface=Typeface.create("sans-serif",Typeface.BOLD);val tw=paint.measureText(label)
+            val cw=max(21*density,tw+10*density);val ch=21*density;val cx=rect.right-cw;val cy=max(2*density,rect.top-ch-2*density)
+            paint.style=Paint.Style.FILL;canvas.drawRoundRect(RectF(cx,cy,cx+cw,cy+ch),10*density,10*density,paint)
+            paint.color=Color.WHITE;canvas.drawText(label,cx+(cw-tw)/2,cy+ch-6*density,paint)}}
         if(mergeMode&&groupBoxes.isEmpty()&&mergeIds.size>=2){zones.filter{it.id in mergeIds}.map{it.box}.reduceOrNull{a,b->a.union(b)}?.let{box->val rect=screenRect(box);rect.inset(-4*density,-4*density);paint.color=Color.rgb(128,91,167);paint.style=Paint.Style.STROKE;paint.strokeWidth=2*density;paint.pathEffect=DashPathEffect(floatArrayOf(8*density,4*density),0f);canvas.drawRect(rect,paint);paint.pathEffect=null}}
         draft?.let{box->val rect=RectF(box.left*b.width,box.top*b.height,box.right*b.width,box.bottom*b.height);matrix.mapRect(rect);paint.color=Color.rgb(37,122,100);paint.style=Paint.Style.STROKE;paint.strokeWidth=3*density;canvas.drawRect(rect,paint)}
         editBox?.let{box->
