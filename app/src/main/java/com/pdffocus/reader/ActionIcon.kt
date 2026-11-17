@@ -8,6 +8,10 @@ class ActionIcon(private val name:String,private val tint:Int):Drawable(){
  override fun draw(c:Canvas){c.save();c.translate(bounds.left.toFloat(),bounds.top.toFloat());c.scale(bounds.width()/24f,bounds.height()/24f)
   fun line(vararg values:Float){val path=Path();path.moveTo(values[0],values[1]);for(i in 2 until values.size step 2)path.lineTo(values[i],values[i+1]);c.drawPath(path,p)}
   when(name){
+   "refresh"->{c.drawArc(RectF(4f,4f,20f,20f),40f,290f,false,p);line(20f,3f,20f,9f,14f,9f)}
+   "info"->{c.drawCircle(12f,12f,9f,p);line(12f,11f,12f,17f);c.drawCircle(12f,7f,.5f,p)}
+   "help"->{c.drawCircle(12f,12f,9f,p);c.drawArc(RectF(8f,6f,16f,12f),180f,270f,false,p);line(12f,12f,12f,14f);c.drawCircle(12f,18f,.5f,p)}
+   "license"->{line(6f,3f,18f,3f,18f,21f,6f,21f,6f,3f);line(9f,8f,15f,8f);line(9f,12f,15f,12f);line(9f,16f,13f,16f)}
    "back"->line(15f,5f,8f,12f,15f,19f)
    "next"->line(9f,5f,16f,12f,9f,19f)
    "add"->{line(12f,5f,12f,19f);line(5f,12f,19f,12f)}
