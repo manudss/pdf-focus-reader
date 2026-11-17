@@ -149,7 +149,7 @@ jobs:
             for attempt in $(seq 1 45); do
               adb shell uiautomator dump /sdcard/stable-ui.xml
               adb pull /sdcard/stable-ui.xml stable-smoke/ui.xml
-              if grep -q 'Close app' stable-smoke/ui.xml; then
+              if grep -q 'Quickstep' stable-smoke/ui.xml && grep -q 'Close app' stable-smoke/ui.xml; then
                 python3 - <<'PY_UI'
             import xml.etree.ElementTree as ET, re, subprocess
             for node in ET.parse('stable-smoke/ui.xml').iter('node'):
@@ -162,9 +162,10 @@ jobs:
               grep -q 'Choisir vos blocs' stable-smoke/ui.xml && break
               sleep 1
             done
-            grep -q 'Choisir vos blocs' stable-smoke/ui.xml
             adb shell screencap -p /sdcard/stable-tutorial.png
             adb pull /sdcard/stable-tutorial.png stable-smoke/tutorial.png
+            adb logcat -d > stable-smoke/logcat.txt
+            grep -q 'Choisir vos blocs' stable-smoke/ui.xml
             adb shell am force-stop com.pdffocus.reader
             adb shell run-as com.pdffocus.reader ls > stable-smoke/debug-access.txt 2>&1 && exit 1 || grep -q 'not debuggable' stable-smoke/debug-access.txt
             adb shell am start -W -n com.pdffocus.reader/.MainActivity
