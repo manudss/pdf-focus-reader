@@ -72,7 +72,7 @@ jobs:
 
   sign-test:
     needs: [build, device-tests]
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.head.ref == 'feat/guided-reader' || github.event.pull_request.head.ref == 'fix/reading-wide-title-columns' || github.event.pull_request.head.ref == 'feat/page-navigation' || github.event.pull_request.head.ref == 'feat/auto-select' || github.event.pull_request.head.ref == 'fix/reading-pinch-zoom')
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.head.ref == 'test/morning-improvements' || github.event.pull_request.head.ref == 'feat/guided-reader' || github.event.pull_request.head.ref == 'fix/reading-wide-title-columns' || github.event.pull_request.head.ref == 'feat/page-navigation' || github.event.pull_request.head.ref == 'feat/auto-select' || github.event.pull_request.head.ref == 'fix/reading-pinch-zoom')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
