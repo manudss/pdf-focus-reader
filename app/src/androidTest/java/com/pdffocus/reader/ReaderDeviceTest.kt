@@ -966,6 +966,41 @@ class ReaderDeviceTest {
             screenshot(scenario,"auto-select-slider")
         }
     }
+    @Test fun physicalTwoFingerSweepHitsFingertipsAcrossColumnGutter(){
+        val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext
+        File(c.filesDir,"current.pdf").delete();SessionStore(c).clear()
+        ActivityScenario.launch<MainActivity>(Intent(c,MainActivity::class.java)).use{scenario->
+            fun field(a:MainActivity,n:String)=MainActivity::class.java.getDeclaredField(n).apply{isAccessible=true}
+            val zones=listOf(Zone(1,Box(.2f,.12f,.42f,.8f),Kind.TEXT),Zone(2,Box(.52f,.12f,.75f,.8f),Kind.TEXT),Zone(3,Box(.8f,.12f,.95f,.8f),Kind.TEXT))
+            scenario.onActivity{a->
+                val image=Bitmap.createBitmap(700,1000,Bitmap.Config.ARGB_8888);image.eraseColor(Color.WHITE)
+                val cc=Canvas(image);val ink=Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.BLACK;textSize=14f}
+                for((n,z)in zones.withIndex())for(line in 0..28)cc.drawText("Colonne ${n+1} : ligne $line",z.box.left*700+4,140f+line*22,ink)
+                field(a,"preview").set(a,image);field(a,"count").set(a,1);field(a,"pageReady").set(a,true);field(a,"zones").set(a,zones);field(a,"order").set(a,listOf(1,2,3))
+                findCanvas(a.window.decorView)!!.image=image;MainActivity::class.java.getDeclaredMethod("sync",Boolean::class.javaPrimitiveType).apply{isAccessible=true}.invoke(a,false)
+            };i.waitForIdleSync();screenshot(scenario,"two-finger-columns-before")
+            fun point(x:Float,y:Float):PointF{var out=PointF();scenario.onActivity{a->
+                val v=findCanvas(a.window.decorView)!!;val matrix=PageCanvas::class.java.getDeclaredField("matrix").apply{isAccessible=true}.get(v)as Matrix
+                val xy=floatArrayOf(x*700,y*1000);matrix.mapPoints(xy);val offset=IntArray(2);v.getLocationOnScreen(offset);out=PointF(xy[0]+offset[0],xy[1]+offset[1])
+            };return out}
+            val left=point(.3f,.04f);val right=point(.65f,.04f);val end=point(.3f,.87f);val down=android.os.SystemClock.uptimeMillis()
+            fun inject(action:Int,a:PointF,b:PointF?=null){
+                val n=if(b==null)1 else 2
+                val properties=Array(n){k->MotionEvent.PointerProperties().apply{id=k;toolType=MotionEvent.TOOL_TYPE_FINGER}}
+                val coords=Array(n){k->MotionEvent.PointerCoords().apply{val p=if(k==0)a else b!!;x=p.x;y=p.y;pressure=1f;size=.12f}}
+                val e=MotionEvent.obtain(down,android.os.SystemClock.uptimeMillis(),action,n,properties,coords,0,0,1f,1f,0,0,android.view.InputDevice.SOURCE_TOUCHSCREEN,0)
+                assertTrue("Input must enter the Android window",i.uiAutomation.injectInputEvent(e,true));e.recycle()
+            }
+            inject(MotionEvent.ACTION_DOWN,left);Thread.sleep(80)
+            inject(MotionEvent.ACTION_POINTER_DOWN or (1 shl 8),left,right)
+            repeat(8){k->Thread.sleep(90);val jitter=if(k%2==0)2f else -2f;inject(MotionEvent.ACTION_MOVE,PointF(left.x+jitter,left.y+1),PointF(right.x+jitter,right.y-1))}
+            for(k in 1..18){val dy=(end.y-left.y)*k/18;inject(MotionEvent.ACTION_MOVE,PointF(left.x,left.y+dy),PointF(right.x,right.y+dy));Thread.sleep(18)}
+            i.waitForIdleSync();screenshot(scenario,"two-finger-columns-dragged")
+            inject(MotionEvent.ACTION_POINTER_UP or (1 shl 8),PointF(left.x,end.y),PointF(right.x,end.y));Thread.sleep(60);inject(MotionEvent.ACTION_UP,PointF(left.x,end.y));Thread.sleep(350)
+            scenario.onActivity{a->assertEquals("Fingertips remove both columns, midpoint stays in gutter, untouched third column remains",listOf(3),field(a,"order").get(a));assertFalse("Removal must not accidentally zoom",findCanvas(a.window.decorView)!!.isZoomed())}
+            screenshot(scenario,"two-finger-columns-after")
+        }
+    }
     @Test fun twoFingerHoldRemovesCrossedBlocksOnly(){
         val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext;File(c.filesDir,"current.pdf").delete();SessionStore(c).clear()
         ActivityScenario.launch<MainActivity>(Intent(c,MainActivity::class.java)).use{scenario->
@@ -1137,6 +1172,9 @@ class ReaderDeviceTest {
             scenario.onActivity{a->
                 val d=MainActivity::class.java.getDeclaredField("menuDialog").apply{isAccessible=true}.get(a)as android.app.Dialog
                 val root=d.window!!.decorView
+                var icons=0
+                fun countIcons(v:View){if(v is TextView&&v.compoundDrawablesRelative[0] is ActionIcon)icons++;if(v is ViewGroup)for(k in 0 until v.childCount)countIcons(v.getChildAt(k))}
+                countIcons(root);assertEquals("Every menu action keeps its own icon",11,icons)
                 for(label in listOf("Document","Blocs de la page","Aide","Ouvrir un autre PDF","Ajouter un bloc","Voir l'ordre de lecture","Fusionner des blocs","Regrouper automatiquement","Propose des regroupements parmi les blocs choisis. Vous validez ceux à appliquer.","Réessayer la détection","Annuler le dernier regroupement","Confidentialité et aide","Licences des composants"))
                     assertTrue("Menu must show « $label »",findText(root,label))
             }

@@ -670,29 +670,29 @@ class MainActivity:Activity() {
         sheet.addView(titleRow)
         val list=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL}
         fun section(name:String){list.addView(text(name,12,true).apply{setTextColor(Color.rgb(120,118,112));setPadding(dp(4),dp(10),0,dp(4))})}
-        fun entry(label:String,desc:String?,danger:Boolean=false,enabled:Boolean=true,action:()->Unit){
+        fun entry(icon:String,label:String,desc:String?,danger:Boolean=false,enabled:Boolean=true,action:()->Unit){
             val row=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;background=shape(Color.WHITE,10,Color.rgb(226,231,226));setPadding(dp(14),dp(8),dp(14),dp(8));isEnabled=enabled
                 setOnClickListener{if(enabled){dialog.dismiss();action()}}}
             val inkColor=if(danger)Color.rgb(214,74,60)else ink
-            row.addView(text(label,16,true).apply{setTextColor(if(enabled)inkColor else Color.rgb(176,173,166));setPadding(0,0,0,0)})
-            if(desc!=null)row.addView(text(desc,12).apply{setTextColor(if(enabled)Color.rgb(120,118,112)else Color.rgb(196,193,186));setPadding(0,0,0,0)})
+            row.addView(text(label,16,true).apply{setTextColor(if(enabled)inkColor else Color.rgb(176,173,166));setPadding(0,0,0,0);compoundDrawablePadding=dp(14);setCompoundDrawablesRelative(ActionIcon(icon,if(!enabled)Color.rgb(176,173,166)else if(danger)inkColor else Color.rgb(50,109,93)).apply{setBounds(0,0,dp(24),dp(24))},null,null,null)})
+            if(desc!=null)row.addView(text(desc,12).apply{setTextColor(if(enabled)Color.rgb(120,118,112)else Color.rgb(196,193,186));setPadding(dp(38),0,0,0)})
             list.addView(row,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=dp(6)})
         }
         section("Document")
-        entry("Ouvrir un autre PDF",null){pickPdf()}
-        entry("Supprimer le document local",null,danger=true){clearDocument()}
+        entry("document","Ouvrir un autre PDF",null){pickPdf()}
+        entry("close","Supprimer le document local",null,danger=true){clearDocument()}
         section("Blocs de la page")
         val hasPage=count>0
-        entry("Ajouter un bloc","Tracez vous-même un bloc sur la page.",enabled=hasPage&&!busy){adding=true;canvas.drawMode=true;updateControls()}
-        entry("Voir l'ordre de lecture","Vérifiez et corrigez votre parcours.",enabled=hasPage){showOrder()}
-        entry("Fusionner des blocs","Réunissez à la main plusieurs blocs en un seul.",enabled=zones.isNotEmpty()){(order.firstOrNull()?.let{id->zones.find{it.id==id}}?:zones.firstOrNull())?.let{beginMerge(it)}}
-        entry("Regrouper automatiquement","Propose des regroupements parmi les blocs choisis. Vous validez ceux à appliquer.",enabled=zones.isNotEmpty()){showAutoGroups()}
-        entry("Réessayer la détection","Relance la recherche des blocs de la page.",enabled=hasPage&&!busy){AlertDialog.Builder(this).setMessage("Remplacer les blocs et le parcours de cette page ?").setPositiveButton("Remplacer"){_,_->loadPage(page,true)}.setNegativeButton("Annuler",null).show()}
-        entry("Annuler le dernier regroupement",null){undoAutoGroups()}
+        entry("add","Ajouter un bloc","Tracez vous-même un bloc sur la page.",enabled=hasPage&&!busy){adding=true;canvas.drawMode=true;updateControls()}
+        entry("order","Voir l'ordre de lecture","Vérifiez et corrigez votre parcours.",enabled=hasPage){showOrder()}
+        entry("merge","Fusionner des blocs","Réunissez à la main plusieurs blocs en un seul.",enabled=zones.isNotEmpty()){(order.firstOrNull()?.let{id->zones.find{it.id==id}}?:zones.firstOrNull())?.let{beginMerge(it)}}
+        entry("group","Regrouper automatiquement","Propose des regroupements parmi les blocs choisis. Vous validez ceux à appliquer.",enabled=zones.isNotEmpty()){showAutoGroups()}
+        entry("refresh","Réessayer la détection","Relance la recherche des blocs de la page.",enabled=hasPage&&!busy){AlertDialog.Builder(this).setMessage("Remplacer les blocs et le parcours de cette page ?").setPositiveButton("Remplacer"){_,_->loadPage(page,true)}.setNegativeButton("Annuler",null).show()}
+        entry("undo","Annuler le dernier regroupement",null){undoAutoGroups()}
         section("Aide")
-        entry("Revoir le didacticiel","Les quatre gestes à essayer sur le document d'exemple."){startTutorial()}
-        entry("Confidentialité et aide",null){AlertDialog.Builder(this).setTitle(applicationInfo.loadLabel(packageManager).toString()).setMessage("Le PDF, les zones et les parcours restent sur cet appareil. Aucune permission Internet, publicité ou compte. Une copie privée du dernier PDF est conservée pour reprendre la lecture.\n\nLa détection peut manquer ou fusionner des zones. + Bloc permet de cadrer à la main ; un double tap ouvre la correction. Maintenez et glissez pour choisir plusieurs blocs. Pincez pour zoomer et faites glisser la page agrandie.\n\nLe zoom ne recrée pas les détails d'un scan flou. Le résultat dépend du document et des capacités de votre téléphone.").setPositiveButton("Fermer",null).show()}
-        entry("Licences des composants",null){showLicenses()}
+        entry("help","Revoir le didacticiel","Les quatre gestes à essayer sur le document d'exemple."){startTutorial()}
+        entry("info","Confidentialité et aide",null){AlertDialog.Builder(this).setTitle(applicationInfo.loadLabel(packageManager).toString()).setMessage("Le PDF, les zones et les parcours restent sur cet appareil. Aucune permission Internet, publicité ou compte. Une copie privée du dernier PDF est conservée pour reprendre la lecture.\n\nLa détection peut manquer ou fusionner des zones. + Bloc permet de cadrer à la main ; un double tap ouvre la correction. Maintenez et glissez pour choisir plusieurs blocs. Pincez pour zoomer et faites glisser la page agrandie.\n\nLe zoom ne recrée pas les détails d'un scan flou. Le résultat dépend du document et des capacités de votre téléphone.").setPositiveButton("Fermer",null).show()}
+        entry("license","Licences des composants",null){showLicenses()}
         val scroll=ScrollView(this).apply{addView(list)}
         sheet.addView(scroll,LinearLayout.LayoutParams(-1,0,1f))
         dialog.setContentView(sheet)
