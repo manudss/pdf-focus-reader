@@ -24,6 +24,7 @@ try:
   assert f"versionName='{version}'" in metadata, 'APK version does not match planned release'
   assert f"versionCode='{int(os.environ['PDF_FOCUS_RELEASE_CODE'])}'" in metadata, 'APK versionCode mismatch'
   assert "name='com.pdffocus.reader'" in metadata, 'Package identity changed'
+  assert "application-debuggable" not in metadata, 'Debuggable APK cannot be a stable release'
   checks.append(hashlib.sha256(dest.read_bytes()).hexdigest()+'  '+dest.name)
  (out/'SHA256SUMS.txt').write_text('\n'.join(checks)+'\nCertificate SHA256 '+digest+'\n')
  print('Signed stable PDF Focus Reader APK verified with pinned public certificate.')
