@@ -1,5 +1,5 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <application android:allowBackup="false" android:fullBackupContent="false" android:dataExtractionRules="@xml/data_extraction_rules" android:label="${appLabel}" android:icon="@drawable/ic_test_app" android:theme="@style/AppTheme" android:supportsRtl="true" android:usesCleartextTraffic="false">
+    <application android:allowBackup="false" android:fullBackupContent="false" android:dataExtractionRules="@xml/data_extraction_rules" android:label="${appLabel}" android:icon="${appIcon}" android:theme="@style/AppTheme" android:supportsRtl="true" android:usesCleartextTraffic="false">
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
             <intent-filter><action android:name="android.intent.action.VIEW"/><category android:name="android.intent.category.DEFAULT"/><data android:scheme="content" android:mimeType="application/pdf"/><data android:scheme="file"/></intent-filter>

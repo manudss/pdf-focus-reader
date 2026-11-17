@@ -5,6 +5,7 @@ android {
     defaultConfig {
         applicationId = providers.gradleProperty("releasePackage").orNull ?: "com.pdffocus.reader.test"
         manifestPlaceholders["appLabel"] = providers.gradleProperty("releaseLabel").orNull ?: "PDF Focus Test"
+        manifestPlaceholders["appIcon"] = if (providers.gradleProperty("releasePackage").orNull == "com.pdffocus.reader") "@drawable/ic_reader_app" else "@drawable/ic_test_app"
         minSdk = 26
         targetSdk = 35
         versionCode = providers.gradleProperty("releaseCode").orNull?.toInt() ?: 12
