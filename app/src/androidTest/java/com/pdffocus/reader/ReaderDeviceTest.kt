@@ -1032,4 +1032,18 @@ class ReaderDeviceTest {
             }
         }
     }
+    @Test fun groupedMenuProductCapture(){
+        val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext
+        ActivityScenario.launch<MainActivity>(Intent(c,MainActivity::class.java)).use{scenario->
+            scenario.onActivity{a->findButton(a.window.decorView,"Menu")!!.performClick()}
+            i.waitForIdleSync();Thread.sleep(250)
+            scenario.onActivity{a->
+                val d=MainActivity::class.java.getDeclaredField("menuDialog").apply{isAccessible=true}.get(a)as android.app.Dialog
+                val root=d.window!!.decorView
+                assertTrue(findText(root,"Document"));assertTrue(findText(root,"Blocs de la page"));assertTrue(findText(root,"Aide"))
+                val shot=Bitmap.createBitmap(root.width,root.height,Bitmap.Config.ARGB_8888);root.draw(Canvas(shot))
+                File(File(c.getExternalFilesDir(null),"screenshots").apply{mkdirs()},"grouped-menu-product.png").outputStream().use{shot.compress(Bitmap.CompressFormat.PNG,100,it)};shot.recycle();d.dismiss()
+            }
+        }
+    }
 }
