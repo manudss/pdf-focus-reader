@@ -54,7 +54,14 @@ class ComicReaderDeviceTest {
   val f=fictionalPdf();val doc=PdfDocument(f)
   ActivityScenario.launch<MainActivity>(Intent(context,MainActivity::class.java)).use{scenario->
    lateinit var reader:ContinuousReaderView
-   scenario.onActivity{a->reader=ContinuousReaderView(a);a.setContentView(reader);reader.onRequest={t,r->reader.accept(t,r,doc.readingRegion(0,t.source,ceil(t.rect.width()).toInt().coerceAtLeast(1),ceil(t.rect.height()).toInt().coerceAtLeast(1),false))};reader.setDocument(listOf(Zone(1,Box(0f,0f,1f,.35f),Kind.IMAGE,panel=true),Zone(2,Box(0f,.35f,.5f,1f),Kind.IMAGE,panel=true),Zone(3,Box(.5f,.35f,1f,1f),Kind.IMAGE,panel=true)),1200,1800,comicDirection=if(rtl)-1 else 1)}
+   scenario.onActivity{a->reader=ContinuousReaderView(a)
+    // Android 15 is edge-to-edge. Keep this standalone test host below system bars,
+    // just like the real Activity root, or a header tap hits the status-bar window.
+    val root=android.widget.FrameLayout(a)
+    val bars=a.window.decorView.rootWindowInsets?.getInsets(WindowInsets.Type.systemBars())
+    if(bars!=null)root.setPadding(bars.left,bars.top,bars.right,bars.bottom)
+    root.addView(reader,android.widget.FrameLayout.LayoutParams(-1,-1));a.setContentView(root)
+    reader.onRequest={t,r->reader.accept(t,r,doc.readingRegion(0,t.source,ceil(t.rect.width()).toInt().coerceAtLeast(1),ceil(t.rect.height()).toInt().coerceAtLeast(1),false))};reader.setDocument(listOf(Zone(1,Box(0f,0f,1f,.35f),Kind.IMAGE,panel=true),Zone(2,Box(0f,.35f,.5f,1f),Kind.IMAGE,panel=true),Zone(3,Box(.5f,.35f,1f,1f),Kind.IMAGE,panel=true)),1200,1800,comicDirection=if(rtl)-1 else 1)}
    var ready=false
    for(attempt in 0 until 100){ins.waitForIdleSync();ins.runOnMainSync{ready=reader.width>0&&reader.height>0&&reader.isShown&&reader.hasWindowFocus()};if(ready)break;SystemClock.sleep(100)}
    assertTrue("Reader must be laid out in the focused Activity window before injecting input",ready)
