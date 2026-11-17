@@ -187,11 +187,12 @@ class ReaderDeviceTest {
             val reader=ContinuousReaderView(c)
             reader.measure(View.MeasureSpec.makeMeasureSpec(700,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(1000,View.MeasureSpec.EXACTLY));reader.layout(0,0,700,1000)
             reader.onRequest={tile,revision->
-                val l=(tile.source.left*700).toInt().coerceIn(0,699);val t=(tile.source.top*1400).toInt().coerceIn(0,1399)
-                val r=(kotlin.math.ceil(tile.source.right*700).toInt()).coerceIn(l+1,700);val b=(kotlin.math.ceil(tile.source.bottom*1400).toInt()).coerceIn(t+1,1400)
-                val crop=Bitmap.createBitmap(src,l,t,r-l,b-t)
-                val scaled=Bitmap.createScaledBitmap(crop,maxOf(1,kotlin.math.ceil(tile.rect.width()).toInt()),maxOf(1,kotlin.math.ceil(tile.rect.height()).toInt()),true)
-                if(scaled!==crop)crop.recycle()
+                val scaled=Bitmap.createBitmap(maxOf(1,kotlin.math.ceil(tile.rect.width()).toInt()),maxOf(1,kotlin.math.ceil(tile.rect.height()).toInt()),Bitmap.Config.ARGB_8888)
+                val raster=Canvas(scaled);raster.drawColor(Color.WHITE)
+                // Preserve exact floating source bounds, as PdfRenderer's region matrix
+                // does. Integer crop+resize rounds the seam independently on each tile.
+                val matrix=android.graphics.Matrix().apply { setRectToRect(RectF(tile.source.left*700,tile.source.top*1400,tile.source.right*700,tile.source.bottom*1400),RectF(0f,0f,scaled.width.toFloat(),scaled.height.toFloat()),android.graphics.Matrix.ScaleToFit.FILL) }
+                raster.drawBitmap(src,matrix,Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
                 reader.accept(tile,revision,scaled)
             }
             reader.setDocument(listOf(body,fragment),700,1400)
@@ -244,11 +245,12 @@ class ReaderDeviceTest {
             val reader=ContinuousReaderView(c)
             reader.measure(View.MeasureSpec.makeMeasureSpec(700,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(1000,View.MeasureSpec.EXACTLY));reader.layout(0,0,700,1000)
             reader.onRequest={tile,revision->
-                val l=(tile.source.left*700).toInt().coerceIn(0,699);val t=(tile.source.top*1400).toInt().coerceIn(0,1399)
-                val r=(kotlin.math.ceil(tile.source.right*700).toInt()).coerceIn(l+1,700);val b=(kotlin.math.ceil(tile.source.bottom*1400).toInt()).coerceIn(t+1,1400)
-                val crop=Bitmap.createBitmap(src,l,t,r-l,b-t)
-                val scaled=Bitmap.createScaledBitmap(crop,maxOf(1,kotlin.math.ceil(tile.rect.width()).toInt()),maxOf(1,kotlin.math.ceil(tile.rect.height()).toInt()),true)
-                if(scaled!==crop)crop.recycle()
+                val scaled=Bitmap.createBitmap(maxOf(1,kotlin.math.ceil(tile.rect.width()).toInt()),maxOf(1,kotlin.math.ceil(tile.rect.height()).toInt()),Bitmap.Config.ARGB_8888)
+                val raster=Canvas(scaled);raster.drawColor(Color.WHITE)
+                // Preserve exact floating source bounds, as PdfRenderer's region matrix
+                // does. Integer crop+resize rounds the seam independently on each tile.
+                val matrix=android.graphics.Matrix().apply { setRectToRect(RectF(tile.source.left*700,tile.source.top*1400,tile.source.right*700,tile.source.bottom*1400),RectF(0f,0f,scaled.width.toFloat(),scaled.height.toFloat()),android.graphics.Matrix.ScaleToFit.FILL) }
+                raster.drawBitmap(src,matrix,Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
                 reader.accept(tile,revision,scaled)
             }
             reader.setDocument(listOf(body,fragment),700,1400)
