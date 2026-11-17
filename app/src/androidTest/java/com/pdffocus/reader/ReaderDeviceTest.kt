@@ -1018,6 +1018,36 @@ class ReaderDeviceTest {
             assertTrue(File(dir,"$name.png").length()>1000)
         }
     }
+
+    @Test fun groupedMenuListsBlockActionsWithDescriptions(){
+        val c=InstrumentationRegistry.getInstrumentation().targetContext
+        File(c.filesDir,"current.pdf").delete();SessionStore(c).clear()
+        ActivityScenario.launch<MainActivity>(Intent(c,MainActivity::class.java)).use{scenario->
+            scenario.onActivity{a->findButton(a.window.decorView,"Menu")!!.performClick()}
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+            scenario.onActivity{a->
+                val d=MainActivity::class.java.getDeclaredField("menuDialog").apply{isAccessible=true}.get(a)as android.app.Dialog
+                val root=d.window!!.decorView
+                for(label in listOf("Document","Blocs de la page","Aide","Ouvrir un autre PDF","Ajouter un bloc","Voir l'ordre de lecture","Fusionner des blocs","Regrouper automatiquement","Propose des regroupements parmi les blocs choisis. Vous validez ceux à appliquer.","Réessayer la détection","Annuler le dernier regroupement","Confidentialité et aide","Licences des composants"))
+                    assertTrue("Menu must show « $label »",findText(root,label))
+            }
+        }
+    }
+    @Test fun groupedMenuProductCapture(){
+        val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext
+        ActivityScenario.launch<MainActivity>(Intent(c,MainActivity::class.java)).use{scenario->
+            scenario.onActivity{a->findButton(a.window.decorView,"Menu")!!.performClick()}
+            i.waitForIdleSync();Thread.sleep(250)
+            scenario.onActivity{a->
+                val d=MainActivity::class.java.getDeclaredField("menuDialog").apply{isAccessible=true}.get(a)as android.app.Dialog
+                val root=d.window!!.decorView
+                assertTrue(findText(root,"Document"));assertTrue(findText(root,"Blocs de la page"));assertTrue(findText(root,"Aide"))
+                val shot=Bitmap.createBitmap(root.width,root.height,Bitmap.Config.ARGB_8888);root.draw(Canvas(shot))
+                File(File(c.getExternalFilesDir(null),"screenshots").apply{mkdirs()},"grouped-menu-product.png").outputStream().use{shot.compress(Bitmap.CompressFormat.PNG,100,it)};shot.recycle();d.dismiss()
+            }
+
+        }
+    }
     @Test fun autoTogglePillKnobFollowsState(){
         ActivityScenario.launch<MainActivity>(Intent(InstrumentationRegistry.getInstrumentation().targetContext,MainActivity::class.java)).use{scenario->
             scenario.onActivity{a->
@@ -1048,6 +1078,7 @@ class ReaderDeviceTest {
             screenshot(scenario,"auto-pill-on-product")
             scenario.onActivity{a->(findButton(a.window.decorView,"Auto")as AutoToggleButton).on=false}
             screenshot(scenario,"auto-pill-off-product")
+
         }
     }
 }
