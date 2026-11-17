@@ -11,9 +11,22 @@ class ContinuousLayoutTest {
   for(i in pieces.indices)for(j in i+1 until pieces.size)assertEquals(0f,pieces[i].intersect(pieces[j]),.000001f)
   assertFalse(bands.any{it.zoneId==9});assertEquals(7,bands.first().zoneId)
  }
- @Test fun offsetOverlapsPreserveAllUnseenPixels(){
+ @Test fun offsetOverlapsKeepFullWidthsEvenWhenSourcePixelsRepeat(){
   val a=Box(.1f,.1f,.4f,.5f);val b=Box(.3f,.3f,.6f,.7f);val bands=ContinuousLayout.bands(listOf(z(1,a),z(2,b)))
-  assertEquals(a.area+b.area-a.intersect(b),bands.flatMap{it.pieces}.sumOf{it.area.toDouble()}.toFloat(),.000001f)
+  assertEquals(a.area+b.area,bands.flatMap{it.pieces}.sumOf{it.area.toDouble()}.toFloat(),.000001f)
+ }
+ @Test fun tallNeighbourCannotClipEitherSideAtAnyVerticalPosition(){
+  val left=Zone(10,Box(.59f,.15f,.81f,.50f),Kind.TEXT)
+  val right=Zone(11,Box(.77f,.15f,.94f,.47f),Kind.TEXT)
+  for(zones in listOf(listOf(left,right),listOf(right,left))){
+   val out=ContinuousLayout.bands(zones)
+   for(z in zones){
+    val pieces=out.filter{it.zoneId==z.id}.flatMap{it.pieces}
+    assertFalse(pieces.isEmpty())
+    assertTrue(pieces.all{abs(it.left-z.box.left)<.000001f&&abs(it.right-z.box.right)<.000001f})
+    assertEquals(z.box.area,pieces.sumOf{it.area.toDouble()}.toFloat(),.000001f)
+   }
+  }
  }
  @Test fun touchingBlocksStayInRequestedOrder(){val out=ContinuousLayout.bands(listOf(z(2,Box(.5f,.1f,.8f,.8f)),z(1,Box(.1f,.1f,.5f,.8f))));assertEquals(listOf(2,1),out.map{it.zoneId})}
 
@@ -76,4 +89,19 @@ class ContinuousLayoutTest {
         assertEquals(.70f,above.bottom,.00001f);assertEquals(.70f,below.top,.00001f)
         assertNotEquals("Source pieces have distinct block ordinals and require a contiguous raster join",above.ordinal,below.ordinal)
     }
+ @Test fun narrowColumnUnderWideTwoLineTitleKeepsOwnScale(){
+  // A wide two-line title above a narrow left column and a wide right column. The narrow
+  // column must keep its own scale reference: borrowing the title's width would shrink its
+  // text to a strip with a blank right side, then the scale would jump at the next block.
+  val title=z(1,Box(.067f,.120f,.819f,.243f))
+  val colL1=z(2,Box(.067f,.251f,.333f,.601f));val colR1=z(3,Box(.367f,.251f,.933f,.601f))
+  val colL2=z(4,Box(.067f,.616f,.333f,.910f));val colR2=z(5,Box(.367f,.616f,.933f,.910f))
+  val out=ContinuousLayout.bands(listOf(title,colL1,colR1,colL2,colR2))
+  for(id in listOf(2,4))assertEquals(.266f,out.first{it.zoneId==id}.original.width,.0001f)
+  for(id in listOf(3,5))assertEquals(.566f,out.first{it.zoneId==id}.original.width,.0001f)
+  val p2=out.filter{it.zoneId==2}.flatMap{it.pieces}
+  assertTrue(p2.all{it.left>=.066f&&it.right<=.334f})
+  assertEquals(colL1.box.area,p2.sumOf{it.area.toDouble()}.toFloat(),.000001f)
+  val pieces=out.flatMap{it.pieces};for(i in pieces.indices)for(j in i+1 until pieces.size)assertEquals(0f,pieces[i].intersect(pieces[j]),.000001f)
+ }
 }

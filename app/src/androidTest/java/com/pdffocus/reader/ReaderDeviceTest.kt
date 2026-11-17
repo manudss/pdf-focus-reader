@@ -19,6 +19,23 @@ class ReaderDeviceTest {
         InstrumentationRegistry.getInstrumentation().targetContext.getSharedPreferences("MainActivity",0).edit().putBoolean("tutorialSeen",true).commit()
     }
 
+    @Test fun sideOverlappingColumnsKeepFullWidthInActualReader(){
+        val ins=InstrumentationRegistry.getInstrumentation()
+        ins.runOnMainSync{
+            val c=ins.targetContext;val source=Bitmap.createBitmap(930,1235,Bitmap.Config.ARGB_8888);source.eraseColor(Color.WHITE)
+            val canvas=Canvas(source);val paint=Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.BLACK;textSize=12f}
+            for(n in 0..28){canvas.drawText("ALPHA ligne fictive OMEGA",550f,205f+n*13,paint);canvas.drawText("DEBUT mots inventes FIN",716f,205f+n*13,paint)}
+            val a=Zone(10,Box(.59f,.15f,.81f,.50f),Kind.TEXT);val b=Zone(11,Box(.77f,.15f,.94f,.47f),Kind.TEXT)
+            for(zones in listOf(listOf(a,b),listOf(b,a))){
+                val reader=ContinuousReaderView(c);reader.measure(View.MeasureSpec.makeMeasureSpec(1080,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(1700,View.MeasureSpec.EXACTLY));reader.layout(0,0,1080,1700)
+                reader.onRequest={t,r->val bitmap=Bitmap.createBitmap(kotlin.math.ceil(t.rect.width()).toInt(),kotlin.math.ceil(t.rect.height()).toInt(),Bitmap.Config.ARGB_8888);Canvas(bitmap).drawBitmap(source,Rect((t.source.left*930).toInt(),(t.source.top*1235).toInt(),(t.source.right*930).toInt(),(t.source.bottom*1235).toInt()),Rect(0,0,bitmap.width,bitmap.height),Paint(Paint.FILTER_BITMAP_FLAG));reader.accept(t,r,bitmap)}
+                reader.setDocument(zones,930,1235);reader.move(1900f)
+                repeat(3){val bitmap=Bitmap.createBitmap(1080,1700,Bitmap.Config.ARGB_8888);reader.draw(Canvas(bitmap));File(File(c.getExternalFilesDir(null),"screenshots").apply{mkdirs()},"side-overlap-${zones.first().id}.png").outputStream().use{bitmap.compress(Bitmap.CompressFormat.PNG,100,it)};bitmap.recycle()}
+                for(z in zones){val pieces=ContinuousLayout.bands(zones).filter{it.zoneId==z.id}.flatMap{it.pieces};assertTrue(pieces.isNotEmpty());assertTrue(pieces.all{kotlin.math.abs(it.left-z.box.left)<.000001f&&kotlin.math.abs(it.right-z.box.right)<.000001f})}
+                reader.clear()
+            };source.recycle()
+        }
+    }
     @Test fun independentFrenchDictionaryLoadsAndRepairsOffline(){
         val context=InstrumentationRegistry.getInstrumentation().targetContext
         val spelling=FrenchSpelling(context)
@@ -668,7 +685,7 @@ class ReaderDeviceTest {
         val p=Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.BLACK;textSize=9f}
         for((ci,label)in listOf(0 to "Colonne une",1 to "Colonne deux",2 to "Colonne trois")){
             val x=(.06f+ci*.30f)*840
-            for(line in 0..39)cv.drawText("$label : phrase fictive numero ${line+1} pour ce test.",x,(.215f+line*.018f)*594,p)
+            for(line in 0..39)cv.drawText("$label, note fictive ${line+1}.",x,(.215f+line*.018f)*594,p)
         }
         pdf.finishPage(page);File(c.filesDir,"current.pdf").outputStream().use{pdf.writeTo(it)};pdf.close()
         ActivityScenario.launch<MainActivity>(Intent(c,MainActivity::class.java)).use{scenario->
@@ -696,7 +713,12 @@ class ReaderDeviceTest {
                         assertTrue("Band of zone ${zone.id} exceeds its own extent: $piece in ${zone.box}",piece.left>=zone.box.left-.001f&&piece.right<=zone.box.right+.001f)
                     }
                 }
-                val pieces=bands.flatMap{it.pieces};for(x in pieces.indices)for(y in x+1 until pieces.size)assertEquals(0f,pieces[x].intersect(pieces[y]),.000001f)
+                // Side overlap is now intentional: assert intact width instead of zero source overlap.
+                for(band in bands.filter{it.kind==Kind.TEXT}){
+                    val zone=chosen.first{it.id==band.zoneId}
+                    if(zone.box.height<.075f)continue
+                    assertTrue(band.pieces.all{kotlin.math.abs(it.left-zone.box.left)<.001f&&kotlin.math.abs(it.right-zone.box.right)<.001f})
+                }
             }
             screenshot(scenario,"magazine-selected")
             scenario.onActivity{a->findButton(a.window.decorView,"Lire (")!!.performClick()}
@@ -944,6 +966,41 @@ class ReaderDeviceTest {
             screenshot(scenario,"auto-select-slider")
         }
     }
+    @Test fun physicalTwoFingerSweepHitsFingertipsAcrossColumnGutter(){
+        val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext
+        File(c.filesDir,"current.pdf").delete();SessionStore(c).clear()
+        ActivityScenario.launch<MainActivity>(Intent(c,MainActivity::class.java)).use{scenario->
+            fun field(a:MainActivity,n:String)=MainActivity::class.java.getDeclaredField(n).apply{isAccessible=true}
+            val zones=listOf(Zone(1,Box(.2f,.12f,.42f,.8f),Kind.TEXT),Zone(2,Box(.52f,.12f,.75f,.8f),Kind.TEXT),Zone(3,Box(.8f,.12f,.95f,.8f),Kind.TEXT))
+            scenario.onActivity{a->
+                val image=Bitmap.createBitmap(700,1000,Bitmap.Config.ARGB_8888);image.eraseColor(Color.WHITE)
+                val cc=Canvas(image);val ink=Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.BLACK;textSize=14f}
+                for((n,z)in zones.withIndex())for(line in 0..28)cc.drawText("Colonne ${n+1} : ligne $line",z.box.left*700+4,140f+line*22,ink)
+                field(a,"preview").set(a,image);field(a,"count").set(a,1);field(a,"pageReady").set(a,true);field(a,"zones").set(a,zones);field(a,"order").set(a,listOf(1,2,3))
+                findCanvas(a.window.decorView)!!.image=image;MainActivity::class.java.getDeclaredMethod("sync",Boolean::class.javaPrimitiveType).apply{isAccessible=true}.invoke(a,false)
+            };i.waitForIdleSync();screenshot(scenario,"two-finger-columns-before")
+            fun point(x:Float,y:Float):PointF{var out=PointF();scenario.onActivity{a->
+                val v=findCanvas(a.window.decorView)!!;val matrix=PageCanvas::class.java.getDeclaredField("matrix").apply{isAccessible=true}.get(v)as Matrix
+                val xy=floatArrayOf(x*700,y*1000);matrix.mapPoints(xy);val offset=IntArray(2);v.getLocationOnScreen(offset);out=PointF(xy[0]+offset[0],xy[1]+offset[1])
+            };return out}
+            val left=point(.3f,.04f);val right=point(.65f,.04f);val end=point(.3f,.87f);val down=android.os.SystemClock.uptimeMillis()
+            fun inject(action:Int,a:PointF,b:PointF?=null){
+                val n=if(b==null)1 else 2
+                val properties=Array(n){k->MotionEvent.PointerProperties().apply{id=k;toolType=MotionEvent.TOOL_TYPE_FINGER}}
+                val coords=Array(n){k->MotionEvent.PointerCoords().apply{val p=if(k==0)a else b!!;x=p.x;y=p.y;pressure=1f;size=.12f}}
+                val e=MotionEvent.obtain(down,android.os.SystemClock.uptimeMillis(),action,n,properties,coords,0,0,1f,1f,0,0,android.view.InputDevice.SOURCE_TOUCHSCREEN,0)
+                assertTrue("Input must enter the Android window",i.uiAutomation.injectInputEvent(e,true));e.recycle()
+            }
+            inject(MotionEvent.ACTION_DOWN,left);Thread.sleep(80)
+            inject(MotionEvent.ACTION_POINTER_DOWN or (1 shl 8),left,right)
+            repeat(8){k->Thread.sleep(90);val jitter=if(k%2==0)2f else -2f;inject(MotionEvent.ACTION_MOVE,PointF(left.x+jitter,left.y+1),PointF(right.x+jitter,right.y-1))}
+            for(k in 1..18){val dy=(end.y-left.y)*k/18;inject(MotionEvent.ACTION_MOVE,PointF(left.x,left.y+dy),PointF(right.x,right.y+dy));Thread.sleep(18)}
+            i.waitForIdleSync();screenshot(scenario,"two-finger-columns-dragged")
+            inject(MotionEvent.ACTION_POINTER_UP or (1 shl 8),PointF(left.x,end.y),PointF(right.x,end.y));Thread.sleep(60);inject(MotionEvent.ACTION_UP,PointF(left.x,end.y));Thread.sleep(350)
+            scenario.onActivity{a->assertEquals("Fingertips remove both columns, midpoint stays in gutter, untouched third column remains",listOf(3),field(a,"order").get(a));assertFalse("Removal must not accidentally zoom",findCanvas(a.window.decorView)!!.isZoomed())}
+            screenshot(scenario,"two-finger-columns-after")
+        }
+    }
     @Test fun twoFingerHoldRemovesCrossedBlocksOnly(){
         val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext;File(c.filesDir,"current.pdf").delete();SessionStore(c).clear()
         ActivityScenario.launch<MainActivity>(Intent(c,MainActivity::class.java)).use{scenario->
@@ -1023,7 +1080,89 @@ class ReaderDeviceTest {
             assertTrue(File(dir,"$name.png").length()>1000)
         }
     }
-
+    @Test fun autoTogglePillKnobFollowsState(){
+        ActivityScenario.launch<MainActivity>(Intent(InstrumentationRegistry.getInstrumentation().targetContext,MainActivity::class.java)).use{scenario->
+            scenario.onActivity{a->
+                val toggle=findButton(a.window.decorView,"Auto")!!
+                assertTrue("Toggle must be the pill view",toggle is AutoToggleButton)
+                val pill=toggle as AutoToggleButton
+                fun knobSide():Pair<Boolean,Boolean>{
+                    val b=Bitmap.createBitmap(toggle.width,toggle.height,Bitmap.Config.ARGB_8888)
+                    toggle.draw(Canvas(b))
+                    val green=Color.rgb(50,109,93);val grey=Color.rgb(120,118,112)
+                    fun close(c:Int,t:Int)=Math.abs(Color.red(c)-Color.red(t))<40&&Math.abs(Color.green(c)-Color.green(t))<40&&Math.abs(Color.blue(c)-Color.blue(t))<40
+                    val right=close(b.getPixel(b.width-b.height/2,b.height/2),green)
+                    val left=close(b.getPixel(b.height/2,b.height/2),grey)
+                    b.recycle();return right to left
+                }
+                pill.on=true
+                var sides=knobSide()
+                assertTrue("Green knob must sit on the right when Auto is on",sides.first)
+                assertFalse("Left side must not carry the grey knob when Auto is on",sides.second)
+                pill.on=false
+                sides=knobSide()
+                assertTrue("Grey knob must sit on the left when Auto is off",sides.second)
+                assertFalse("Right side must not carry the green knob when Auto is off",sides.first)
+                assertEquals("Choix automatique désactivé",pill.contentDescription)
+                pill.on=true
+                assertEquals("Choix automatique activé",pill.contentDescription)
+            }
+            screenshot(scenario,"auto-pill-on-product")
+            scenario.onActivity{a->(findButton(a.window.decorView,"Auto")as AutoToggleButton).on=false}
+            screenshot(scenario,"auto-pill-off-product")
+        }
+    }
+    @Test fun topBarFeedbackAndSelectionRevealArePresentationOnly(){
+        val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext
+        // No asynchronous resume from a preceding test may change this fixture.
+        File(c.filesDir,"current.pdf").delete();SessionStore(c).clear()
+        fun field(a:MainActivity,n:String)=MainActivity::class.java.getDeclaredField(n).apply{isAccessible=true}
+        ActivityScenario.launch<MainActivity>(Intent(c,MainActivity::class.java)).use{scenario->
+            scenario.onActivity{a->
+                field(a,"count").set(a,1);field(a,"detecting").set(a,true)
+                MainActivity::class.java.getDeclaredMethod("updateControls").apply{isAccessible=true}.invoke(a)
+                assertEquals(View.VISIBLE,(field(a,"detectionSpinner").get(a)as View).visibility)
+                val open=field(a,"changePdfButton").get(a)as Button
+                assertTrue(open.isEnabled);assertEquals("Changer de PDF",open.contentDescription)
+            }
+            screenshot(scenario,"topbar-detecting")
+            scenario.onActivity{a->
+                field(a,"detecting").set(a,false);MainActivity::class.java.getDeclaredMethod("updateControls").apply{isAccessible=true}.invoke(a)
+                assertEquals(View.GONE,(field(a,"detectionSpinner").get(a)as View).visibility)
+                val v=findCanvas(a.window.decorView)!!
+                val image=Bitmap.createBitmap(700,1000,Bitmap.Config.ARGB_8888);val cv=Canvas(image);cv.drawColor(Color.WHITE)
+                val paint=Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.BLACK;textSize=20f}
+                for(row in 0..25)cv.drawText("Un texte fictif pour suivre le parcours.",50f,100f+row*30,paint)
+                field(a,"preview").set(a,image);v.image=image
+                val fixtureZones=listOf(Zone(9,Box(.05f,.06f,.93f,.30f),Kind.TEXT),Zone(3,Box(.05f,.33f,.93f,.58f),Kind.TEXT),Zone(7,Box(.05f,.61f,.93f,.86f),Kind.TEXT))
+                field(a,"zones").set(a,fixtureZones);field(a,"order").set(a,listOf(9,3,7));field(a,"pageReady").set(a,true);field(a,"busy").set(a,false)
+                MainActivity::class.java.getDeclaredMethod("sync",Boolean::class.javaPrimitiveType).apply{isAccessible=true}.invoke(a,false)
+                v.animateSelectionOrder()
+                assertEquals(listOf(9,3,7),v.selection)
+                assertEquals(0,PageCanvas::class.java.getDeclaredField("revealedSelections").apply{isAccessible=true}.getInt(v))
+            }
+            Thread.sleep(150)
+            screenshot(scenario,"selection-reveal-first")
+            scenario.onActivity{a->
+                val v=findCanvas(a.window.decorView)!!
+                val count=PageCanvas::class.java.getDeclaredField("revealedSelections").apply{isAccessible=true}.getInt(v)
+                assertTrue("Reveal follows the existing order progressively",count in 1..3)
+                assertEquals(listOf(9,3,7),v.selection)
+            }
+            Thread.sleep(150);screenshot(scenario,"selection-reveal-next")
+            Thread.sleep(180);screenshot(scenario,"selection-reveal-complete")
+            scenario.onActivity{a->
+                val v=findCanvas(a.window.decorView)!!
+                assertEquals(listOf(9,3,7),field(a,"order").get(a))
+                // Clearing during a fresh reveal cannot be undone by a delayed frame.
+                v.animateSelectionOrder();field(a,"order").set(a,emptyList<Int>())
+                MainActivity::class.java.getDeclaredMethod("sync",Boolean::class.javaPrimitiveType).apply{isAccessible=true}.invoke(a,false)
+            }
+            Thread.sleep(550)
+            scenario.onActivity{a->val v=findCanvas(a.window.decorView)!!;assertTrue(v.selection.isEmpty());assertEquals(Int.MAX_VALUE,PageCanvas::class.java.getDeclaredField("revealedSelections").apply{isAccessible=true}.getInt(v))}
+            screenshot(scenario,"topbar-idle")
+        }
+    }
     @Test fun groupedMenuListsBlockActionsWithDescriptions(){
         val c=InstrumentationRegistry.getInstrumentation().targetContext
         File(c.filesDir,"current.pdf").delete();SessionStore(c).clear()
@@ -1033,6 +1172,9 @@ class ReaderDeviceTest {
             scenario.onActivity{a->
                 val d=MainActivity::class.java.getDeclaredField("menuDialog").apply{isAccessible=true}.get(a)as android.app.Dialog
                 val root=d.window!!.decorView
+                var icons=0
+                fun countIcons(v:View){if(v is TextView&&v !is Button&&v.compoundDrawablesRelative[0] is ActionIcon)icons++;if(v is ViewGroup)for(k in 0 until v.childCount)countIcons(v.getChildAt(k))}
+                countIcons(root);assertEquals("Every menu action keeps its own icon",11,icons)
                 for(label in listOf("Document","Blocs de la page","Aide","Ouvrir un autre PDF","Ajouter un bloc","Voir l'ordre de lecture","Fusionner des blocs","Regrouper automatiquement","Propose des regroupements parmi les blocs choisis. Vous validez ceux à appliquer.","Réessayer la détection","Annuler le dernier regroupement","Confidentialité et aide","Licences des composants"))
                     assertTrue("Menu must show « $label »",findText(root,label))
             }
@@ -1100,94 +1242,12 @@ class ReaderDeviceTest {
                 val d=MainActivity::class.java.getDeclaredField("menuDialog").apply{isAccessible=true}.get(a)as android.app.Dialog
                 val root=d.window!!.decorView
                 assertTrue(findText(root,"Document"));assertTrue(findText(root,"Blocs de la page"));assertTrue(findText(root,"Aide"))
+                assertTrue("Assembled menu retains tutorial replay",findText(root,"Revoir le didacticiel"))
+                assertTrue("Assembled activity retains Auto pill",findButton(a.window.decorView,"Auto") is AutoToggleButton)
+                assertNotNull(MainActivity::class.java.getDeclaredField("changePdfButton").apply{isAccessible=true}.get(a))
                 val shot=Bitmap.createBitmap(root.width,root.height,Bitmap.Config.ARGB_8888);root.draw(Canvas(shot))
                 File(File(c.getExternalFilesDir(null),"screenshots").apply{mkdirs()},"grouped-menu-product.png").outputStream().use{shot.compress(Bitmap.CompressFormat.PNG,100,it)};shot.recycle();d.dismiss()
             }
-
-        }
-    }
-    @Test fun autoTogglePillKnobFollowsState(){
-        ActivityScenario.launch<MainActivity>(Intent(InstrumentationRegistry.getInstrumentation().targetContext,MainActivity::class.java)).use{scenario->
-            scenario.onActivity{a->
-                val toggle=findButton(a.window.decorView,"Auto")!!
-                assertTrue("Toggle must be the pill view",toggle is AutoToggleButton)
-                val pill=toggle as AutoToggleButton
-                fun knobSide():Pair<Boolean,Boolean>{
-                    val b=Bitmap.createBitmap(toggle.width,toggle.height,Bitmap.Config.ARGB_8888)
-                    toggle.draw(Canvas(b))
-                    val green=Color.rgb(50,109,93);val grey=Color.rgb(120,118,112)
-                    fun close(c:Int,t:Int)=Math.abs(Color.red(c)-Color.red(t))<40&&Math.abs(Color.green(c)-Color.green(t))<40&&Math.abs(Color.blue(c)-Color.blue(t))<40
-                    val right=close(b.getPixel(b.width-b.height/2,b.height/2),green)
-                    val left=close(b.getPixel(b.height/2,b.height/2),grey)
-                    b.recycle();return right to left
-                }
-                pill.on=true
-                var sides=knobSide()
-                assertTrue("Green knob must sit on the right when Auto is on",sides.first)
-                assertFalse("Left side must not carry the grey knob when Auto is on",sides.second)
-                pill.on=false
-                sides=knobSide()
-                assertTrue("Grey knob must sit on the left when Auto is off",sides.second)
-                assertFalse("Right side must not carry the green knob when Auto is off",sides.first)
-                assertEquals("Choix automatique désactivé",pill.contentDescription)
-                pill.on=true
-                assertEquals("Choix automatique activé",pill.contentDescription)
-            }
-            screenshot(scenario,"auto-pill-on-product")
-            scenario.onActivity{a->(findButton(a.window.decorView,"Auto")as AutoToggleButton).on=false}
-            screenshot(scenario,"auto-pill-off-product")
-
-        }
-    }
-    @Test fun topBarFeedbackAndSelectionRevealArePresentationOnly(){
-        val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext
-        // No asynchronous resume from a preceding test may change this fixture.
-        File(c.filesDir,"current.pdf").delete();SessionStore(c).clear()
-        fun field(a:MainActivity,n:String)=MainActivity::class.java.getDeclaredField(n).apply{isAccessible=true}
-        ActivityScenario.launch<MainActivity>(Intent(c,MainActivity::class.java)).use{scenario->
-            scenario.onActivity{a->
-                field(a,"count").set(a,1);field(a,"detecting").set(a,true)
-                MainActivity::class.java.getDeclaredMethod("updateControls").apply{isAccessible=true}.invoke(a)
-                assertEquals(View.VISIBLE,(field(a,"detectionSpinner").get(a)as View).visibility)
-                val open=field(a,"changePdfButton").get(a)as Button
-                assertTrue(open.isEnabled);assertEquals("Changer de PDF",open.contentDescription)
-            }
-            screenshot(scenario,"topbar-detecting")
-            scenario.onActivity{a->
-                field(a,"detecting").set(a,false);MainActivity::class.java.getDeclaredMethod("updateControls").apply{isAccessible=true}.invoke(a)
-                assertEquals(View.GONE,(field(a,"detectionSpinner").get(a)as View).visibility)
-                val v=findCanvas(a.window.decorView)!!
-                val image=Bitmap.createBitmap(700,1000,Bitmap.Config.ARGB_8888);val cv=Canvas(image);cv.drawColor(Color.WHITE)
-                val paint=Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.BLACK;textSize=20f}
-                for(row in 0..25)cv.drawText("Un texte fictif pour suivre le parcours.",50f,100f+row*30,paint)
-                field(a,"preview").set(a,image);v.image=image
-                val fixtureZones=listOf(Zone(9,Box(.05f,.06f,.93f,.30f),Kind.TEXT),Zone(3,Box(.05f,.33f,.93f,.58f),Kind.TEXT),Zone(7,Box(.05f,.61f,.93f,.86f),Kind.TEXT))
-                field(a,"zones").set(a,fixtureZones);field(a,"order").set(a,listOf(9,3,7));field(a,"pageReady").set(a,true);field(a,"busy").set(a,false)
-                MainActivity::class.java.getDeclaredMethod("sync",Boolean::class.javaPrimitiveType).apply{isAccessible=true}.invoke(a,false)
-                v.animateSelectionOrder()
-                assertEquals(listOf(9,3,7),v.selection)
-                assertEquals(0,PageCanvas::class.java.getDeclaredField("revealedSelections").apply{isAccessible=true}.getInt(v))
-            }
-            Thread.sleep(150)
-            screenshot(scenario,"selection-reveal-first")
-            scenario.onActivity{a->
-                val v=findCanvas(a.window.decorView)!!
-                val count=PageCanvas::class.java.getDeclaredField("revealedSelections").apply{isAccessible=true}.getInt(v)
-                assertTrue("Reveal follows the existing order progressively",count in 1..3)
-                assertEquals(listOf(9,3,7),v.selection)
-            }
-            Thread.sleep(150);screenshot(scenario,"selection-reveal-next")
-            Thread.sleep(180);screenshot(scenario,"selection-reveal-complete")
-            scenario.onActivity{a->
-                val v=findCanvas(a.window.decorView)!!
-                assertEquals(listOf(9,3,7),field(a,"order").get(a))
-                // Clearing during a fresh reveal cannot be undone by a delayed frame.
-                v.animateSelectionOrder();field(a,"order").set(a,emptyList<Int>())
-                MainActivity::class.java.getDeclaredMethod("sync",Boolean::class.javaPrimitiveType).apply{isAccessible=true}.invoke(a,false)
-            }
-            Thread.sleep(550)
-            scenario.onActivity{a->val v=findCanvas(a.window.decorView)!!;assertTrue(v.selection.isEmpty());assertEquals(Int.MAX_VALUE,PageCanvas::class.java.getDeclaredField("revealedSelections").apply{isAccessible=true}.getInt(v))}
-            screenshot(scenario,"topbar-idle")
         }
     }
 }

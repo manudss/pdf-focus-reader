@@ -3,11 +3,13 @@ android {
     namespace = "com.pdffocus.reader"
     compileSdk = 35
     defaultConfig {
-        applicationId = "com.pdffocus.reader.test"
+        applicationId = providers.gradleProperty("releasePackage").orNull ?: "com.pdffocus.reader.test"
+        manifestPlaceholders["appLabel"] = providers.gradleProperty("releaseLabel").orNull ?: "PDF Focus Test"
+        manifestPlaceholders["appIcon"] = if (providers.gradleProperty("releasePackage").orNull == "com.pdffocus.reader") "@drawable/ic_reader_app" else "@drawable/ic_test_app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 11
-        versionName = "0.10.10-test"
+        versionCode = providers.gradleProperty("releaseCode").orNull?.toInt() ?: 12
+        versionName = providers.gradleProperty("releaseVersion").orNull ?: "0.10.11-test"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     // Standard extraction-on-install packaging keeps the two local OCR runtimes downloadable.
