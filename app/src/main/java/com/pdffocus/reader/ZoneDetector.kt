@@ -1,0 +1,132 @@
+package com.pdffocus.reader
+import android.content.Context
+import android.graphics.Bitmap
+import com.googlecode.tesseract.android.TessBaseAPI
+import java.io.File
+import kotlin.math.*
+
+/** Bundled local OCR. Raw words never leave memory or enter logs. */
+class ZoneDetector(private val context:Context) {
+    var words:List<OcrWord> = emptyList();private set
+    private val lifecycle=Any()
+    private var active:TessBaseAPI?=null
+    @Volatile private var stopped=false
+    // Native stop/recycle can contend; never wait for that lock on the UI thread.
+    fun cancel(){stopped=true;stopWorker.execute{synchronized(lifecycle){active?.stop()}}}
+    companion object { private val stopWorker=java.util.concurrent.Executors.newSingleThreadExecutor() }
+    fun detect(bitmap:Bitmap,obsolete:()->Boolean):List<Zone> {
+        val cancelled={stopped||obsolete()}
+        val scale=min(1f,900f/bitmap.width)
+        val panelRaster=if(scale<1f)Bitmap.createScaledBitmap(bitmap,(bitmap.width*scale).roundToInt(),(bitmap.height*scale).roundToInt(),true)else bitmap
+        val panels=try{val pixels=IntArray(panelRaster.width*panelRaster.height);panelRaster.getPixels(pixels,0,panelRaster.width,0,0,panelRaster.width,panelRaster.height);ComicPanels.find(pixels,panelRaster.width,panelRaster.height,cancelled)}finally{if(panelRaster!==bitmap)panelRaster.recycle()}
+        if(cancelled())return emptyList()
+        if(panels.isNotEmpty()){words=emptyList();return panels.mapIndexed{i,box->Zone(i+1,box.pad(.0015f),Kind.IMAGE)}}
+        val root=File(context.filesDir,"ocr");val data=File(root,"tessdata").apply{mkdirs()}
+        for(lang in listOf("fra","eng")) {
+            val target=File(data,"$lang.traineddata")
+            if(!target.exists()) {
+                val tmp=File(data,"$lang.part")
+                context.assets.open("tessdata/$lang.traineddata").use{input->tmp.outputStream().use{input.copyTo(it)}}
+                check(tmp.renameTo(target)){"Copie du modèle OCR impossible"}
+            }
+        }
+        if(cancelled())return emptyList()
+        val api=TessBaseAPI()
+        try {
+            check(api.init(root.absolutePath,"fra+eng")){"Le moteur OCR n'a pas pu démarrer"}
+            api.setPageSegMode(TessBaseAPI.PageSegMode.PSM_AUTO)
+            synchronized(lifecycle){if(cancelled())return emptyList();active=api}
+            api.setImage(bitmap);api.getHOCRText(0)
+            if(!cancelled())words=recognizedWords(api,bitmap.width.toFloat(),bitmap.height.toFloat(),cancelled)
+            if(cancelled())return emptyList()
+            val w=bitmap.width.toFloat();val h=bitmap.height.toFloat();val text=mutableListOf<Zone>()
+            val it=api.resultIterator
+            if(it!=null)try {
+                it.begin()
+                do {
+                    val r=it.getBoundingRect(TessBaseAPI.PageIteratorLevel.RIL_PARA)
+                    val words=it.getUTF8Text(TessBaseAPI.PageIteratorLevel.RIL_PARA).orEmpty()
+                    if(r.width()>8&&r.height()>8&&words.count{c->c.isLetterOrDigit()}>=3) {
+                        val b=Box(r.left/w,r.top/h,r.right/w,r.bottom/h).pad(.003f)
+                        if(b.area>.00015f&&b.area<.65f)text+=Zone(text.size+1,b,Kind.TEXT)
+                    }
+                }while(it.next(TessBaseAPI.PageIteratorLevel.RIL_PARA)&&!cancelled())
+            }finally{it.delete()}
+            if(cancelled())return emptyList()
+            val lines=mutableListOf<Pair<Box,Float>>()
+            val lineIterator=api.resultIterator
+            if(lineIterator!=null)try{
+                lineIterator.begin()
+                do{val r=lineIterator.getBoundingRect(TessBaseAPI.PageIteratorLevel.RIL_TEXTLINE);val value=lineIterator.getUTF8Text(TessBaseAPI.PageIteratorLevel.RIL_TEXTLINE).orEmpty();if(r.height()>0&&value.any{it.isLetterOrDigit()})lines+=Box(r.left/w,r.top/h,r.right/w,r.bottom/h) to r.bottom/h}while(lineIterator.next(TessBaseAPI.PageIteratorLevel.RIL_TEXTLINE)&&!cancelled())
+            }finally{lineIterator.delete()}
+            val withLines=TextCoverage.includeLines(text,lines.map{it.first}).map{it.copy(box=TextCoverage.safeTextBox(bitmap,it.box))}
+            val pictures=pictureCandidates(bitmap,text.map{it.box},cancelled)
+            return (TextGrouping.merge(withLines)+pictures.mapIndexed{i,b->Zone((withLines.maxOfOrNull{it.id}?:0)+i+1,b,Kind.IMAGE)})
+                .sortedWith(compareBy<Zone>{(it.box.top*35).toInt()}.thenBy{it.box.left}).mapIndexed{i,z->z.copy(id=i+1)}
+        }finally{synchronized(lifecycle){active=null;api.recycle()}}
+    }
+    fun recognizeChunks(chunks:List<OcrChunk>,bitmap:Bitmap,best:Boolean,obsolete:()->Boolean,publish:(OcrChunk,List<OcrWord>)->Unit)=recognizeChunks(chunks,bitmap,best,obsolete,publish,null)
+    fun recognizeChunks(chunks:List<OcrChunk>,bitmap:Bitmap,best:Boolean,obsolete:()->Boolean,publish:(OcrChunk,List<OcrWord>)->Unit,source:((OcrChunk)->Bitmap?)?){
+        val name=if(best)"accurate" else "ocr";val root=File(context.filesDir,name);val data=File(root,"tessdata").apply{mkdirs()}
+        for(lang in listOf("fra","eng")){val target=File(data,"$lang.traineddata");if(!target.exists()){val temp=File(data,"$lang.part");context.assets.open(if(best&&lang=="fra")"tessdata_best/fra.traineddata" else "tessdata/$lang.traineddata").use{a->temp.outputStream().use{a.copyTo(it)}};check(temp.renameTo(target))}}
+        val api=TessBaseAPI();val cancelled={stopped||obsolete()}
+        try{check(api.init(root.absolutePath,"fra+eng"));api.setPageSegMode(TessBaseAPI.PageSegMode.PSM_AUTO)
+            synchronized(lifecycle){if(cancelled())return;active=api}
+            for(chunk in chunks){if(cancelled())break;if(chunk.kind==Kind.IMAGE)continue
+                val l=(chunk.box.left*bitmap.width).toInt().coerceIn(0,bitmap.width-1);val t=(chunk.box.top*bitmap.height).toInt().coerceIn(0,bitmap.height-1)
+                val r=kotlin.math.ceil(chunk.box.right*bitmap.width).toInt().coerceIn(l+1,bitmap.width);val b=kotlin.math.ceil(chunk.box.bottom*bitmap.height).toInt().coerceIn(t+1,bitmap.height)
+                val direct=source?.invoke(chunk);if(source!=null&&direct==null){if(cancelled())break;error("PDF source raster unavailable")};val crop=direct?:Bitmap.createBitmap(bitmap,l,t,r-l,b-t);val scale=if(direct!=null)minOf(1f,2400f/maxOf(crop.width,crop.height))else minOf(2f,1800f/maxOf(crop.width,crop.height));val enlarged=Bitmap.createScaledBitmap(crop,maxOf(1,(crop.width*scale).toInt()),maxOf(1,(crop.height*scale).toInt()),true)
+                try{api.setPageSegMode(TessBaseAPI.PageSegMode.PSM_SINGLE_BLOCK);api.setImage(enlarged);api.getHOCRText(0);if(cancelled())break
+                    fun global(box:Box)=if(direct!=null)Box(chunk.box.left+box.left*chunk.box.width,chunk.box.top+box.top*chunk.box.height,chunk.box.left+box.right*chunk.box.width,chunk.box.top+box.bottom*chunk.box.height)else Box((l+box.left*(r-l))/bitmap.width,(t+box.top*(b-t))/bitmap.height,(l+box.right*(r-l))/bitmap.width,(t+box.bottom*(b-t))/bitmap.height)
+                    val result=recognizedWords(api,enlarged.width.toFloat(),enlarged.height.toFloat(),cancelled).map{it.copy(box=global(it.box),line=global(it.line))}
+                    if(!cancelled())publish(chunk,result)
+                }finally{if(enlarged!==crop)enlarged.recycle();if(crop!==bitmap)crop.recycle()}
+            }
+        }finally{synchronized(lifecycle){active=null;api.recycle()}}
+    }
+    fun readWords(bitmap:Bitmap,obsolete:()->Boolean):List<OcrWord>{detect(bitmap,obsolete);return words}
+    private fun recognizedWords(api:TessBaseAPI,w:Float,h:Float,cancelled:()->Boolean):List<OcrWord>{
+        val out=mutableListOf<OcrWord>();val iterator=api.resultIterator?:return out
+        try{iterator.begin();do{
+            val text=iterator.getUTF8Text(TessBaseAPI.PageIteratorLevel.RIL_WORD).orEmpty().trim()
+            val r=iterator.getBoundingRect(TessBaseAPI.PageIteratorLevel.RIL_WORD);val line=iterator.getBoundingRect(TessBaseAPI.PageIteratorLevel.RIL_TEXTLINE)
+            if(text.isNotEmpty()&&r.width()>0&&r.height()>0)out+=OcrWord(text,Box(r.left/w,r.top/h,r.right/w,r.bottom/h),Box(line.left/w,line.top/h,line.right/w,line.bottom/h),iterator.confidence(TessBaseAPI.PageIteratorLevel.RIL_WORD))
+        }while(iterator.next(TessBaseAPI.PageIteratorLevel.RIL_WORD)&&!cancelled())}finally{iterator.delete()}
+        return out
+    }
+    /** Candidate heuristic, not semantic article or image recognition. */
+    internal fun pictureCandidates(bitmap:Bitmap,text:List<Box>,cancelled:()->Boolean):List<Box> {
+        val cols=64;val rows=max(1,(bitmap.height.toFloat()/bitmap.width*cols).toInt())
+        val small=Bitmap.createScaledBitmap(bitmap,cols*4,rows*4,true)
+        try {
+            val grid=BooleanArray(cols*rows)
+            for(y in 0 until rows)for(x in 0 until cols) {
+                if(cancelled())return emptyList()
+                var dark=0;var colored=0;var lo=255;var hi=0
+                for(dy in 0..3)for(dx in 0..3){
+                    val p=small.getPixel(x*4+dx,y*4+dy);val r=(p shr 16)and 255;val g=(p shr 8)and 255;val b=p and 255
+                    val l=(r+g+b)/3;lo=min(lo,l);hi=max(hi,l)
+                    if(l<215)dark++
+                    if(maxOf(r,g,b)-minOf(r,g,b)>22)colored++
+                }
+                // Text can connect a photo to a nearby column or resemble a textured image.
+                val inText=text.any{it.contains((x+.5f)/cols,(y+.5f)/rows)}
+                grid[y*cols+x]=!inText&&((dark>=10&&hi-lo>30)||(colored>=7&&dark>=6))
+            }
+            val seen=BooleanArray(grid.size);val out=mutableListOf<Box>()
+            for(start in grid.indices){
+                if(!grid[start]||seen[start])continue
+                val q=ArrayDeque<Int>();q.add(start);seen[start]=true
+                var x0=cols;var y0=rows;var x1=0;var y1=0;var count=0
+                while(q.isNotEmpty()){
+                    val a=q.removeFirst();val x=a%cols;val y=a/cols
+                    x0=min(x0,x);y0=min(y0,y);x1=max(x1,x);y1=max(y1,y);count++
+                    for((nx,ny)in listOf(x-1 to y,x+1 to y,x to y-1,x to y+1))if(nx in 0 until cols&&ny in 0 until rows){val n=ny*cols+nx;if(grid[n]&&!seen[n]){seen[n]=true;q.add(n)}}
+                }
+                val b=Box(x0.toFloat()/cols,y0.toFloat()/rows,(x1+1f)/cols,(y1+1f)/rows).pad(.004f)
+                if(b.width>.09&&b.height>.045&&b.area>.012&&b.area<.65&&count>16)out+=b
+            }
+            return out.filter{b->text.none{t->t.intersect(b)>.92f*b.area}}
+        }finally{if(small!==bitmap)small.recycle()}
+    }
+}
