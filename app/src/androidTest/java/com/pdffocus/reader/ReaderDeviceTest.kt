@@ -90,7 +90,7 @@ class ReaderDeviceTest {
             var dialog=prepared()
             scenario.onActivity{a->val root=dialog.window!!.decorView;val shot=Bitmap.createBitmap(root.width,root.height,Bitmap.Config.ARGB_8888);root.draw(Canvas(shot));File(File(a.getExternalFilesDir(null),"screenshots").apply{mkdirs()},"manga-mode-preview.png").outputStream().use{shot.compress(Bitmap.CompressFormat.PNG,100,it)};shot.recycle();findButton(root,"Annuler")!!.performClick();assertEquals(beforeOrder,f(a,"order").get(a));assertEquals(beforeZones,f(a,"zones").get(a));findButton(a.window.decorView,"Manga")!!.performClick()}
             dialog=prepared();scenario.onActivity{a->findButton(dialog.window!!.decorView,"Appliquer")!!.performClick();assertEquals(PageMode.MANGA,f(a,"pageMode").get(a));val z=f(a,"zones").get(a)as List<Zone>;val order=f(a,"order").get(a)as List<Int>;assertEquals(z.size,order.size);assertEquals(1f,z.sumOf{it.box.area.toDouble()}.toFloat(),.00001f);val panels=order.map{id->z.single{it.id==id}}.filter{it.panel};assertTrue(panels[0].box.left>panels[1].box.left)}
-            screenshot(scenario,"manga-mode-applied")
+            Thread.sleep(1000);i.waitForIdleSync();screenshot(scenario,"manga-mode-applied")
             scenario.recreate();ready();scenario.onActivity{a->assertEquals(PageMode.MANGA,f(a,"pageMode").get(a));findButton(a.window.decorView,"Manuel")!!.performClick();val keep=f(a,"order").get(a);assertEquals(PageMode.MANUAL,f(a,"pageMode").get(a));assertEquals(keep,f(a,"order").get(a))}
         }
     }
@@ -1004,6 +1004,38 @@ class ReaderDeviceTest {
             }
             screenshot(scenario,"auto-select-slider")
         }
+    }
+    @Test fun shareArticleExportsWholeReadingAndUsesAndroidChooserWithoutSending(){
+        val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext
+        val file=File(c.filesDir,"current.pdf");val pdf=android.graphics.pdf.PdfDocument();val p=pdf.startPage(android.graphics.pdf.PdfDocument.PageInfo.Builder(700,1800,1).create());p.canvas.drawColor(Color.WHITE)
+        val paint=Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.BLACK;textSize=29f}
+        p.canvas.drawText("PREMIER BLOC - document fictif",40f,70f,paint)
+        for(k in 0..45)p.canvas.drawText("La lecture continue au-delà de l'écran : $k",40f,130f+k*31,paint)
+        p.canvas.drawText("DERNIER BLOC - fin complète",40f,1740f,paint);pdf.finishPage(p);file.outputStream().use{pdf.writeTo(it)};pdf.close();SessionStore(c).clear()
+        var chosen:Intent?=null
+        val monitor=object:android.app.Instrumentation.ActivityMonitor(){override fun onStartActivity(intent:Intent):android.app.Instrumentation.ActivityResult?{if(intent.action==Intent.ACTION_CHOOSER){chosen=intent;return android.app.Instrumentation.ActivityResult(android.app.Activity.RESULT_CANCELED,null)};return null}}
+        i.addMonitor(monitor)
+        try{ActivityScenario.launch<MainActivity>(Intent(c,MainActivity::class.java)).use{scenario->
+            fun field(a:MainActivity,n:String)=MainActivity::class.java.getDeclaredField(n).apply{isAccessible=true}
+            val until=System.currentTimeMillis()+60000;var ready=false
+            while(System.currentTimeMillis()<until&&!ready){Thread.sleep(150);scenario.onActivity{a->ready=field(a,"pageReady").get(a)as Boolean}};assertTrue(ready)
+            scenario.onActivity{a->field(a,"zones").set(a,listOf(Zone(1,Box(.02f,.01f,.98f,.49f),Kind.TEXT),Zone(2,Box(.02f,.49f,.98f,.98f),Kind.TEXT)));field(a,"order").set(a,listOf(1,2));MainActivity::class.java.getDeclaredMethod("sync",Boolean::class.javaPrimitiveType).apply{isAccessible=true}.invoke(a,false);findButton(a.window.decorView,"Lire (")!!.performClick()}
+            Thread.sleep(500);i.waitForIdleSync()
+            scenario.onActivity{a->findButton(a.window.decorView,"Menu")!!.performClick();val d=field(a,"menuDialog").get(a)as android.app.Dialog
+                fun entry(v:View):View?{if(v is TextView&&v.text.toString()=="Partager l'article")return v.parent as View;if(v is ViewGroup)for(k in 0 until v.childCount)entry(v.getChildAt(k))?.let{return it};return null};entry(d.window!!.decorView)!!.performClick()}
+            val deadline=System.currentTimeMillis()+60000;var image:File?=null
+            while(System.currentTimeMillis()<deadline&&image==null){Thread.sleep(100);scenario.onActivity{a->image=field(a,"articleShareFile").get(a)as? File}}
+            assertNotNull("Complete image must be ready",image)
+            val bitmap=BitmapFactory.decodeFile(image!!.absolutePath);assertNotNull(bitmap);var viewportHeight=0;scenario.onActivity{a->viewportHeight=findReader(a.window.decorView)!!.height};assertTrue("Whole article must exceed a viewport",bitmap.height>viewportHeight);assertTrue(bitmap.width>400)
+            val out=File(c.getExternalFilesDir(null),"screenshots").apply{mkdirs()};File(out,"shared-whole-article.png").outputStream().use{bitmap.compress(Bitmap.CompressFormat.PNG,100,it)};bitmap.recycle()
+            scenario.onActivity{a->val d=field(a,"articleShareDialog").get(a)as android.app.Dialog;val root=d.window!!.decorView;val shot=Bitmap.createBitmap(root.width,root.height,Bitmap.Config.ARGB_8888);root.draw(Canvas(shot));File(out,"share-article-preview.png").outputStream().use{shot.compress(Bitmap.CompressFormat.PNG,100,it)};shot.recycle();findButton(root,"Partager l'image")!!.performClick()}
+            i.waitForIdleSync();assertNotNull("Only Android chooser should be requested",chosen)
+            val send=chosen!!.getParcelableExtra<Intent>(Intent.EXTRA_INTENT)!!;assertEquals(Intent.ACTION_SEND,send.action);assertEquals("image/png",send.type);assertNull(send.component);assertNull(send.`package`)
+            assertTrue(send.flags and Intent.FLAG_GRANT_READ_URI_PERMISSION!=0);val uri=send.getParcelableExtra<android.net.Uri>(Intent.EXTRA_STREAM)!!
+            assertEquals(uri,send.clipData!!.getItemAt(0).uri);c.contentResolver.openInputStream(uri)!!.use{assertEquals(137,it.read())}
+            val provider=c.packageManager.resolveContentProvider(uri.authority!!,0)!!;assertFalse(provider.exported);assertTrue(provider.grantUriPermissions)
+            scenario.onActivity{a->assertEquals(true,field(a,"reading").get(a));assertEquals(listOf(1,2),field(a,"order").get(a));assertNull(field(a,"articleShareDialog").get(a))}
+        }}finally{i.removeMonitor(monitor)}
     }
     @Test fun physicalTwoFingerSweepHitsFingertipsAcrossColumnGutter(){
         val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext

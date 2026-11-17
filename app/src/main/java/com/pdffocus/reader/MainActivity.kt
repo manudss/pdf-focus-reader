@@ -192,6 +192,7 @@ class MainActivity:Activity() {
         label.startsWith("Nettoyé")||label.startsWith("OCR amélioré")->"clean"
         label.startsWith("Texte OCR")||label.startsWith("OCR brut")->"text"
         label.startsWith("Réglages")->"settings"
+        label.startsWith("Partager")->"share"
         label.startsWith("Ordre")->"order"
         label.startsWith("Fusion")->"merge"
         label.startsWith("Regrouper")->"group"
@@ -702,6 +703,49 @@ class MainActivity:Activity() {
         panel.addView(grid,LinearLayout.LayoutParams(-1,0,1f));panel.addView(text("Glissez pour parcourir les $count pages.",12));dialog.setContentView(panel);dialog.setOnDismissListener{adapter.close();grid.adapter=null;pageSummary=null};dialog.show();dialog.window?.apply{setBackgroundDrawableResource(android.R.color.transparent);setLayout(-1,-1)};grid.setSelection((page/3)*3)
     }
     private fun goToPage(){if(documentLoading)return;val input=EditText(this).apply{inputType=android.text.InputType.TYPE_CLASS_NUMBER;hint="1 à $count"};AlertDialog.Builder(this).setTitle("Aller à la page").setView(input).setPositiveButton("Ouvrir"){_,_->val p=input.text.toString().toIntOrNull();if(p!=null&&p in 1..count)loadPage(p-1)else toast("Numéro de page invalide")}.setNegativeButton("Annuler",null).show()}
+    private var articleShareDialog:Dialog?=null
+    private var articleShareFile:File?=null
+    private fun shareArticle(){
+        if(!reading||articleShareDialog!=null)return
+        if(ocrReading&&(ocrLoading||chunkPlan.any{it.kind==Kind.TEXT&&if(enhancedOcr)it.key !in improvedChunks else it.key !in rawChunks})){
+            toast("Attendez la fin de la préparation OCR ou choisissez Original pour partager tous les blocs.");return
+        }
+        val plan=try{reader.articleImagePlan()}catch(e:Exception){toast(e.message?:"Article indisponible");return}
+        val target=document?:return;val targetPage=page;val cleanup=cleanReading&&!ocrReading;val token=generation
+        val cancelled=java.util.concurrent.atomic.AtomicBoolean(false)
+        val dialog=Dialog(this);articleShareDialog=dialog;articleShareFile=null
+        val panel=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(16),dp(16),dp(16),dp(16));background=shape(Color.rgb(250,249,246),18)}
+        panel.addView(text("Partager l'article",22,true))
+        panel.addView(text("Tous les blocs dans l'ordre · ${if(ocrReading)"Texte OCR" else if(cleanup)"Nettoyé" else "Original"}",13))
+        val state=text("Préparation de l'image complète…",13);panel.addView(state)
+        val image=ImageView(this).apply{adjustViewBounds=true;scaleType=ImageView.ScaleType.FIT_CENTER;contentDescription="Aperçu de l'article complet, tous les blocs dans l'ordre"}
+        val scroll=ScrollView(this).apply{addView(image,ViewGroup.LayoutParams(-1,-2))};panel.addView(scroll,LinearLayout.LayoutParams(-1,0,1f))
+        var shownPreview:Bitmap?=null
+        val actions=LinearLayout(this)
+        val send=button("Partager l'image",true){
+            val file=articleShareFile
+            if(file==null||!file.isFile){toast("L'image n'est plus disponible. Réessayez.");return@button}
+            val uri=ArticleImageProvider.uri(this,file)
+            val intent=Intent(Intent.ACTION_SEND).apply{type="image/png";putExtra(Intent.EXTRA_STREAM,uri);clipData=android.content.ClipData.newUri(contentResolver,"Article",uri);addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)}
+            try{startActivity(Intent.createChooser(intent,"Partager l'article"));dialog.dismiss()}catch(_:android.content.ActivityNotFoundException){toast("Aucune application de partage disponible.")}
+        }.apply{isEnabled=false}
+        actions.addView(button("Annuler"){dialog.dismiss()},LinearLayout.LayoutParams(0,dp(52),1f));actions.addView(send,LinearLayout.LayoutParams(0,dp(52),2f).apply{marginStart=dp(8)});panel.addView(actions)
+        dialog.setContentView(panel);dialog.setOnDismissListener{cancelled.set(true);articleShareDialog=null;articleShareFile=null;image.setImageDrawable(null);shownPreview?.recycle();shownPreview=null}
+        dialog.show();dialog.window?.apply{setBackgroundDrawableResource(android.R.color.transparent);setLayout(-1,(resources.displayMetrics.heightPixels*.92f).toInt())}
+        worker.execute{
+            var file:File?=null;var thumb:Bitmap?=null
+            try{
+                val dir=File(cacheDir,"article-images").apply{mkdirs()};dir.listFiles()?.filter{System.currentTimeMillis()-it.lastModified()>24*60*60*1000L}?.forEach{it.delete()}
+                file=File(dir,"article-${java.util.UUID.randomUUID()}.png")
+                val size=ArticleImageExporter.write(plan,file,{cancelled.get()||token!=generation}){tile->target.readingRegion(targetPage,tile.source,max(1,ceil(tile.rect.width()).toInt()),max(1,ceil(tile.rect.height()).toInt()),cleanup&&tile.kind==Kind.TEXT)}
+                val options=BitmapFactory.Options().apply{inJustDecodeBounds=true};BitmapFactory.decodeFile(file.absolutePath,options)
+                options.inSampleSize=1;while(options.outWidth.toLong()*options.outHeight/options.inSampleSize/options.inSampleSize>4_000_000L||options.outHeight/options.inSampleSize>16000)options.inSampleSize*=2
+                options.inJustDecodeBounds=false;thumb=BitmapFactory.decodeFile(file.absolutePath,options)?:error("L'aperçu n'a pas pu être créé.")
+                val ready=file;val previewImage=thumb
+                main.post{if(cancelled.get()||token!=generation||isDestroyed){previewImage.recycle();ready.delete()}else{articleShareFile=ready;shownPreview=previewImage;image.setImageBitmap(previewImage);state.text="${size.width} × ${size.height} px · Faites défiler l'aperçu. Aucune image envoyée sans votre choix.";send.isEnabled=true}}
+            }catch(e:Exception){thumb?.recycle();file?.delete();main.post{if(!cancelled.get()&&!isDestroyed)state.text=e.message?:"Impossible de préparer l'image. Rien n'a été partagé."}}catch(_:OutOfMemoryError){thumb?.recycle();file?.delete();main.post{if(!cancelled.get()&&!isDestroyed)state.text="Mémoire insuffisante. Réduisez le nombre de blocs, puis réessayez. Rien n'a été partagé."}}
+        }
+    }
     private fun menu(){
         val dialog=Dialog(this);menuDialog=dialog
         dialog.setOnDismissListener{menuDialog=null}
@@ -721,6 +765,7 @@ class MainActivity:Activity() {
             if(desc!=null)row.addView(text(desc,12).apply{setTextColor(if(enabled)Color.rgb(120,118,112)else Color.rgb(196,193,186));setPadding(dp(38),0,0,0)})
             list.addView(row,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=dp(6)})
         }
+        if(reading){section("Lecture de l'article");entry("share","Partager l'article","Une image avec tous les blocs lus."){shareArticle()}}
         section("Document")
         entry("document","Ouvrir un autre PDF",null){pickPdf()}
         entry("close","Supprimer le document local",null,danger=true){clearDocument()}
@@ -761,5 +806,5 @@ class MainActivity:Activity() {
     private fun demo(){openDocument("PDF Focus - Découverte"){target->assets.open("examples/decouverte.pdf").use{input->target.outputStream().use{output->input.copyTo(output)}}}}
     @Deprecated("Activity back callback")
     override fun onBackPressed(){if(articleIds!=null)finishArticle(false)else if(merging)finishMerge(false)else if(adjusting!=null)finishAdjustment(false)else if(reading)exitReader()else if(adding){adding=false;replaceId=null;canvas.drawMode=false;sync()}else super.onBackPressed()}
-    override fun onDestroy(){modePreviewDialog?.dismiss();canvas.finishSelectionReveal();pageSummary?.dismiss();editDialog?.dismiss();main.removeCallbacks(saveProgress);if(pageReady)saveSession();reader.clear();++generation;detector?.cancel();detectionWorker.shutdown();super.onDestroy();worker.execute{document?.close();document=null};worker.shutdown()}
+    override fun onDestroy(){modePreviewDialog?.dismiss();articleShareDialog?.dismiss();canvas.finishSelectionReveal();pageSummary?.dismiss();editDialog?.dismiss();main.removeCallbacks(saveProgress);if(pageReady)saveSession();reader.clear();++generation;detector?.cancel();detectionWorker.shutdown();super.onDestroy();worker.execute{document?.close();document=null};worker.shutdown()}
 }
