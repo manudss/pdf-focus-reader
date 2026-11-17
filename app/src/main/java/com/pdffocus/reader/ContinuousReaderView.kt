@@ -76,7 +76,7 @@ class ContinuousReaderView(context:Context):View(context){
     private var gestureAxis=0;private var gestureKey:Int?=null
     private var gestureStartX=0f;private var gestureStartY=0f
     private var pinchKey:Int?=null
-    private val comic get()=comicDirection!=0&&ocrTexts==null
+    private val comic get()=comicDirection!=0&&(ocrTexts==null||bands.all{it.kind==Kind.IMAGE})
     private val comicBar get()=if(comic)80*density else 0f
     private val readingHeight get()=height-comicBar
     private fun frameAt(y:Float)=comicFrames.firstOrNull{y>=it.top&&y<=it.bottom}
@@ -86,8 +86,12 @@ class ContinuousReaderView(context:Context):View(context){
     private fun restoreComic(key:Int,sourceY:Float,screenY:Float){comicFrames.firstOrNull{it.key==key}?.let{move(it.top+sourceY*(it.bottom-it.top)-(screenY-comicBar))}}
     private fun toggleComic(f:ComicFrame,screenY:Float){
         val old=state(f);val at=comicAnchor(f,screenY)
-        comicStates[f.key]=if(old.detail)old.copy(detail=false,sourceY=at) else old.copy(detail=true,scale=if(old.scale>0)old.scale else max(f.fit,comicCommon*comicZoom))
-        rebuild();restoreComic(f.key,if(old.detail||old.scale==0f)at else old.sourceY,screenY)
+        // Remember the viewport, not the tap location: Resume may be pressed elsewhere.
+        val center=comicBar+readingHeight/2
+        val returning=!old.detail&&old.scale>0
+        comicStates[f.key]=if(old.detail)old.copy(detail=false,sourceY=comicAnchor(f,center))
+            else old.copy(detail=true,scale=if(old.scale>0)old.scale else max(f.fit,comicCommon*comicZoom))
+        rebuild();restoreComic(f.key,if(returning)old.sourceY else at,if(returning)center else screenY)
     }
     private fun panComic(key:Int,dx:Float){
         val f=comicFrames.firstOrNull{it.key==key}?:return;if(!state(f).detail)return
@@ -195,11 +199,16 @@ class ContinuousReaderView(context:Context):View(context){
         check(tiles.isNotEmpty()||textItems.isNotEmpty()){"Aucun bloc à partager."}
         if(comic){
             var y=0f;val output=mutableListOf<Tile>();val backgrounds=mutableListOf<ArticleImagePlan.BandSurface>()
-            for(f in comicFrames){
-                val scale=f.fit;val left=(width-f.source.width*pw*scale)/2
-                val h=f.source.height*ph*scale
-                for(t in tiles.filter{it.chunkKey==f.key})output+=t.copy(rect=RectF(left+(t.source.left-f.source.left)*pw*scale,y+(t.source.top-f.source.top)*ph*scale,left+(t.source.right-f.source.left)*pw*scale,y+(t.source.bottom-f.source.top)*ph*scale))
-                backgrounds+=ArticleImagePlan.BandSurface(y,y+h,palettes[f.key]?:Color.WHITE);y+=h+6*density
+            // Include every selected block, including manually added text, at its complete width.
+            // Pan and the fixed minimap bar are presentation state, never export cropping.
+            for((_,group)in tiles.groupBy{it.ordinal}.toSortedMap()){
+                val top=group.minOf{it.rect.top};val bottom=group.maxOf{it.rect.bottom}
+                val left=group.minOf{it.rect.left};val right=group.maxOf{it.rect.right}
+                val frame=comicFrames.firstOrNull{it.key==group.first().chunkKey}
+                val factor=if(frame!=null)frame.fit/frame.scale else min(1f,(width-16*density)/(right-left))
+                val x=(width-(right-left)*factor)/2
+                for(t in group)output+=t.copy(rect=RectF(x+(t.rect.left-left)*factor,y+(t.rect.top-top)*factor,x+(t.rect.right-left)*factor,y+(t.rect.bottom-top)*factor))
+                val h=(bottom-top)*factor;backgrounds+=ArticleImagePlan.BandSurface(y,y+h,palettes[group.first().chunkKey]?:Color.WHITE);y+=h+6*density
             }
             return ArticleImagePlan(width,y,output,emptyList(),backgrounds,density)
         }
