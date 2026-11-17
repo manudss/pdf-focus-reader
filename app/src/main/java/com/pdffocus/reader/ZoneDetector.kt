@@ -20,7 +20,7 @@ class ZoneDetector(private val context:Context) {
         val panelRaster=if(scale<1f)Bitmap.createScaledBitmap(bitmap,(bitmap.width*scale).roundToInt(),(bitmap.height*scale).roundToInt(),true)else bitmap
         val panels=try{val pixels=IntArray(panelRaster.width*panelRaster.height);panelRaster.getPixels(pixels,0,panelRaster.width,0,0,panelRaster.width,panelRaster.height);ComicPanels.find(pixels,panelRaster.width,panelRaster.height,cancelled)}finally{if(panelRaster!==bitmap)panelRaster.recycle()}
         if(cancelled())return emptyList()
-        if(panels.isNotEmpty()){words=emptyList();return panels.mapIndexed{i,box->Zone(i+1,box.pad(.0015f),Kind.IMAGE)}}
+        if(panels.isNotEmpty()){words=emptyList();return panels.mapIndexed{i,box->Zone(i+1,box.pad(.0015f),Kind.IMAGE,panel=true)}}
         val root=File(context.filesDir,"ocr");val data=File(root,"tessdata").apply{mkdirs()}
         for(lang in listOf("fra","eng")) {
             val target=File(data,"$lang.traineddata")
