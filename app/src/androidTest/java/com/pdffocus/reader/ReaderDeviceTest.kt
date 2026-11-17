@@ -77,6 +77,23 @@ class ReaderDeviceTest {
             }
         };f.delete()
     }
+    @Test fun changingPageModeRequiresPreviewAndCancellationKeepsOriginal(){
+        val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext
+        c.assets.open("examples/decouverte.pdf").use{input->File(c.filesDir,"current.pdf").outputStream().use{input.copyTo(it)}};SessionStore(c).clear()
+        ActivityScenario.launch<MainActivity>(Intent(c,MainActivity::class.java)).use{scenario->
+            fun f(a:MainActivity,n:String)=MainActivity::class.java.getDeclaredField(n).apply{isAccessible=true}
+            fun ready(){val end=System.currentTimeMillis()+90000;var done=false;while(System.currentTimeMillis()<end&&!done){Thread.sleep(100);scenario.onActivity{a->done=f(a,"pageReady").getBoolean(a)}};assertTrue(done)}
+            ready();scenario.onActivity{a->MainActivity::class.java.getDeclaredMethod("loadPage",Int::class.javaPrimitiveType,Boolean::class.javaPrimitiveType).apply{isAccessible=true}.invoke(a,6,false)};ready()
+            var beforeZones=listOf<Zone>();var beforeOrder=listOf<Int>()
+            scenario.onActivity{a->beforeZones=f(a,"zones").get(a)as List<Zone>;beforeOrder=listOf(beforeZones.last().id,beforeZones.first().id);f(a,"order").set(a,beforeOrder);findButton(a.window.decorView,"Manga")!!.performClick()}
+            fun prepared():android.app.Dialog{var out:android.app.Dialog?=null;val end=System.currentTimeMillis()+60000;while(System.currentTimeMillis()<end){Thread.sleep(100);var done=false;scenario.onActivity{a->out=f(a,"modePreviewDialog").get(a)as? android.app.Dialog;done=out?.let{findButton(it.window!!.decorView,"Appliquer")?.isEnabled}==true;assertEquals(beforeZones,f(a,"zones").get(a));assertEquals(beforeOrder,f(a,"order").get(a))};if(done)return out!!};error("Mode preview did not finish")}
+            var dialog=prepared()
+            scenario.onActivity{a->val root=dialog.window!!.decorView;val shot=Bitmap.createBitmap(root.width,root.height,Bitmap.Config.ARGB_8888);root.draw(Canvas(shot));File(File(a.getExternalFilesDir(null),"screenshots").apply{mkdirs()},"manga-mode-preview.png").outputStream().use{shot.compress(Bitmap.CompressFormat.PNG,100,it)};shot.recycle();findButton(root,"Annuler")!!.performClick();assertEquals(beforeOrder,f(a,"order").get(a));assertEquals(beforeZones,f(a,"zones").get(a));findButton(a.window.decorView,"Manga")!!.performClick()}
+            dialog=prepared();scenario.onActivity{a->findButton(dialog.window!!.decorView,"Appliquer")!!.performClick();assertEquals(PageMode.MANGA,f(a,"pageMode").get(a));val z=f(a,"zones").get(a)as List<Zone>;val order=f(a,"order").get(a)as List<Int>;assertEquals(z.size,order.size);assertEquals(1f,z.sumOf{it.box.area.toDouble()}.toFloat(),.00001f);val panels=order.map{id->z.single{it.id==id}}.filter{it.panel};assertTrue(panels[0].box.left>panels[1].box.left)}
+            screenshot(scenario,"manga-mode-applied")
+            scenario.recreate();ready();scenario.onActivity{a->assertEquals(PageMode.MANGA,f(a,"pageMode").get(a));findButton(a.window.decorView,"Manuel")!!.performClick();val keep=f(a,"order").get(a);assertEquals(PageMode.MANUAL,f(a,"pageMode").get(a));assertEquals(keep,f(a,"order").get(a))}
+        }
+    }
     @Test fun preparationModesDriveDetectionCoverageDirectionAndManualProtection(){
         val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext
         val source=File(c.cacheDir,"mode-source.pdf");c.assets.open("examples/decouverte.pdf").use{a->source.outputStream().use{a.copyTo(it)}}
