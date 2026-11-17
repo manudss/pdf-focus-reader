@@ -166,6 +166,60 @@ class ReaderDeviceTest {
             reader.clear()
         }
     }
+    @Test fun continuousReaderRendersBottomFragmentAtBodySizeVisually(){
+        // Fictional page raster with real text: a prose column and a short overlapping
+        // fragment at its bottom, ALL drawn at the same pixel size. Real ContinuousReaderView
+        // layout + real tile rendering: the fragment must come out at the body text size.
+        val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext
+        i.runOnMainSync{
+            val src=Bitmap.createBitmap(700,1400,Bitmap.Config.ARGB_8888)
+            val cv=Canvas(src);cv.drawColor(Color.WHITE)
+            val paint=Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.BLACK;textSize=13f}
+            var y=.50f*1400+13f
+            var n=0
+            val words=listOf("le","conseil","invente","une","histoire","complete","pour","ce","test","visuel","du","parcours")
+            while(y<.695f*1400){cv.drawText("${words[n%12]} ${words[(n+3)%12]} ${words[(n+5)%12]} ${words[(n+7)%12]} du corps",.41f*700,y,paint);y+=.0105f*1400;n++}
+            var fy=.675f*1400+13f
+            while(fy<.718f*1400){cv.drawText("${words[n%12]} ${words[(n+4)%12]} du fragment",.41f*700,fy,paint);fy+=.0105f*1400;n++}
+            fun lines(top:Float,bottom:Float,step:Float):List<Float>{val out=mutableListOf<Float>();var yy=top+step;while(yy<=bottom+.0001f){out+=yy;yy+=step};return out}
+            val body=Zone(1,Box(.41f,.50f,.59f,.70f),Kind.TEXT,lines(.50f,.695f,.0105f))
+            val fragment=Zone(2,Box(.41f,.675f,.59f,.72f),Kind.TEXT,lines(.675f,.718f,.0105f))
+            val reader=ContinuousReaderView(c)
+            reader.measure(View.MeasureSpec.makeMeasureSpec(700,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(1000,View.MeasureSpec.EXACTLY));reader.layout(0,0,700,1000)
+            reader.onRequest={tile,revision->
+                val l=(tile.source.left*700).toInt().coerceIn(0,699);val t=(tile.source.top*1400).toInt().coerceIn(0,1399)
+                val r=(kotlin.math.ceil(tile.source.right*700).toInt()).coerceIn(l+1,700);val b=(kotlin.math.ceil(tile.source.bottom*1400).toInt()).coerceIn(t+1,1400)
+                val crop=Bitmap.createBitmap(src,l,t,r-l,b-t)
+                val scaled=Bitmap.createScaledBitmap(crop,maxOf(1,kotlin.math.ceil(tile.rect.width()).toInt()),maxOf(1,kotlin.math.ceil(tile.rect.height()).toInt()),true)
+                if(scaled!==crop)crop.recycle()
+                reader.accept(tile,revision,scaled)
+            }
+            reader.setDocument(listOf(body,fragment),700,1400)
+            val tiles=ContinuousReaderView::class.java.getDeclaredField("tiles").apply{isAccessible=true}.get(reader)as List<ContinuousReaderView.Tile>
+            val fragTile=tiles.first{it.chunkKey==2}
+            reader.setDocument(listOf(body,fragment),700,1400,(fragTile.rect.top-60).toInt().coerceAtLeast(0))
+            val shot=Bitmap.createBitmap(700,1000,Bitmap.Config.ARGB_8888)
+            val shotCanvas=Canvas(shot);shotCanvas.drawColor(Color.WHITE);reader.draw(shotCanvas)
+            val dir=File(c.getExternalFilesDir(null),"screenshots").apply{mkdirs()}
+            File(dir,"continuous-fragment-body-size.png").outputStream().use{shot.compress(Bitmap.CompressFormat.PNG,100,it)}
+            // The rendered fragment rows must carry real glyph pixels (not a blank or stub tile).
+            fun glyphRows(bitmap:Bitmap):Int{
+                var rows=0
+                for(yy in 0 until bitmap.height){var dark=0;for(xx in 0 until bitmap.width step 7){if(Color.luminance(bitmap.getPixel(xx,yy))<.45)dark++};if(dark>=4)rows++}
+                return rows
+            }
+            val tiles2=ContinuousReaderView::class.java.getDeclaredField("tiles").apply{isAccessible=true}.get(reader)as List<ContinuousReaderView.Tile>
+            val frag=tiles2.first{it.chunkKey==2};val bod=tiles2.first{it.chunkKey==1}
+            val top=(frag.rect.top-ContinuousReaderView::class.java.getDeclaredField("offset").apply{isAccessible=true}.get(reader)as Float).toInt()
+            val band=Bitmap.createBitmap(shot,frag.rect.left.toInt().coerceAtLeast(0),top.coerceIn(0,shot.height-40),minOf(frag.rect.width(),shot.width.toFloat()).toInt().coerceAtLeast(20),40)
+            assertTrue("Fragment band must show rendered text rows",glyphRows(band)>=2)
+            val bodyScale=bod.rect.height()/((bod.source.bottom-bod.source.top)*1400)
+            val fragScale=frag.rect.height()/((frag.source.bottom-frag.source.top)*1400)
+            assertEquals("Fragment renders at the body scale",bodyScale,fragScale,bodyScale*.05f)
+            band.recycle();shot.recycle();src.recycle();reader.clear()
+        }
+    }
+
     @Test fun bundledOcrWorksWithoutNetworkAndFindsSyntheticText(){
         val c=InstrumentationRegistry.getInstrumentation().targetContext
         c.assets.open("tessdata_best/fra-words.txt").bufferedReader().use{assertTrue("Packaged repair lexicon must be readable",it.readLines().size>10000)}
