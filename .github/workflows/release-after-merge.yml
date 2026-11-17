@@ -62,6 +62,15 @@ jobs:
               core.setOutput('found','true');
               core.notice(`Release already exists, left unchanged: ${r.data.html_url}`);
             } catch (e) { if(e.status !== 404) throw e; core.setOutput('found','false'); }
+      - name: Require the original app signing key, never substitute Test
+        if: steps.gate.outputs.allowed == 'true' && steps.existing.outputs.found != 'true'
+        env:
+          ORIGINAL_KEY: ${{ secrets.PDF_FOCUS_ORIGINAL_SIGNING_BUNDLE }}
+        run: |
+          if [ -z "$ORIGINAL_KEY" ]; then
+            echo 'Original PDF Focus Reader signing key is not configured. Publication stopped; Test key will not be used.'
+            exit 1
+          fi
       - uses: actions/setup-java@v5
         if: steps.gate.outputs.allowed == 'true' && steps.existing.outputs.found != 'true'
         with:
@@ -76,11 +85,11 @@ jobs:
           APP_CODE: ${{ steps.version.outputs.code }}
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug -PreleaseVersion="$APP_VERSION" -PreleaseCode="$APP_CODE"
+          ./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug -PreleaseVersion="$APP_VERSION" -PreleaseCode="$APP_CODE" -PreleasePackage=com.pdffocus.reader -PreleaseLabel="PDF Focus Reader"
       - name: Sign APKs with the existing pinned app identity
         if: steps.gate.outputs.allowed == 'true' && steps.existing.outputs.found != 'true'
         env:
-          PDF_FOCUS_TEST_SIGNING_BUNDLE: ${{ secrets.PDF_FOCUS_TEST_SIGNING_BUNDLE }}
+          PDF_FOCUS_ORIGINAL_SIGNING_BUNDLE: ${{ secrets.PDF_FOCUS_ORIGINAL_SIGNING_BUNDLE }}
           PDF_FOCUS_RELEASE_VERSION: ${{ steps.version.outputs.version }}
           PDF_FOCUS_RELEASE_CODE: ${{ steps.version.outputs.code }}
         run: python3 scripts/sign-release-apks.py

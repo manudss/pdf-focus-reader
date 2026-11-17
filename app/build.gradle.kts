@@ -3,7 +3,8 @@ android {
     namespace = "com.pdffocus.reader"
     compileSdk = 35
     defaultConfig {
-        applicationId = "com.pdffocus.reader.test"
+        applicationId = providers.gradleProperty("releasePackage").orNull ?: "com.pdffocus.reader.test"
+        manifestPlaceholders["appLabel"] = providers.gradleProperty("releaseLabel").orNull ?: "PDF Focus Test"
         minSdk = 26
         targetSdk = 35
         versionCode = providers.gradleProperty("releaseCode").orNull?.toInt() ?: 11
