@@ -57,7 +57,8 @@ jobs:
             adb shell am instrument -w -r com.pdffocus.reader.test.test/androidx.test.runner.AndroidJUnitRunner | tee device-tests.txt
             adb logcat -d > device-logcat.txt
             adb pull /sdcard/Android/data/com.pdffocus.reader.test/files/screenshots app/build/device-screenshots || true
-            grep -q 'OK (33 tests)' device-tests.txt
+            grep -q 'OK (34 tests)' device-tests.txt
+
       - uses: actions/upload-artifact@v5
         if: always()
         with:
