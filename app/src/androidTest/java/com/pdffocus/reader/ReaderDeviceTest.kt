@@ -66,6 +66,7 @@ class ReaderDeviceTest {
             ready=false;val finish=System.currentTimeMillis()+90000
             while(System.currentTimeMillis()<finish){scenario.onActivity{a->ready=MainActivity::class.java.getDeclaredField("pageReady").apply{isAccessible=true}.getBoolean(a)&&findCanvas(a.window.decorView)!!.zones.size==6};if(ready)break;Thread.sleep(100)}
             assertTrue("The full detection path must propose six comic panels",ready)
+            clearAutoProposal(scenario)
             scenario.onActivity{a->val page=findCanvas(a.window.decorView)!!;assertTrue(page.zones.all{it.kind==Kind.IMAGE});assertTrue(page.zones.all{it.box.height>.25f});assertTrue(page.selection.isEmpty());page.zones.forEach{page.onZoneTap!!.invoke(it)};assertEquals((1..6).toList(),page.selection)}
             screenshot(scenario,"comic-six-panels")
             scenario.onActivity{a->findButton(a.window.decorView,"Lire (")!!.performClick();findButton(a.window.decorView,"Original")!!.performClick()}
@@ -91,6 +92,7 @@ class ReaderDeviceTest {
             var ready=false;val end=System.currentTimeMillis()+90000
             while(System.currentTimeMillis()<end){scenario.onActivity{a->ready=MainActivity::class.java.getDeclaredField("pageReady").apply{isAccessible=true}.getBoolean(a)};if(ready)break;Thread.sleep(100)}
             assertTrue("Synthetic comic detection must complete",ready)
+            clearAutoProposal(scenario)
             scenario.onActivity{a->val view=findCanvas(a.window.decorView)!!
                 assertEquals("Six panels, not caption fragments",6,view.zones.size);assertTrue(view.zones.all{it.kind==Kind.IMAGE});assertTrue(view.selection.isEmpty())
                 for(b in expected)assertTrue("Caption and drawing must be in the same whole panel",view.zones.any{it.box.intersect(b)/b.area>.98f})
@@ -112,6 +114,7 @@ class ReaderDeviceTest {
             fun captureDialog(name:String){i.waitForIdleSync();scenario.onActivity{a->val dialog=field(a,"groupDialog")as android.app.Dialog;val root=dialog.window!!.decorView;val b=Bitmap.createBitmap(root.width,root.height,Bitmap.Config.ARGB_8888);root.draw(Canvas(b));File(File(c.getExternalFilesDir(null),"screenshots").apply{mkdirs()},"$name.png").outputStream().use{b.compress(Bitmap.CompressFormat.PNG,100,it)};b.recycle()}}
             fun checks(v:View):List<CheckBox>{if(v is CheckBox)return listOf(v);if(v is ViewGroup)return (0 until v.childCount).flatMap{checks(v.getChildAt(it))};return emptyList()}
             awaitReady();scenario.onActivity{a->call(a,"loadPage",1,false)};awaitReady()
+            clearAutoProposal(scenario)
             var original=listOf<Zone>();var originalOrder=listOf<Int>();var groups=listOf<AutoGrouping.Group>()
             scenario.onActivity{a->val canvas=findCanvas(a.window.decorView)!!;canvas.zones.forEach{canvas.onZoneTap!!.invoke(it)};original=canvas.zones;originalOrder=canvas.selection;groups=AutoGrouping.propose(original);File(File(c.getExternalFilesDir(null),"screenshots").apply{mkdirs()},"tutorial-proposals.txt").writeText(original.joinToString("\n")+"\nGROUPS\n"+groups.joinToString("\n"));assertTrue("Unchanged tutorial must group header and its four title/body pairs: $groups",groups.size>=5);call(a,"showAutoGroups")}
             captureDialog("grouping-tutorial-preview")
@@ -123,6 +126,7 @@ class ReaderDeviceTest {
             scenario.onActivity{a->findButton(a.window.decorView,"Nettoyé")!!.performClick()};Thread.sleep(1300);screenshot(scenario,"faithful-tutorial-cleaned")
             scenario.onActivity{a->findButton(a.window.decorView,"Texte OCR")!!.performClick()};Thread.sleep(12000);screenshot(scenario,"harmonized-tutorial-ocr")
             scenario.onActivity{a->call(a,"exitReader");call(a,"loadPage",0,false)};awaitReady()
+            clearAutoProposal(scenario)
             scenario.onActivity{a->val canvas=findCanvas(a.window.decorView)!!;canvas.zones.forEach{canvas.onZoneTap!!.invoke(it)};if(AutoGrouping.propose(canvas.zones).isNotEmpty()){call(a,"showAutoGroups");val d=field(a,"groupDialog")as android.app.Dialog;findButton(d.window!!.decorView,"Appliquer")!!.performClick()};findButton(a.window.decorView,"Lire (")!!.performClick();findButton(a.window.decorView,"Original")!!.performClick()};Thread.sleep(1500);screenshot(scenario,"faithful-cover-original")
         }
     }
@@ -141,6 +145,146 @@ class ReaderDeviceTest {
             reader.clear();b.recycle()
         }
     }
+    @Test fun continuousReaderKeepsSharedScaleForColumnBottomFragment(){
+        // Fictional magazine layout: a column and a short overlapping paragraph at its bottom,
+        // both with the same source text size. The fragment must render at the body scale,
+        // not shrunk by a width rule (real bug: 4.7x smaller than the surrounding text).
+        val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext
+        i.runOnMainSync{
+            val reader=ContinuousReaderView(c)
+            reader.measure(View.MeasureSpec.makeMeasureSpec(700,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(1000,View.MeasureSpec.EXACTLY));reader.layout(0,0,700,1000)
+            fun lines(top:Float,bottom:Float,step:Float):List<Float>{val out=mutableListOf<Float>();var y=top+step;while(y<=bottom+.0001f){out+=y;y+=step};return out}
+            val body=Zone(1,Box(.41f,.50f,.59f,.70f),Kind.TEXT,lines(.50f,.695f,.0105f))
+            val fragment=Zone(2,Box(.41f,.675f,.59f,.75f),Kind.TEXT,lines(.675f,.748f,.0105f))
+            reader.onRequest={tile,revision->reader.skipRequest(tile,revision)}
+            reader.setDocument(listOf(body,fragment),700,1400)
+            val tiles=ContinuousReaderView::class.java.getDeclaredField("tiles").apply{isAccessible=true}.get(reader)as List<ContinuousReaderView.Tile>
+            val bodyTile=tiles.first{it.chunkKey==1};val fragTile=tiles.first{it.chunkKey==2}
+            val bodyScale=bodyTile.rect.height()/((bodyTile.source.bottom-bodyTile.source.top)*1400)
+            val fragScale=fragTile.rect.height()/((fragTile.source.bottom-fragTile.source.top)*1400)
+            assertEquals("A short column-bottom fragment keeps the body text size",bodyScale,fragScale,bodyScale*.05f)
+            reader.clear()
+        }
+    }
+    @Test fun continuousReaderRendersBottomFragmentAtBodySizeVisually(){
+        // Fictional page raster with real text: a prose column and a short overlapping
+        // fragment at its bottom, ALL drawn at the same pixel size. Real ContinuousReaderView
+        // layout + real tile rendering: the fragment must come out at the body text size.
+        val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext
+        i.runOnMainSync{
+            val src=Bitmap.createBitmap(700,1400,Bitmap.Config.ARGB_8888)
+            val cv=Canvas(src);cv.drawColor(Color.WHITE)
+            val paint=Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.BLACK;textSize=13f}
+            var y=.50f*1400+13f
+            var n=0
+            val words=listOf("le","conseil","invente","une","histoire","complete","pour","ce","test","visuel","du","parcours")
+            while(y<.670f*1400){cv.drawText("${words[n%12]} ${words[(n+3)%12]} ${words[(n+5)%12]} ${words[(n+7)%12]} du corps",.41f*700,y,paint);y+=.0105f*1400;n++}
+            var fy=.701f*1400+13f
+            while(fy<.748f*1400){cv.drawText("${words[n%12]} ${words[(n+4)%12]} du fragment",.41f*700,fy,paint);fy+=.0105f*1400;n++}
+            fun lines(top:Float,bottom:Float,step:Float):List<Float>{val out=mutableListOf<Float>();var yy=top+step;while(yy<=bottom+.0001f){out+=yy;yy+=step};return out}
+            val body=Zone(1,Box(.41f,.50f,.59f,.70f),Kind.TEXT,lines(.50f,.695f,.0105f))
+            val fragment=Zone(2,Box(.41f,.675f,.59f,.75f),Kind.TEXT,lines(.675f,.748f,.0105f))
+            val reader=ContinuousReaderView(c)
+            reader.measure(View.MeasureSpec.makeMeasureSpec(700,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(1000,View.MeasureSpec.EXACTLY));reader.layout(0,0,700,1000)
+            reader.onRequest={tile,revision->
+                val scaled=Bitmap.createBitmap(maxOf(1,kotlin.math.ceil(tile.rect.width()).toInt()),maxOf(1,kotlin.math.ceil(tile.rect.height()).toInt()),Bitmap.Config.ARGB_8888)
+                val raster=Canvas(scaled);raster.drawColor(Color.WHITE)
+                // Preserve exact floating source bounds, as PdfRenderer's region matrix
+                // does. Integer crop+resize rounds the seam independently on each tile.
+                val matrix=android.graphics.Matrix().apply { setRectToRect(RectF(tile.source.left*700,tile.source.top*1400,tile.source.right*700,tile.source.bottom*1400),RectF(0f,0f,scaled.width.toFloat(),scaled.height.toFloat()),android.graphics.Matrix.ScaleToFit.FILL) }
+                raster.drawBitmap(src,matrix,Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
+                reader.accept(tile,revision,scaled)
+            }
+            reader.setDocument(listOf(body,fragment),700,1400)
+            val tiles=ContinuousReaderView::class.java.getDeclaredField("tiles").apply{isAccessible=true}.get(reader)as List<ContinuousReaderView.Tile>
+            val fragTile=tiles.first{it.chunkKey==2}
+            reader.setDocument(listOf(body,fragment),700,1400,(fragTile.rect.top-60).toInt().coerceAtLeast(0))
+            val shot=Bitmap.createBitmap(700,1000,Bitmap.Config.ARGB_8888)
+            val shotCanvas=Canvas(shot);shotCanvas.drawColor(Color.WHITE)
+            // The first draw queues tile requests; the second displays their accepted rasters.
+            repeat(2){reader.draw(shotCanvas)}
+            val dir=File(c.getExternalFilesDir(null),"screenshots").apply{mkdirs()}
+            File(dir,"continuous-fragment-body-size.png").outputStream().use{shot.compress(Bitmap.CompressFormat.PNG,100,it)}
+            // The rendered fragment rows must carry real glyph pixels (not a blank or stub tile).
+            fun glyphRows(bitmap:Bitmap):Int{
+                var rows=0
+                for(yy in 0 until bitmap.height){var dark=0;for(xx in 0 until bitmap.width step 7){if(Color.luminance(bitmap.getPixel(xx,yy))<.45)dark++};if(dark>=4)rows++}
+                return rows
+            }
+            val tiles2=ContinuousReaderView::class.java.getDeclaredField("tiles").apply{isAccessible=true}.get(reader)as List<ContinuousReaderView.Tile>
+            val frag=tiles2.first{it.chunkKey==2};val bod=tiles2.first{it.chunkKey==1}
+            val top=(frag.rect.top-ContinuousReaderView::class.java.getDeclaredField("offset").apply{isAccessible=true}.get(reader)as Float).toInt()
+            val bandTop=top.coerceIn(0,shot.height-1)
+            val band=Bitmap.createBitmap(shot,frag.rect.left.toInt().coerceAtLeast(0),bandTop,minOf(frag.rect.width(),shot.width.toFloat()).toInt().coerceAtLeast(20),minOf(frag.rect.height().toInt(),shot.height-bandTop).coerceAtLeast(1))
+            assertTrue("Fragment band must show rendered text rows",glyphRows(band)>=2)
+            val bodyScale=bod.rect.height()/((bod.source.bottom-bod.source.top)*1400)
+            val fragScale=frag.rect.height()/((frag.source.bottom-frag.source.top)*1400)
+            assertEquals("Fragment renders at the body scale",bodyScale,fragScale,bodyScale*.05f)
+            band.recycle();shot.recycle();src.recycle();reader.clear()
+        }
+    }
+
+    @Test fun continuousReaderPreservesCrossingGlyphAtOverlappingBlockSeam(){
+        // Fictional page raster with real text: a prose column and a short overlapping
+        // fragment at its bottom, ALL drawn at the same pixel size. Real ContinuousReaderView
+        // layout + real tile rendering: the fragment must come out at the body text size.
+        val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext
+        i.runOnMainSync{
+            val src=Bitmap.createBitmap(700,1400,Bitmap.Config.ARGB_8888)
+            val cv=Canvas(src);cv.drawColor(Color.WHITE)
+            val paint=Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.BLACK;textSize=13f}
+            var y=.50f*1400+13f
+            var n=0
+            val words=listOf("le","conseil","invente","une","histoire","complete","pour","ce","test","visuel","du","parcours")
+            while(y<.670f*1400){cv.drawText("${words[n%12]} ${words[(n+3)%12]} ${words[(n+5)%12]} ${words[(n+7)%12]} du corps",.41f*700,y,paint);y+=.0105f*1400;n++}
+            var fy=.675f*1400+13f
+            while(fy<.748f*1400){cv.drawText("${words[n%12]} ${words[(n+4)%12]} du fragment",.41f*700,fy,paint);fy+=.0105f*1400;n++}
+            fun lines(top:Float,bottom:Float,step:Float):List<Float>{val out=mutableListOf<Float>();var yy=top+step;while(yy<=bottom+.0001f){out+=yy;yy+=step};return out}
+            val body=Zone(1,Box(.41f,.50f,.59f,.70f),Kind.TEXT,lines(.50f,.695f,.0105f))
+            val fragment=Zone(2,Box(.41f,.675f,.59f,.75f),Kind.TEXT,lines(.675f,.748f,.0105f))
+            val reader=ContinuousReaderView(c)
+            reader.measure(View.MeasureSpec.makeMeasureSpec(700,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(1000,View.MeasureSpec.EXACTLY));reader.layout(0,0,700,1000)
+            reader.onRequest={tile,revision->
+                val scaled=Bitmap.createBitmap(maxOf(1,kotlin.math.ceil(tile.rect.width()).toInt()),maxOf(1,kotlin.math.ceil(tile.rect.height()).toInt()),Bitmap.Config.ARGB_8888)
+                val raster=Canvas(scaled);raster.drawColor(Color.WHITE)
+                // Preserve exact floating source bounds, as PdfRenderer's region matrix
+                // does. Integer crop+resize rounds the seam independently on each tile.
+                val matrix=android.graphics.Matrix().apply { setRectToRect(RectF(tile.source.left*700,tile.source.top*1400,tile.source.right*700,tile.source.bottom*1400),RectF(0f,0f,scaled.width.toFloat(),scaled.height.toFloat()),android.graphics.Matrix.ScaleToFit.FILL) }
+                raster.drawBitmap(src,matrix,Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
+                reader.accept(tile,revision,scaled)
+            }
+            reader.setDocument(listOf(body,fragment),700,1400)
+            val tiles=ContinuousReaderView::class.java.getDeclaredField("tiles").apply{isAccessible=true}.get(reader)as List<ContinuousReaderView.Tile>
+            val fragTile=tiles.first{it.chunkKey==2}
+            reader.setDocument(listOf(body,fragment),700,1400,(fragTile.rect.top-60).toInt().coerceAtLeast(0))
+            val shot=Bitmap.createBitmap(700,1000,Bitmap.Config.ARGB_8888)
+            val shotCanvas=Canvas(shot);shotCanvas.drawColor(Color.WHITE)
+            // The first draw queues tile requests; the second displays their accepted rasters.
+            repeat(2){reader.draw(shotCanvas)}
+            val dir=File(c.getExternalFilesDir(null),"screenshots").apply{mkdirs()}
+            File(dir,"continuous-overlap-seam.png").outputStream().use{shot.compress(Bitmap.CompressFormat.PNG,100,it)}
+            // The rendered fragment rows must carry real glyph pixels (not a blank or stub tile).
+            fun glyphRows(bitmap:Bitmap):Int{
+                var rows=0
+                for(yy in 0 until bitmap.height){var dark=0;for(xx in 0 until bitmap.width step 7){if(Color.luminance(bitmap.getPixel(xx,yy))<.45)dark++};if(dark>=4)rows++}
+                return rows
+            }
+            val tiles2=ContinuousReaderView::class.java.getDeclaredField("tiles").apply{isAccessible=true}.get(reader)as List<ContinuousReaderView.Tile>
+            val frag=tiles2.first{it.chunkKey==2};val bod=tiles2.first{it.chunkKey==1}
+            val lastBodyBottom=tiles2.filter{it.chunkKey==1}.maxOf{it.rect.bottom}
+            val firstFragmentTop=tiles2.filter{it.chunkKey==2}.minOf{it.rect.top}
+            assertEquals("Overlap seam must add no white spacer through source glyphs",lastBodyBottom,firstFragmentTop,.01f)
+            val top=(frag.rect.top-ContinuousReaderView::class.java.getDeclaredField("offset").apply{isAccessible=true}.get(reader)as Float).toInt()
+            val bandTop=top.coerceIn(0,shot.height-1)
+            val band=Bitmap.createBitmap(shot,frag.rect.left.toInt().coerceAtLeast(0),bandTop,minOf(frag.rect.width(),shot.width.toFloat()).toInt().coerceAtLeast(20),minOf(frag.rect.height().toInt(),shot.height-bandTop).coerceAtLeast(1))
+            assertTrue("Fragment band must show rendered text rows",glyphRows(band)>=2)
+            val bodyScale=bod.rect.height()/((bod.source.bottom-bod.source.top)*1400)
+            val fragScale=frag.rect.height()/((frag.source.bottom-frag.source.top)*1400)
+            assertEquals("Fragment renders at the body scale",bodyScale,fragScale,bodyScale*.05f)
+            band.recycle();shot.recycle();src.recycle();reader.clear()
+        }
+    }
+
     @Test fun bundledOcrWorksWithoutNetworkAndFindsSyntheticText(){
         val c=InstrumentationRegistry.getInstrumentation().targetContext
         c.assets.open("tessdata_best/fra-words.txt").bufferedReader().use{assertTrue("Packaged repair lexicon must be readable",it.readLines().size>10000)}
@@ -270,6 +414,117 @@ class ReaderDeviceTest {
             out.recycle();reader.clear()
         }
     }
+    @Test fun readingPinchZoomPreviewsLiveAndRebuildsOnce(){
+        val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext
+        i.runOnMainSync{
+            val reader=ContinuousReaderView(c)
+            reader.measure(View.MeasureSpec.makeMeasureSpec(1440,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(2400,View.MeasureSpec.EXACTLY));reader.layout(0,0,1440,2400)
+            // Landmarks drawn from zone coordinates, not tile ids: stripes and "repere N" labels
+            // persist when the commit re-tiles the document, so the same content can be tracked
+            // across the preview and the rebuild.
+            reader.onRequest={tile,revision->
+                val w=kotlin.math.ceil(tile.rect.width()).toInt();val h=kotlin.math.ceil(tile.rect.height()).toInt()
+                val b=Bitmap.createBitmap(w,h,Bitmap.Config.ARGB_8888);val cv=Canvas(b)
+                val span=(tile.source.bottom-tile.source.top).coerceAtLeast(.0001f)
+                for(stripe in 0..47){
+                    val f0=stripe/48f;val f1=(stripe+1)/48f
+                    if(f1<tile.source.top||f0>tile.source.bottom)continue
+                    val y0=((maxOf(f0,tile.source.top)-tile.source.top)/span)*h;val y1=((minOf(f1,tile.source.bottom)-tile.source.top)/span)*h
+                    val band=Paint().apply{color=if(stripe%2==0)Color.rgb(40,80,60)else Color.rgb(226,239,231)}
+                    cv.drawRect(0f,y0,w.toFloat(),y1,band)
+                    if(stripe==0)continue
+                    // Labels scale with the zone, not with the tile bitmap: a fixed zone-fraction
+                    // height mapped into this tile, drawn in every tile it overlaps (the canvas
+                    // clips), so glyphs survive re-tiling like real rasterized text.
+                    val lp=Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.rgb(37,31,33);textSize=(.004f/span)*h}
+                    val ly=((f0+.004f-tile.source.top)/span)*h
+                    cv.drawText("repere $stripe",((.05f-tile.source.left)/(tile.source.right-tile.source.left))*w,ly,lp)
+                    cv.drawText("repere $stripe",((.5f-tile.source.left)/(tile.source.right-tile.source.left))*w,ly,lp)
+                }
+                reader.accept(tile,revision,b)
+            }
+            reader.setDocument(listOf(Zone(1,Box(0f,0f,1f,1f),Kind.TEXT)),600,12000)
+            val out=Bitmap.createBitmap(1440,2400,Bitmap.Config.ARGB_8888)
+            repeat(3){reader.draw(Canvas(out))}
+            fun field(n:String)=ContinuousReaderView::class.java.getDeclaredField(n).apply{isAccessible=true}
+            // Stripe scan away from the label columns: parity of the red channel.
+            fun light(x:Int,y:Int)=Color.red(out.getPixel(x,y))>128
+            fun stripeLight(x:Int,y:Int):Boolean{var l=0;for(dx in -2..2)for(dy in -2..2)if(light(x+dx,y+dy))l++;return l>=13}
+            fun boundaries(x:Int):List<Float>{val r=mutableListOf<Float>();var prev=light(x,0);for(y in 1 until out.height){val p=light(x,y);if(p!=prev){r+=y-.5f;prev=p}};return r}
+            val beforeBounds=boundaries(650)
+            assertTrue("Fixture must show several landmarks",beforeBounds.size>=2)
+            // Dark text pixels: red and green both low (excludes the green stripe background).
+            fun labelBox(boundaryY:Float):Pair<Float,Float>?{
+                var top=-1f;var bottom=-1f
+                for(y in boundaryY.toInt()+4 until minOf(out.height,boundaryY.toInt()+300)){
+                    var dark=0
+                    for(x in 60 until minOf(out.width,1380)){val px=out.getPixel(x,y);if(Color.red(px)<100&&Color.green(px)<60)dark++}
+                    if(dark>=5){if(top<0f)top=y.toFloat();bottom=y.toFloat()}
+                }
+                return if(top<0f)null else top to bottom
+            }
+            // Anchor the gesture focus at the centre of the stripe around mid-viewport.
+            val lo=beforeBounds.lastOrNull{it<=1400f}?:0f;val hi=beforeBounds.firstOrNull{it>1400f}?:2400f
+            val fy=(lo+hi)/2
+            val beforeLabel=labelBox(lo)
+            assertNotNull("The stripe boundary above the focus must carry its label",beforeLabel)
+            val beforeLight=stripeLight(720,fy.toInt())
+            val before=field("revision").getInt(reader)
+            val down=android.os.SystemClock.uptimeMillis()
+            fun props(id:Int)=MotionEvent.PointerProperties().apply{this.id=id;toolType=MotionEvent.TOOL_TYPE_FINGER}
+            fun coords(x:Float,y:Float)=MotionEvent.PointerCoords().apply{this.x=x;this.y=y}
+            fun send(action:Int,count:Int,time:Long,vararg points:Pair<Float,Float>){
+                val pp=(0 until count).map{props(it)}.toTypedArray();val pc=points.map{coords(it.first,it.second)}.toTypedArray()
+                val e=MotionEvent.obtain(down,time,action,count,pp,pc,0,0,1f,1f,0,0,0,0);reader.onTouchEvent(e);e.recycle()
+            }
+            send(MotionEvent.ACTION_DOWN,1,down,720f to fy)
+            send(MotionEvent.ACTION_POINTER_DOWN or (1 shl 8),2,down+40,470f to fy,970f to fy) // span 500px, above the minimum scaling span (~27mm)
+            // Span grows across several frames: the old code rebuilt the whole layout per frame.
+            var span=500f
+            // The detector anchors its baseline on the first move, so 8 frames are
+            // needed for the accumulated factor to pass the 2x clamp.
+            for(step in 1..8){
+                span+=100f
+                send(MotionEvent.ACTION_MOVE,2,down+40+step*25,720f-span/2 to fy,720f+span/2 to fy)
+                assertEquals("Pinch frame $step must not rebuild tiles, layouts or the bitmap cache",before,field("revision").getInt(reader))
+                assertTrue("Pinch frame $step must be in live preview",field("pinchLive").getBoolean(reader))
+            }
+            assertEquals("Magnification stays put during the live preview",1f,field("magnification").getFloat(reader),0.001f)
+            repeat(2){reader.draw(Canvas(out))}
+            assertEquals("The landmark under the focus must stay put during the preview",beforeLight,stripeLight(720,fy.toInt()))
+            File(File(c.getExternalFilesDir(null),"screenshots").apply{mkdirs()},"reading-pinch-preview.png").outputStream().use{out.compress(Bitmap.CompressFormat.PNG,100,it)}
+            send(MotionEvent.ACTION_POINTER_UP or (1 shl 8),2,down+400,20f to fy,1420f to fy)
+            send(MotionEvent.ACTION_UP,1,down+440,20f to fy)
+            assertFalse("Preview must end with the gesture",field("pinchLive").getBoolean(reader))
+            assertEquals("The whole gesture commits with exactly one rebuild",before+1,field("revision").getInt(reader))
+            assertEquals("Commit clamps the accumulated factor at 2x",2f,field("magnification").getFloat(reader),0.001f)
+            repeat(3){reader.draw(Canvas(out))}
+            // Evidence before assertions: a failure must still ship the post-commit frame.
+            File(File(c.getExternalFilesDir(null),"screenshots").apply{mkdirs()},"reading-pinch-zoomed.png").outputStream().use{out.compress(Bitmap.CompressFormat.PNG,100,it)}
+            // Content continuity across the commit: the same stripes, twice as large, scaled
+            // around the focus - the landmark under the focus must still be under the focus.
+            assertEquals("The landmark under the focus must survive the commit",beforeLight,stripeLight(720,fy.toInt()))
+            val afterBounds=boundaries(650)
+            for(b in beforeBounds){
+                val expected=fy+2f*(b-fy)
+                if(expected<0f||expected>=out.height)continue
+                assertTrue("Landmark at $b must reappear near ${expected.toInt()} after the 2x commit (found $afterBounds)",afterBounds.any{kotlin.math.abs(it-expected)<=14f})
+            }
+            if(beforeBounds.size>=2&&afterBounds.size>=2){
+                val p0=beforeBounds[1]-beforeBounds[0];val p1=afterBounds[1]-afterBounds[0]
+                assertTrue("Stripe scale must double at commit ($p0 -> $p1)",p1>p0*1.7f&&p1<p0*2.3f)
+            }
+            // Glyph-level continuity: the same label, twice as tall, at the doubled offset below
+            // its boundary, and not clipped by the new tile grid (a clipped label collapses).
+            val lo1=fy+2f*(lo-fy)
+            val afterLabel=labelBox(lo1)
+            assertNotNull("The same label must survive the commit",afterLabel)
+            val h0=beforeLabel!!.second-beforeLabel.first;val h1=afterLabel!!.second-afterLabel.first
+            assertTrue("Glyph height must double across the commit ($h0 -> $h1)",h1>h0*1.7f&&h1<h0*2.3f)
+            assertTrue("Glyph offset below its boundary must scale with the zoom",kotlin.math.abs((afterLabel.first-lo1)-2f*(beforeLabel.first-lo))<=20f)
+            out.recycle();reader.clear()
+        }
+    }
     @Test fun textCropRetainsDescendersAndRasterBottom(){
         val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext
         val f=File(c.cacheDir,"crop.pdf");val pdf=android.graphics.pdf.PdfDocument();val p=pdf.startPage(android.graphics.pdf.PdfDocument.PageInfo.Builder(400,600,1).create())
@@ -395,6 +650,357 @@ class ReaderDeviceTest {
         PaddleLineRecognizer(c).use{engine->val result=engine.recognize(image,box)!!;assertTrue("Paddle must recognize French words: ${result.text}",result.text.contains("lecture")&&result.text.contains("logements"));assertTrue("Expected number spacing: ${result.text}",result.text.contains("50 000"));assertEquals(box,result.source);assertTrue(result.confidence>.5f);assertNull(engine.recognize(image,box){true})}
         println("Second recognizer synthetic line: ${android.os.SystemClock.elapsedRealtime()-start}ms; native heap delta ${android.os.Debug.getNativeHeapAllocatedSize()-before} bytes (not peak or phone timing)")
         image.recycle()
+    }
+    @Test fun magazineWideTitleKeepsColumnsApartInCleanedReading(){
+        // Fictional magazine page: a wide short title left-aligned above three text
+        // columns, mirroring a reported reading defect. Content is invented.
+        val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext
+        File(c.filesDir,"current.pdf").delete();SessionStore(c).clear()
+        val pdf=android.graphics.pdf.PdfDocument();val page=pdf.startPage(android.graphics.pdf.PdfDocument.PageInfo.Builder(840,594,1).create())
+        val cv=page.canvas;cv.drawColor(Color.WHITE)
+        val titlePaint=Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.rgb(226,118,27);textSize=30f;typeface=Typeface.create("sans-serif",Typeface.BOLD)}
+        cv.drawText("Un grand titre invente",.06f*840,.165f*594,titlePaint)
+        val p=Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.BLACK;textSize=9f}
+        for((ci,label)in listOf(0 to "Colonne une",1 to "Colonne deux",2 to "Colonne trois")){
+            val x=(.06f+ci*.30f)*840
+            for(line in 0..39)cv.drawText("$label : phrase fictive numero ${line+1} pour ce test.",x,(.215f+line*.018f)*594,p)
+        }
+        pdf.finishPage(page);File(c.filesDir,"current.pdf").outputStream().use{pdf.writeTo(it)};pdf.close()
+        ActivityScenario.launch<MainActivity>(Intent(c,MainActivity::class.java)).use{scenario->
+            var ready=false;val end=System.currentTimeMillis()+90000
+            while(System.currentTimeMillis()<end){scenario.onActivity{a->ready=MainActivity::class.java.getDeclaredField("pageReady").apply{isAccessible=true}.getBoolean(a)&&findCanvas(a.window.decorView)!!.zones.isNotEmpty()};if(ready)break;Thread.sleep(100)}
+            assertTrue("Magazine fixture must finish native detection",ready)
+            clearAutoProposal(scenario)
+            scenario.onActivity{a->
+                val canvas=findCanvas(a.window.decorView)!!
+                val textZones=canvas.zones.filter{it.kind==Kind.TEXT}
+                val titles=textZones.filter{it.box.height<.075f&&it.box.width>.35f}
+                assertTrue("Fixture must yield a wide short title zone: ${canvas.zones}",titles.isNotEmpty())
+                val columns=textZones.filter{it.box.height>.3f}.sortedBy{it.box.left}
+                assertTrue("Fixture must yield three tall column zones: ${canvas.zones}",columns.size>=3)
+                (titles.sortedBy{it.box.top}+columns.take(3)).forEach{canvas.onZoneTap!!.invoke(it)}
+                val chosen=ReadingLayout.ordered(canvas.zones,canvas.selection)
+                val bands=ContinuousLayout.bands(chosen)
+                // Only tall columns must keep their own horizontal extent. A short heading is
+                // allowed to widen toward its column (that is the intended kept behaviour); the
+                // defect was a tall column growing, so columns are what this assertion pins.
+                for(band in bands.filter{it.kind==Kind.TEXT}){
+                    val zone=chosen.first{it.id==band.zoneId}
+                    if(zone.box.height<.075f)continue
+                    for(piece in band.pieces){
+                        assertTrue("Band of zone ${zone.id} exceeds its own extent: $piece in ${zone.box}",piece.left>=zone.box.left-.001f&&piece.right<=zone.box.right+.001f)
+                    }
+                }
+                val pieces=bands.flatMap{it.pieces};for(x in pieces.indices)for(y in x+1 until pieces.size)assertEquals(0f,pieces[x].intersect(pieces[y]),.000001f)
+            }
+            screenshot(scenario,"magazine-selected")
+            scenario.onActivity{a->findButton(a.window.decorView,"Lire (")!!.performClick()}
+            Thread.sleep(2000);i.waitForIdleSync()
+            scenario.onActivity{a->findButton(a.window.decorView,"Nettoyé")!!.performClick()}
+            Thread.sleep(1500);screenshot(scenario,"magazine-cleaned-top")
+            scenario.onActivity{a->val reader=findReader(a.window.decorView)!!;val now=android.os.SystemClock.uptimeMillis();reader.onTouchEvent(MotionEvent.obtain(now,now,MotionEvent.ACTION_DOWN,540f,2000f,0));reader.onTouchEvent(MotionEvent.obtain(now,now+150,MotionEvent.ACTION_MOVE,540f,200f,0));reader.onTouchEvent(MotionEvent.obtain(now,now+200,MotionEvent.ACTION_UP,540f,200f,0))}
+            Thread.sleep(1500);screenshot(scenario,"magazine-cleaned-middle")
+            scenario.onActivity{a->val reader=findReader(a.window.decorView)!!;val now=android.os.SystemClock.uptimeMillis();reader.onTouchEvent(MotionEvent.obtain(now,now,MotionEvent.ACTION_DOWN,540f,2000f,0));reader.onTouchEvent(MotionEvent.obtain(now,now+150,MotionEvent.ACTION_MOVE,540f,200f,0));reader.onTouchEvent(MotionEvent.obtain(now,now+200,MotionEvent.ACTION_UP,540f,200f,0));assertTrue("Reading must scroll through the columns",reader.currentPosition()>1500)}
+            Thread.sleep(1500);screenshot(scenario,"magazine-cleaned-end")
+        }
+    }
+    /** Three fictional portrait pages: one orange title + one text column per page. Content invented. */
+    private fun writeThreePageFixture(c:android.content.Context){
+        File(c.filesDir,"current.pdf").delete();SessionStore(c).clear()
+        val pdf=android.graphics.pdf.PdfDocument()
+        for(p in 1..3){
+            val page=pdf.startPage(android.graphics.pdf.PdfDocument.PageInfo.Builder(595,842,p).create())
+            val cv=page.canvas;cv.drawColor(Color.WHITE)
+            val tp=Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.rgb(226,118,27);textSize=26f;typeface=Typeface.create("sans-serif",Typeface.BOLD)}
+            cv.drawText("Titre invente de la page $p",40f,90f,tp)
+            val t=Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.BLACK;textSize=11f}
+            for(line in 0..44)cv.drawText("Page $p, phrase fictive numero ${line+1} pour ce test.",40f,140f+line*14f,t)
+            pdf.finishPage(page)
+        }
+        File(c.filesDir,"current.pdf").outputStream().use{pdf.writeTo(it)};pdf.close()
+    }
+    private fun awaitDetection(scenario:ActivityScenario<MainActivity>){
+        var ready=false;val end=System.currentTimeMillis()+90000
+        while(System.currentTimeMillis()<end){scenario.onActivity{a->ready=MainActivity::class.java.getDeclaredField("pageReady").apply{isAccessible=true}.getBoolean(a)&&findCanvas(a.window.decorView)!!.zones.isNotEmpty()};if(ready)break;Thread.sleep(100)}
+        assertTrue("Fixture must finish native detection",ready)
+        clearAutoProposal(scenario)
+    }
+    private fun startReadingFirstBlock(scenario:ActivityScenario<MainActivity>){
+        scenario.onActivity{a->
+            val canvas=findCanvas(a.window.decorView)!!
+            canvas.zones.filter{it.kind==Kind.TEXT}.sortedBy{it.box.top}.take(1).forEach{canvas.onZoneTap!!.invoke(it)}
+        }
+        scenario.onActivity{a->findButton(a.window.decorView,"Lire (")!!.performClick()}
+        Thread.sleep(2000);InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+        scenario.onActivity{a->findButton(a.window.decorView,"Nettoyé")?.performClick()}
+        Thread.sleep(1500);InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+    }
+    private fun awaitPage(scenario:ActivityScenario<MainActivity>,label:String){
+        var found=false;val end=System.currentTimeMillis()+30000
+        while(System.currentTimeMillis()<end){scenario.onActivity{a->found=findButton(a.window.decorView,label)!=null};if(found)break;Thread.sleep(100)}
+        assertTrue("Expected page control $label",found)
+    }
+    @Test fun endCardKeepsBottomPaddingOnNarrowViewport(){
+        val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext
+        i.runOnMainSync{
+            val reader=ContinuousReaderView(c)
+            reader.measure(View.MeasureSpec.makeMeasureSpec(820,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(2400,View.MeasureSpec.EXACTLY));reader.layout(0,0,820,2400)
+            reader.onRequest={tile,revision->val b=Bitmap.createBitmap(kotlin.math.ceil(tile.rect.width()).toInt(),kotlin.math.ceil(tile.rect.height()).toInt(),Bitmap.Config.ARGB_8888);b.eraseColor(Color.rgb(40,80,60));reader.accept(tile,revision,b)}
+            reader.endTitle="Fin de la page 1";reader.hasNextPage=true
+            reader.setDocument(listOf(Zone(1,Box(0f,0f,1f,1f),Kind.TEXT)),600,12000)
+            reader.move(Float.MAX_VALUE)
+            val out=Bitmap.createBitmap(820,2400,Bitmap.Config.ARGB_8888)
+            repeat(2){reader.draw(Canvas(out))}
+            File(File(c.getExternalFilesDir(null),"screenshots").apply{mkdirs()},"nav-end-card-narrow.png").outputStream().use{out.compress(Bitmap.CompressFormat.PNG,100,it)}
+            out.recycle();reader.clear()
+        }
+    }
+    @Test fun pageSliderChangesPage(){
+        val c=InstrumentationRegistry.getInstrumentation().targetContext
+        writeThreePageFixture(c)
+        ActivityScenario.launch<MainActivity>(Intent(c,MainActivity::class.java)).use{scenario->
+            awaitDetection(scenario)
+            scenario.onActivity{a->
+                var seek:SeekBar?=null
+                fun walk(v:View){if(v is SeekBar)seek=v;if(v is ViewGroup)for(i in 0 until v.childCount)walk(v.getChildAt(i))}
+                walk(a.window.decorView)
+                assertNotNull("Page slider must be visible on a multi-page document",seek)
+                assertTrue(seek!!.isShown);assertEquals(2,seek!!.max)
+            }
+            scenario.onActivity{a->a.sliderPage(1)}
+            awaitPage(scenario,"Pages 2/3")
+            screenshot(scenario,"nav-slider-page-2")
+        }
+    }
+    @Test fun readingEndCardButtonOpensNextPagePreparation(){
+        val c=InstrumentationRegistry.getInstrumentation().targetContext
+        writeThreePageFixture(c)
+        ActivityScenario.launch<MainActivity>(Intent(c,MainActivity::class.java)).use{scenario->
+            awaitDetection(scenario);startReadingFirstBlock(scenario)
+            scenario.onActivity{a->val r=findReader(a.window.decorView)!!;r.move(Float.MAX_VALUE)}
+            Thread.sleep(800);InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+            scenario.onActivity{a->val r=findReader(a.window.decorView)!!;assertTrue("End card must add height",r.footerTop>0);assertTrue(r.hasNextPage)}
+            screenshot(scenario,"nav-reading-end-card")
+            // Tap the card's « Préparer la page suivante » button, drawn in the reader.
+            scenario.onActivity{a->
+                val r=findReader(a.window.decorView)!!;val d=r.resources.displayMetrics.density
+                val contentY=r.footerTop+8*d+165*d;val screenY=contentY-r.currentPosition()
+                val down=MotionEvent.obtain(0,0,MotionEvent.ACTION_DOWN,r.width/2f,screenY,0);r.dispatchTouchEvent(down);down.recycle()
+                val up=MotionEvent.obtain(0,60,MotionEvent.ACTION_UP,r.width/2f,screenY,0);r.dispatchTouchEvent(up);up.recycle()
+            }
+            awaitPage(scenario,"Pages 2/3")
+            screenshot(scenario,"nav-end-card-next-page")
+        }
+    }
+    @Test fun overscrollBeyondReadingEndOpensNextPagePreparation(){
+        val c=InstrumentationRegistry.getInstrumentation().targetContext
+        writeThreePageFixture(c)
+        ActivityScenario.launch<MainActivity>(Intent(c,MainActivity::class.java)).use{scenario->
+            awaitDetection(scenario);startReadingFirstBlock(scenario)
+            scenario.onActivity{a->val r=findReader(a.window.decorView)!!;r.move(Float.MAX_VALUE)}
+            Thread.sleep(800);InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+            // A plain arrival at the bottom changes nothing: only a deliberate sustained pull beyond
+            // the end opens the next page's preparation (inverse pull-to-refresh).
+            scenario.onActivity{a->
+                val r=findReader(a.window.decorView)!!;val x=r.width/2f;val h=r.height
+                var t=0L
+                val down=MotionEvent.obtain(t,t,MotionEvent.ACTION_DOWN,x,h*.7f,0);r.dispatchTouchEvent(down);down.recycle()
+                for(i in 1..6){t+=16;val mv=MotionEvent.obtain(0,t,MotionEvent.ACTION_MOVE,x,h*.7f-i*(h*.09f),0);r.dispatchTouchEvent(mv);mv.recycle()}
+                t+=16;val up=MotionEvent.obtain(0,t,MotionEvent.ACTION_UP,x,h*.7f-6*(h*.09f),0);r.dispatchTouchEvent(up);up.recycle()
+            }
+            awaitPage(scenario,"Pages 2/3")
+            screenshot(scenario,"nav-overscroll-next-page")
+        }
+    }
+    @Test fun autoSelectProposesOnceAndRespectsChoices(){
+        // Fictional magazine page, invented content: auto mode must preselect title then
+        // columns, once, and never recompute after the user changes anything.
+        val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext
+        File(c.filesDir,"current.pdf").delete();SessionStore(c).clear()
+        val pdf=android.graphics.pdf.PdfDocument();val page=pdf.startPage(android.graphics.pdf.PdfDocument.PageInfo.Builder(840,594,1).create())
+        val cv=page.canvas;cv.drawColor(Color.WHITE)
+        val titlePaint=Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.rgb(226,118,27);textSize=30f;typeface=Typeface.create("sans-serif",Typeface.BOLD)}
+        cv.drawText("Un grand titre invente",.06f*840,.165f*594,titlePaint)
+        val p=Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.BLACK;textSize=9f}
+        for((ci,label)in listOf(0 to "Colonne une",1 to "Colonne deux",2 to "Colonne trois")){
+            val x=(.06f+ci*.30f)*840
+            for(line in 0..39)cv.drawText("$label : phrase fictive numero ${line+1} pour ce test.",x,(.215f+line*.018f)*594,p)
+        }
+        pdf.finishPage(page);File(c.filesDir,"current.pdf").outputStream().use{pdf.writeTo(it)};pdf.close()
+        ActivityScenario.launch<MainActivity>(Intent(c,MainActivity::class.java)).use{scenario->
+            fun field(a:MainActivity,n:String)=MainActivity::class.java.getDeclaredField(n).apply{isAccessible=true}.get(a)
+            fun call(a:MainActivity,n:String,vararg args:Any){MainActivity::class.java.declaredMethods.first{it.name==n}.apply{isAccessible=true}.invoke(a,*args)}
+            fun awaitReady(){var ready=false;val end=System.currentTimeMillis()+90000;while(System.currentTimeMillis()<end){scenario.onActivity{a->ready=field(a,"pageReady")as Boolean&&findCanvas(a.window.decorView)!!.zones.isNotEmpty()};if(ready)break;Thread.sleep(100)};assertTrue("Detection must finish",ready)}
+            awaitReady()
+            scenario.onActivity{a->
+                val zones=findCanvas(a.window.decorView)!!.zones
+                val order=field(a,"order")as List<*>
+                assertEquals("Auto mode must preselect every detected block in proposed order",AutoOrder.propose(zones),order)
+                assertTrue("Auto proposal must not be empty",order.isNotEmpty())
+                // Reading-order properties on this fixture's three columns: title first,
+                // columns contiguous (no interleaving), top-down inside each column.
+                val byId=zones.associateBy{it.id}
+                val ids=(order as List<*>).map{it as Int}
+                fun lane(z:Zone):Int{val cx=(z.box.left+z.box.right)/2;return when{cx<.33f->0;cx<.65f->1;else->2}}
+                assertTrue("Title must read first",byId[ids.first()]!!.box.bottom<.19f)
+                assertEquals("Columns must read contiguously, left first",listOf(0,0,0,0,0,1,1,1,1,2,2),ids.map{lane(byId[it]!!)})
+                for(l in 0..2){val tops=ids.map{byId[it]!!}.filter{lane(it)==l}.map{it.box.top};assertEquals("Column $l must read top-down",tops.sorted(),tops)}
+                assertEquals(true,field(a,"autoProposed"))
+                assertTrue("Toggle must be visible",findButton(a.window.decorView,"Auto")!!.isShown)
+                assertTrue("Clear cross must be visible with a selection",findButton(a.window.decorView,"✕")!!.isShown)
+                assertTrue("Status must announce the automatic choice",findText(a.window.decorView,"choisis automatiquement"))
+                File(File(c.getExternalFilesDir(null),"screenshots").apply{mkdirs()},"auto-select-zones.txt").writeText(zones.joinToString("\n")+"\nORDER\n"+order.joinToString(","))
+            }
+            screenshot(scenario,"auto-select-page")
+            // The proposal is computed once: any manual change ends the automatic label.
+            scenario.onActivity{a->val canvas=findCanvas(a.window.decorView)!!;val last=canvas.zones.last{it.id in canvas.selection};canvas.onZoneTap!!.invoke(last);assertTrue("Manual edit must end the automatic label",findText(a.window.decorView,"dans votre ordre"))}
+            // The clear cross empties the page and the empty choice persists: no re-proposal on return.
+            scenario.onActivity{a->findCanvas(a.window.decorView)!!.onZoneTap!!.invoke(findCanvas(a.window.decorView)!!.zones.first())}
+            scenario.onActivity{a->findButton(a.window.decorView,"✕")!!.performClick()}
+            i.waitForIdleSync()
+            scenario.onActivity{a->
+                assertEquals(emptyList<Int>(),field(a,"order"))
+                assertFalse("Cross must hide on an empty selection",findButton(a.window.decorView,"✕")!!.isShown)
+                assertTrue("Zones stay available for manual choice",findCanvas(a.window.decorView)!!.zones.isNotEmpty())
+            }
+            screenshot(scenario,"auto-select-cleared")
+            scenario.onActivity{a->call(a,"loadPage",0,false)}
+            awaitReady()
+            scenario.onActivity{a->assertEquals("Cleared page must stay empty on return (no auto re-proposal)",emptyList<Int>(),field(a,"order"));assertEquals(false,field(a,"autoProposed"))}
+            // Turning Auto off applies to pages prepared later, without touching saved choices.
+            scenario.onActivity{a->findButton(a.window.decorView,"Auto")!!.performClick();assertEquals(false,field(a,"autoSelect"));call(a,"loadPage",0,true)}
+            awaitReady()
+            scenario.onActivity{a->assertEquals("Auto off must leave new detections unselected",emptyList<Int>(),field(a,"order"));assertTrue(findText(a.window.decorView,"dans votre ordre"))}
+            scenario.onActivity{a->findButton(a.window.decorView,"Auto")!!.performClick();assertEquals(true,field(a,"autoSelect"))}
+        }
+    }
+    @Test fun autoSelectProposesReadableOrderOnContinuousText(){
+        // Fictional magazine page with continuous prose columns (no repeated labels):
+        // the middle column carries a paragraph gap, which may split it into two blocks.
+        val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext
+        File(c.filesDir,"current.pdf").delete();SessionStore(c).clear()
+        val pdf=android.graphics.pdf.PdfDocument();val page=pdf.startPage(android.graphics.pdf.PdfDocument.PageInfo.Builder(840,594,1).create())
+        val cv=page.canvas;cv.drawColor(Color.WHITE)
+        val titlePaint=Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.rgb(226,118,27);textSize=30f;typeface=Typeface.create("sans-serif",Typeface.BOLD)}
+        cv.drawText("Un grand titre invente",.06f*840,.165f*594,titlePaint)
+        val words=listOf("conseil","municipal","invente","une","histoire","complete","pour","ce","test","de","lecture","continue","sans","etiquette")
+        val p=Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.BLACK;textSize=9f}
+        for(ci in 0..2){
+            val x=(.06f+ci*.30f)*840;var line=0;var w=ci*3
+            while(line<40){
+                if(ci==1&&line==22){line+=2} // paragraph gap in the middle column
+                val sb=StringBuilder()
+                repeat(5+((w+line)%3)){sb.append(words[(w+line+it)%words.size]).append(' ')}
+                cv.drawText(sb.toString().trim(),x,(.215f+line*.018f)*594,p);w+=7;line++
+            }
+        }
+        pdf.finishPage(page);File(c.filesDir,"current.pdf").outputStream().use{pdf.writeTo(it)};pdf.close()
+        ActivityScenario.launch<MainActivity>(Intent(c,MainActivity::class.java)).use{scenario->
+            fun field(a:MainActivity,n:String)=MainActivity::class.java.getDeclaredField(n).apply{isAccessible=true}.get(a)
+            var ready=false;val end=System.currentTimeMillis()+90000
+            while(System.currentTimeMillis()<end){scenario.onActivity{a->ready=field(a,"pageReady")as Boolean&&findCanvas(a.window.decorView)!!.zones.isNotEmpty()};if(ready)break;Thread.sleep(100)}
+            assertTrue("Detection must finish",ready)
+            screenshot(scenario,"auto-select-continuous")
+            scenario.onActivity{a->
+                val zones=findCanvas(a.window.decorView)!!.zones
+                val order=(field(a,"order")as List<*>).map{it as Int}
+                // Dump the detected geometry before asserting, so a failure still ships the evidence.
+                File(File(c.getExternalFilesDir(null),"screenshots").apply{mkdirs()},"auto-select-continuous-zones.txt").writeText(zones.joinToString("\n")+"\nORDER\n"+order.joinToString(","))
+                val byId=zones.associateBy{it.id}
+                assertTrue("Proposal must not be empty",order.isNotEmpty())
+                assertTrue("Title must read first",byId[order.first()]!!.box.bottom<.19f)
+                fun lane(z:Zone):Int{val cx=(z.box.left+z.box.right)/2;return when{cx<.345f->0;cx<.645f->1;else->2}}
+                val lanes=order.map{lane(byId[it]!!)}
+                assertEquals("Columns must read contiguously, left first",lanes.sorted(),lanes)
+                for(l in lanes.toSet()){val tops=order.map{byId[it]!!}.filter{lane(it)==l}.map{it.box.top};assertEquals("Column $l must read top-down",tops.sorted(),tops)}
+            }
+        }
+    }
+    @Test fun autoSelectProposesOrderOnMultiPageWithSlider(){
+        // Integrated screen on a multi-page document: auto proposal, page slider,
+        // Auto toggle and clear cross all visible together.
+        val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext
+        writeThreePageFixture(c)
+        ActivityScenario.launch<MainActivity>(Intent(c,MainActivity::class.java)).use{scenario->
+            fun field(a:MainActivity,n:String)=MainActivity::class.java.getDeclaredField(n).apply{isAccessible=true}.get(a)
+            var ready=false;val end=System.currentTimeMillis()+90000
+            while(System.currentTimeMillis()<end){scenario.onActivity{a->ready=field(a,"pageReady")as Boolean&&findCanvas(a.window.decorView)!!.zones.isNotEmpty()};if(ready)break;Thread.sleep(100)}
+            assertTrue("Detection must finish",ready)
+            scenario.onActivity{a->
+                var seek:SeekBar?=null
+                fun walk(v:View){if(v is SeekBar)seek=v;if(v is ViewGroup)for(j in 0 until v.childCount)walk(v.getChildAt(j))}
+                walk(a.window.decorView)
+                assertNotNull("Page slider must be visible on a multi-page document",seek);assertTrue(seek!!.isShown)
+                assertTrue("Auto toggle must be visible",findButton(a.window.decorView,"Auto")!!.isShown)
+                assertTrue("Clear cross must be visible with the proposal",findButton(a.window.decorView,"✕")!!.isShown)
+                assertTrue("Proposal must not be empty",(field(a,"order")as List<*>).isNotEmpty())
+                assertEquals(true,field(a,"autoProposed"))
+            }
+            screenshot(scenario,"auto-select-slider")
+        }
+    }
+    @Test fun twoFingerHoldRemovesCrossedBlocksOnly(){
+        val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext;File(c.filesDir,"current.pdf").delete();SessionStore(c).clear()
+        ActivityScenario.launch<MainActivity>(Intent(c,MainActivity::class.java)).use{scenario->
+            fun set(a:MainActivity,n:String,v:Any){MainActivity::class.java.getDeclaredField(n).apply{isAccessible=true}.set(a,v)}
+            fun get(a:MainActivity,n:String)=MainActivity::class.java.getDeclaredField(n).apply{isAccessible=true}.get(a)
+            fun call(a:MainActivity,n:String,vararg args:Any){MainActivity::class.java.declaredMethods.first{it.name==n}.apply{isAccessible=true}.invoke(a,*args)}
+            val zones=listOf(Zone(1,Box(.1f,.1f,.8f,.3f),Kind.TEXT),Zone(2,Box(.1f,.35f,.8f,.55f),Kind.TEXT),Zone(3,Box(.1f,.6f,.8f,.8f),Kind.TEXT))
+            scenario.onActivity{a->val image=Bitmap.createBitmap(700,1000,Bitmap.Config.ARGB_8888);image.eraseColor(Color.WHITE);set(a,"preview",image);set(a,"count",1);set(a,"zones",zones);set(a,"order",listOf(1,2,3));val page=findCanvas(a.window.decorView)!!;page.image=image;call(a,"sync",false)}
+            i.waitForIdleSync()
+            var down=0L
+            fun twoFingerEvent(action:Int,x0:Float,y0:Float,x1:Float,y1:Float){
+                scenario.onActivity{a->
+                    val v=findCanvas(a.window.decorView)!!
+                    val pp=arrayOf(MotionEvent.PointerProperties().apply{id=0;toolType=MotionEvent.TOOL_TYPE_FINGER},MotionEvent.PointerProperties().apply{id=1;toolType=MotionEvent.TOOL_TYPE_FINGER})
+                    val pc=arrayOf(MotionEvent.PointerCoords().apply{x=x0;y=y0},MotionEvent.PointerCoords().apply{x=x1;y=y1})
+                    val e=MotionEvent.obtain(down,android.os.SystemClock.uptimeMillis(),action,2,pp,pc,0,0,1f,1f,0,0,0,0)
+                    v.dispatchTouchEvent(e);e.recycle()
+                }
+            }
+            fun screenPoint(nx:Float,ny:Float):PointF{var out=PointF();scenario.onActivity{a->val v=findCanvas(a.window.decorView)!!;val m=PageCanvas::class.java.getDeclaredField("matrix").apply{isAccessible=true}.get(v)as Matrix;val pts=floatArrayOf(nx*700,ny*1000);m.mapPoints(pts);out=PointF(pts[0],pts[1])};return out}
+            // First: a fast two-finger spread (pinch) must NOT remove anything.
+            scenario.onActivity{a->val v=findCanvas(a.window.decorView)!!;down=android.os.SystemClock.uptimeMillis();val e=MotionEvent.obtain(down,down,MotionEvent.ACTION_DOWN,300f,300f,0);v.dispatchTouchEvent(e);e.recycle()}
+            Thread.sleep(60)
+            twoFingerEvent(MotionEvent.ACTION_POINTER_DOWN or (1 shl 8),300f,300f,380f,300f)
+            Thread.sleep(60)
+            twoFingerEvent(MotionEvent.ACTION_MOVE,300f,300f,520f,300f) // span grows: pinch
+            Thread.sleep(700)
+            twoFingerEvent(MotionEvent.ACTION_MOVE,300f,300f,560f,300f)
+            twoFingerEvent(MotionEvent.ACTION_POINTER_UP or (1 shl 8),300f,300f,560f,300f)
+            Thread.sleep(200)
+            scenario.onActivity{a->assertEquals("Pinch before the hold must not remove blocks",listOf(1,2,3),get(a,"order"))}
+            // Then: two fingers held still, then dragged together across block 2 removes it.
+            // The pair starts in the blank gap between blocks 1 and 2, so only block 2 is crossed.
+            val from=screenPoint(.45f,.32f);val to=screenPoint(.45f,.45f)
+            scenario.onActivity{a->val v=findCanvas(a.window.decorView)!!;down=android.os.SystemClock.uptimeMillis();val e=MotionEvent.obtain(down,down,MotionEvent.ACTION_DOWN,from.x-40,from.y,0);v.dispatchTouchEvent(e);e.recycle()}
+            Thread.sleep(60)
+            twoFingerEvent(MotionEvent.ACTION_POINTER_DOWN or (1 shl 8),from.x-40,from.y,from.x+40,from.y)
+            Thread.sleep(800) // hold: the removal sweep activates
+            val mx=(to.x-from.x)/2;val my=(to.y-from.y)/2
+            twoFingerEvent(MotionEvent.ACTION_MOVE,from.x-40+mx,from.y+my,from.x+40+mx,from.y+my)
+            twoFingerEvent(MotionEvent.ACTION_MOVE,to.x-40,to.y,to.x+40,to.y)
+            twoFingerEvent(MotionEvent.ACTION_POINTER_UP or (1 shl 8),to.x-40,to.y,to.x+40,to.y)
+            Thread.sleep(300)
+            scenario.onActivity{a->assertEquals("Two-finger sweep must remove the crossed block only",listOf(1,3),get(a,"order"))}
+            screenshot(scenario,"two-finger-remove")
+            // A full pass from above block 1 to below block 3 removes the rest; unchosen block 2 is never re-added.
+            val top=screenPoint(.45f,.05f);val bottom=screenPoint(.45f,.85f)
+            scenario.onActivity{a->val v=findCanvas(a.window.decorView)!!;down=android.os.SystemClock.uptimeMillis();val e=MotionEvent.obtain(down,down,MotionEvent.ACTION_DOWN,top.x-40,top.y,0);v.dispatchTouchEvent(e);e.recycle()}
+            Thread.sleep(60)
+            twoFingerEvent(MotionEvent.ACTION_POINTER_DOWN or (1 shl 8),top.x-40,top.y,top.x+40,top.y)
+            Thread.sleep(800)
+            twoFingerEvent(MotionEvent.ACTION_MOVE,bottom.x-40,bottom.y,bottom.x+40,bottom.y)
+            twoFingerEvent(MotionEvent.ACTION_POINTER_UP or (1 shl 8),bottom.x-40,bottom.y,bottom.x+40,bottom.y)
+            Thread.sleep(300)
+            scenario.onActivity{a->assertEquals("Second pass must remove remaining chosen blocks without re-adding",emptyList<Int>(),get(a,"order"))}
+        }
+    }
+    private fun clearAutoProposal(scenario:ActivityScenario<MainActivity>){
+        scenario.onActivity{a->
+            fun walk(v:View):Boolean{if(v.contentDescription=="Tout désélectionner"){v.performClick();return true};if(v is ViewGroup)for(j in 0 until v.childCount)if(walk(v.getChildAt(j)))return true;return false}
+            walk(a.window.decorView)
+        }
     }
     private fun findText(v:View,value:String):Boolean{if(v is TextView&&v.text.toString().contains(value))return true;if(v is ViewGroup)for(j in 0 until v.childCount)if(findText(v.getChildAt(j),value))return true;return false}
     private fun findButton(v:View,label:String):Button? {if(v is Button&&v.text.toString().startsWith(label))return v;if(v is ViewGroup)for(i in 0 until v.childCount)findButton(v.getChildAt(i),label)?.let{return it};return null}

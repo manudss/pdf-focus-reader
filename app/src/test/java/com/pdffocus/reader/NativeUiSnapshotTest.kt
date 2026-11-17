@@ -58,6 +58,36 @@ class NativeUiSnapshotTest {
         reader.showOcr(mapOf(1 to "Le plaisir de lire commence par un écran confortable. Le texte reconnu utilise une vraie police, et revient automatiquement à la ligne. Les accents restent présents : été, où, français.\n\n".repeat(10)))
         snapshot(reader,"ocr-real-font");reader.zoomBy(1.1f);snapshot(reader,"ocr-larger-font");reader.clear()
     }
-    private fun snapshot(v:View,name:String){val b=Bitmap.createBitmap(v.width,v.height,Bitmap.Config.ARGB_8888);v.draw(Canvas(b));val out=File("build/ui-snapshots").apply{mkdirs()};File(out,"$name.png").outputStream().use{b.compress(Bitmap.CompressFormat.PNG,100,it)};b.recycle()}
+    @Test fun readingKeepsColumnsApartUnderAWideTitle(){
+        // Fictional magazine geometry mirroring a reported layout: a wide short title
+        // left-aligned above the first of three text columns. Content is invented.
+        val reader=ContinuousReaderView(org.robolectric.RuntimeEnvironment.getApplication())
+        reader.measure(View.MeasureSpec.makeMeasureSpec(1080,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(1700,View.MeasureSpec.EXACTLY));reader.layout(0,0,1080,1700)
+        val source=Bitmap.createBitmap(900,1273,Bitmap.Config.ARGB_8888);source.eraseColor(Color.WHITE)
+        val c=Canvas(source);val titlePaint=Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.rgb(226,118,27);textSize=40f;typeface=Typeface.create("sans-serif",Typeface.BOLD)}
+        c.drawText("Un titre large et inventé",42f,200f,titlePaint)
+        val p=Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.BLACK;textSize=22f}
+        for((x,label)in listOf(42f to "Colonne une",325f to "Colonne deux",628f to "Colonne trois"))for(line in 0..29)c.drawText("$label, ligne fictive ${line+1}",x,320f+line*30,p)
+        val requested=mutableMapOf<Int,MutableList<Box>>()
+        reader.onRequest={tile,revision->requested.getOrPut(tile.chunkKey){mutableListOf()}.add(tile.source)
+            val b=Bitmap.createBitmap(kotlin.math.ceil(tile.rect.width()).toInt(),kotlin.math.ceil(tile.rect.height()).toInt(),Bitmap.Config.ARGB_8888)
+            Canvas(b).drawBitmap(source,Rect((tile.source.left*900).toInt(),(tile.source.top*1273).toInt(),(tile.source.right*900).toInt(),(tile.source.bottom*1273).toInt()),Rect(0,0,b.width,b.height),Paint(Paint.FILTER_BITMAP_FLAG));reader.accept(tile,revision,b)}
+        val col1=Zone(2,Box(.047f,.191f,.331f,.947f),Kind.TEXT);val col2=Zone(3,Box(.361f,.219f,.669f,.930f),Kind.TEXT);val col3=Zone(4,Box(.698f,.219f,1f,.930f),Kind.TEXT)
+        reader.setDocument(listOf(Zone(1,Box(.047f,.128f,.538f,.175f),Kind.TEXT),col1,col2,col3),900,1273)
+        snapshot(reader,"wide-title-priming");snapshot(reader,"wide-title-reading-top")
+        var now=android.os.SystemClock.uptimeMillis()
+        fun drag(dy:Float){reader.onTouchEvent(MotionEvent.obtain(now,now,MotionEvent.ACTION_DOWN,540f,1400f,0));now+=200;reader.onTouchEvent(MotionEvent.obtain(now,now,MotionEvent.ACTION_MOVE,540f,1400f-dy,0));now+=50;reader.onTouchEvent(MotionEvent.obtain(now,now,MotionEvent.ACTION_UP,540f,1400f-dy,0))}
+        drag(4150f);snapshot(reader,"wide-title-middle-priming");snapshot(reader,"wide-title-reading-middle")
+        drag(4000f);snapshot(reader,"wide-title-end-priming");snapshot(reader,"wide-title-reading-end")
+        // Each column keeps its own extent as the tile source: no widening toward the
+        // title, no strip subtracted by a neighbour, whatever the scroll position.
+        assertTrue(requested.getValue(2).isNotEmpty());assertTrue(requested.getValue(3).isNotEmpty());assertTrue(requested.getValue(4).isNotEmpty())
+        assertTrue(requested.getValue(2).all{it.left>=.046f&&it.right<=.332f})
+        assertTrue(requested.getValue(3).all{it.left>=.360f&&it.right<=.670f})
+        assertTrue(requested.getValue(4).all{it.left>=.697f})
+        val tiles=requested.values.flatten();for(i in tiles.indices)for(j in i+1 until tiles.size)assertEquals(0f,tiles[i].intersect(tiles[j]),.000001f)
+        assertTrue(reader.currentPosition()>7000);reader.clear();source.recycle()
+    }
+    private fun snapshot(v:View,name:String){val b=Bitmap.createBitmap(v.width,v.height,Bitmap.Config.ARGB_8888);v.draw(Canvas(b));val out=File("build/reports/ui-snapshots").apply{mkdirs()};File(out,"$name.png").outputStream().use{b.compress(Bitmap.CompressFormat.PNG,100,it)};b.recycle()}
     private fun findCanvas(v:View):PageCanvas?{if(v is PageCanvas)return v;if(v is ViewGroup)for(i in 0 until v.childCount)findCanvas(v.getChildAt(i))?.let{return it};return null}
 }

@@ -18,7 +18,10 @@ object ContinuousLayout {
             val related=aligned.filter{p->
                 val x=p.box;val horizontal=min(x.right,b.right)-max(x.left,b.left);val gap=max(x.top,b.top)-min(x.bottom,b.bottom)
                 p.id!=z.id&&p.kind==Kind.TEXT&&z.kind==Kind.TEXT&&(
-                    min(x.height,b.height)<.075f&&abs(x.left-b.left)<.075f&&horizontal>.4f*min(x.width,b.width)&&gap in -.035f.. .035f ||
+                    // Only a short heading widens toward a related column BELOW it. A tall column must
+                    // never grow toward a wide title above it: it would swallow the neighbouring
+                    // columns' strips, which then render twice, clipped, at mismatched scales.
+                    b.height<.075f&&x.top>b.top&&abs(x.left-b.left)<.075f&&horizontal>.4f*min(x.width,b.width)&&gap in -.035f.. .035f ||
                     gap in -.01f..0f&&horizontal>.8f*min(x.width,b.width)&&min(x.width,b.width)/max(x.width,b.width)>.72f)
             }
             if(related.isEmpty())z else z.copy(box=Box(min(b.left,related.minOf{it.box.left}),b.top,max(b.right,related.maxOf{it.box.right}),b.bottom))
@@ -28,8 +31,10 @@ object ContinuousLayout {
             val b=z.box
             // Related short headings use their column's scale, not full-screen magnification.
             // Pieces remain the exact selected area when a neighbour supplies the scale only.
-            val reference=if(z.kind==Kind.TEXT)coherent.filter{p->
-                p.kind==Kind.TEXT&&p.box.width>=b.width&&abs(p.box.left-b.left)<.075f&&(min(p.box.right,b.right)-max(p.box.left,b.left))>.4f*min(p.box.width,b.width)&&
+            // The scale reference sits BELOW the heading: a quote or fragment must never
+            // inherit the width of a wide title above it, only of the column it tops.
+            val reference=if(z.kind==Kind.TEXT&&b.height<.075f)coherent.filter{p->
+                p.kind==Kind.TEXT&&p.box.top>b.top&&p.box.width>=b.width&&abs(p.box.left-b.left)<.075f&&(min(p.box.right,b.right)-max(p.box.left,b.left))>.4f*min(p.box.width,b.width)&&
                 max(0f,max(p.box.top,b.top)-min(p.box.bottom,b.bottom))<=.035f
             }.maxByOrNull{it.box.width}?.box?.let{Box(min(b.left,it.left),b.top,max(b.right,it.right),b.bottom)}?:b else b
             val overlaps=seen.filter{it.intersect(b)>0}

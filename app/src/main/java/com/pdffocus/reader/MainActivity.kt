@@ -51,8 +51,14 @@ class MainActivity:Activity() {
     private lateinit var controls:LinearLayout
     private lateinit var header:LinearLayout
     private lateinit var menuButton:Button
+    private lateinit var autoButton:Button
+    private lateinit var clearSelection:Button
     private lateinit var progress:ProgressBar
     private lateinit var pages:LinearLayout
+    private lateinit var pageNav:LinearLayout
+    private lateinit var pageSeek:SeekBar
+    private lateinit var pageSeekLabel:TextView
+    private lateinit var pageSeekTotal:TextView
     private var count=0;private var page=0;private var zones=listOf<Zone>();private var order=listOf<Int>()
     private var preview:Bitmap?=null;private var readingBitmap:Bitmap?=null
     private var frameIndex=0;private var reading=false;private var busy=false
@@ -65,19 +71,29 @@ class MainActivity:Activity() {
     private var editDialog:Dialog?=null
     private var adding=false;private var replaceId:Int?=null
     private var documentTitle="PDF Focus Test"
+    private var autoSelect=true
+    private var autoProposed=false
+    private var orderTouched=false
     private val green=Color.rgb(50,109,93);private val ink=Color.rgb(37,31,33)
     private fun dp(v:Int)=(v*resources.displayMetrics.density).roundToInt()
 
     private val spelling by lazy { FrenchSpelling(applicationContext) }
     private fun loadRepair()=OcrEnhancer(emptyList(),spelling::valid)
     override fun onCreate(savedInstanceState:Bundle?) {
-        super.onCreate(savedInstanceState);store=SessionStore(this);cleanReading=getPreferences(0).getBoolean("cleanReading",true)
+        super.onCreate(savedInstanceState);store=SessionStore(this);cleanReading=getPreferences(0).getBoolean("cleanReading",true);autoSelect=getPreferences(0).getBoolean("autoSelect",true)
         val root=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setBackgroundColor(Color.rgb(250,249,246))}
         root.setOnApplyWindowInsetsListener{v,insets->v.setPadding(insets.systemWindowInsetLeft,insets.systemWindowInsetTop,insets.systemWindowInsetRight,insets.systemWindowInsetBottom);insets}
         header=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL;setBackgroundColor(Color.WHITE);setPadding(dp(16),dp(4),dp(12),dp(2))}
         val names=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL}
         title=text("PDF Focus Test",18,true).apply{maxLines=1;ellipsize=android.text.TextUtils.TruncateAt.END};info=text("Lecture privée, sans compte et hors ligne",12)
         names.addView(title);names.addView(info);header.addView(names,LinearLayout.LayoutParams(0,-2,1f))
+        autoButton=Button(this).apply{
+            stateListAnimator=null;elevation=0f;translationZ=0f;backgroundTintList=null
+            text="Auto";textSize=13f;isAllCaps=false;minHeight=dp(40);minimumHeight=dp(40);minWidth=0;minimumWidth=0;setPadding(dp(14),0,dp(14),0)
+            typeface=Typeface.create("sans-serif-medium",Typeface.NORMAL)
+            setOnClickListener{autoSelect=!autoSelect;getPreferences(0).edit().putBoolean("autoSelect",autoSelect).apply();styleAutoButton()}
+        }
+        styleAutoButton();header.addView(autoButton,LinearLayout.LayoutParams(-2,dp(40)).apply{marginEnd=dp(8)})
         menuButton=button("Menu",false){menu()};header.addView(menuButton,LinearLayout.LayoutParams(dp(72),dp(48)));root.addView(header)
         progress=ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal).apply{max=1000;progressTintList=android.content.res.ColorStateList.valueOf(green);progressBackgroundTintList=android.content.res.ColorStateList.valueOf(Color.rgb(226,231,226));visibility=View.GONE};root.addView(progress,LinearLayout.LayoutParams(-1,dp(3)))
         status=text("Ouvrez un PDF pour préparer votre parcours.",13).apply{setPadding(dp(16),dp(4),dp(16),dp(4));accessibilityLiveRegion=View.ACCESSIBILITY_LIVE_REGION_POLITE}
@@ -85,15 +101,39 @@ class MainActivity:Activity() {
         pages=LinearLayout(this).apply{gravity=Gravity.CENTER_VERTICAL;setPadding(dp(10),0,dp(10),dp(4))};root.addView(pages)
         val viewport=android.widget.FrameLayout(this);root.addView(viewport,LinearLayout.LayoutParams(-1,0,1f))
         canvas=PageCanvas(this);viewport.addView(canvas,android.widget.FrameLayout.LayoutParams(-1,-1))
+        // Clear-the-page cross: just above the preview's top-right corner, outside the PDF content.
+        clearSelection=Button(this).apply{
+            stateListAnimator=null;elevation=0f;translationZ=0f;backgroundTintList=null
+            text="✕";textSize=13f;minHeight=dp(36);minimumHeight=dp(36);minWidth=0;minimumWidth=0;setPadding(0,0,0,0)
+            setTextColor(Color.rgb(120,118,112));background=shape(Color.WHITE,18,Color.rgb(226,231,226))
+            contentDescription="Tout désélectionner";visibility=View.GONE
+            setOnClickListener{if(!busy&&!reading&&articleIds==null&&!merging&&adjusting==null&&!adding&&order.isNotEmpty()){order=emptyList();orderTouched=true;frameIndex=0;scrollPosition=0;sync()}}
+        }
+        viewport.addView(clearSelection,android.widget.FrameLayout.LayoutParams(dp(36),dp(36),Gravity.TOP or Gravity.END).apply{topMargin=dp(6);marginEnd=dp(6)})
         reader=ContinuousReaderView(this).apply{visibility=View.GONE};viewport.addView(reader,android.widget.FrameLayout.LayoutParams(-1,-1))
+        // Page slider (validated mockup B): directly under the page preview, above the actions.
+        pageNav=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(16),0,dp(16),dp(2))}
+        pageSeekLabel=text("",12).apply{gravity=Gravity.CENTER}
+        pageSeek=SeekBar(this).apply{progressTintList=android.content.res.ColorStateList.valueOf(green);progressBackgroundTintList=android.content.res.ColorStateList.valueOf(Color.rgb(226,231,226));thumbTintList=android.content.res.ColorStateList.valueOf(green)}
+        pageSeek.setOnSeekBarChangeListener(object:SeekBar.OnSeekBarChangeListener{
+            override fun onProgressChanged(s:SeekBar?,p:Int,fromUser:Boolean){if(count>0)pageSeekLabel.text="Page ${p+1} / $count"}
+            override fun onStartTrackingTouch(s:SeekBar?){}
+            override fun onStopTrackingTouch(s:SeekBar?){s?.let{sliderPage(it.progress)}}
+        })
+        val seekRow=LinearLayout(this).apply{gravity=Gravity.CENTER_VERTICAL}
+        pageSeekTotal=text("",12)
+        seekRow.addView(text("1",12));seekRow.addView(pageSeek,LinearLayout.LayoutParams(0,-2,1f));seekRow.addView(pageSeekTotal)
+        pageNav.addView(pageSeekLabel);pageNav.addView(seekRow)
+        pageNav.visibility=View.GONE;root.addView(pageNav)
         reader.onRequest={tile,revision->val token=generation;val targetPage=page;val cleanup=cleanReading&&!ocrReading&&tile.kind==Kind.TEXT;worker.execute{var image:Bitmap?=null;try{if(token==generation&&!reader.needsRender(tile,revision)){main.post{reader.skipRequest(tile,revision)};return@execute};if(token==generation)image=document?.readingRegion(targetPage,tile.source,max(1,ceil(tile.rect.width()).toInt()),max(1,ceil(tile.rect.height()).toInt()),cleanup)}catch(_:Exception){};main.post{if(token==generation&&reading)reader.accept(tile,revision,image)else image?.recycle()}}}
         reader.onOcrMark={key,id,_,y->showOcrComparison(key,id,y)}
         reader.onProgress={ordinal,position->currentOrdinal=ordinal;scrollPosition=position;if(reading){info.text="Page ${page+1} sur $count · bloc ${ordinal+1} sur ${order.size}";progress.progress=((ordinal+1)*1000/maxOf(1,order.size))};status.text=if(ocrReading)"OCR ${if(enhancedOcr)"amélioré" else "brut"} · erreurs possibles${if(ocrLoading)" · suite en cours" else ""}${ocrNotice}" else "Lecture continue · bloc ${ordinal+1} / ${order.size} · glissez pour la suite";if(reading&&pageReady){main.removeCallbacks(saveProgress);main.postDelayed(saveProgress,400)}}
         controls=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(12),dp(8),dp(12),dp(10));background=shape(Color.WHITE,22);elevation=dp(5).toFloat()};root.addView(controls)
         setContentView(root)
         detectionWorker.execute{try{val local=loadRepair();main.post{if(!isDestroyed)repair=local}}catch(_:Exception){}}
-        canvas.onZoneTap={z->if(!busy&&!reading){if(articleIds!=null){articleIds=ReadingLayout.toggle(articleIds!!,z.id);canvas.selection=articleIds!!;updateControls()}else if(merging){mergeIds=if(z.id in mergeIds)mergeIds-z.id else mergeIds+z.id;canvas.mergeIds=mergeIds;updateControls()}else{order=ReadingLayout.toggle(order,z.id);frameIndex=0;scrollPosition=0;sync()}}}
-        canvas.onZoneSweep={z->if(!busy&&!reading&&adjusting==null&&!adding){if(articleIds!=null){if(z.id !in articleIds!!){articleIds=articleIds!!+z.id;canvas.selection=articleIds!!;updateControls()}}else if(merging){mergeIds=mergeIds+z.id;canvas.mergeIds=mergeIds;updateControls()}else if(z.id !in order){order=order+z.id;frameIndex=0;scrollPosition=0;sync()}}}
+        canvas.onZoneTap={z->if(!busy&&!reading){if(articleIds!=null){articleIds=ReadingLayout.toggle(articleIds!!,z.id);canvas.selection=articleIds!!;updateControls()}else if(merging){mergeIds=if(z.id in mergeIds)mergeIds-z.id else mergeIds+z.id;canvas.mergeIds=mergeIds;updateControls()}else{order=ReadingLayout.toggle(order,z.id);orderTouched=true;frameIndex=0;scrollPosition=0;sync()}}}
+        canvas.onZoneSweep={z->if(!busy&&!reading&&adjusting==null&&!adding){if(articleIds!=null){if(z.id !in articleIds!!){articleIds=articleIds!!+z.id;canvas.selection=articleIds!!;updateControls()}}else if(merging){mergeIds=mergeIds+z.id;canvas.mergeIds=mergeIds;updateControls()}else if(z.id !in order){order=order+z.id;orderTouched=true;frameIndex=0;scrollPosition=0;sync()}}}
+        canvas.onZoneSweepRemove={z->if(!busy&&!reading&&adjusting==null&&!adding&&articleIds==null&&!merging){if(z.id in order){order=order-z.id;orderTouched=true;frameIndex=0;scrollPosition=0;sync()}}}
         canvas.onZoneLongPress={z->if(!busy&&!reading&&!merging&&articleIds==null&&adjusting==null)editZone(z)}
         canvas.onRectangle={b->
             if(!busy){
@@ -106,9 +146,18 @@ class MainActivity:Activity() {
             }
         }
         canvas.onViewportReady={}
+        canvas.onPageSwipe={dir->if(!documentLoading&&!reading){val target=page+dir;if(target in 0 until count)loadPage(target)}}
+        reader.onReturnToPage={exitReader()}
+        reader.onNextPage={if(page<count-1){exitReader();loadPage(page+1)}}
         updateControls();handleIntent(intent)
         if(intent?.action !in listOf(Intent.ACTION_VIEW,Intent.ACTION_SEND)&&File(filesDir,"current.pdf").exists())resumeLast()
     }
+    private fun refreshPageNav(){
+        pageNav.visibility=if(!reading&&count>1)View.VISIBLE else View.GONE
+        if(count>0){pageSeekTotal.text=count.toString();if(pageSeek.max!=count-1)pageSeek.max=count-1;if(pageSeek.progress!=page)pageSeek.progress=page;pageSeekLabel.text="Page ${page+1} / $count"}
+        pageSeek.isEnabled=!documentLoading
+    }
+    internal fun sliderPage(p:Int){if(!documentLoading&&p in 0 until count&&p!=page)loadPage(p)}
     private fun text(value:String,size:Int=14,bold:Boolean=false)=TextView(this).apply{text=value;textSize=size.toFloat();setTextColor(ink);if(bold)setTypeface(null,Typeface.BOLD);setPadding(0,dp(3),0,dp(3))}
     private fun shape(color:Int,radius:Int,stroke:Int=Color.TRANSPARENT)=android.graphics.drawable.GradientDrawable().apply{setColor(color);cornerRadius=dp(radius).toFloat();if(stroke!=Color.TRANSPARENT)setStroke(dp(1),stroke)}
     private fun iconName(label:String):String=when{
@@ -150,12 +199,14 @@ class MainActivity:Activity() {
         val dialog=AlertDialog.Builder(this).setTitle("Votre parcours · ${order.size} blocs").setView(panel).create()
         fun action(label:String,run:()->Unit){panel.addView(button(label){run();dialog.dismiss()},LinearLayout.LayoutParams(-1,dp(52)))}
         panel.addView(text("Les numéros sur la page suivent vos appuis. La fusion utilise une sélection indépendante.",13))
-        action("Annuler dernier"){order=order.dropLast(1);frameIndex=0;scrollPosition=0;sync()}
-        action("Effacer l'ordre"){order=emptyList();frameIndex=0;scrollPosition=0;sync()}
+        action("Annuler dernier"){order=order.dropLast(1);orderTouched=true;frameIndex=0;scrollPosition=0;sync()}
+        action("Effacer l'ordre"){order=emptyList();orderTouched=true;frameIndex=0;scrollPosition=0;sync()}
         action("Recentrer"){canvas.resetZoom()};action("Fermer"){};dialog.show()
     }
     private fun updateControls(){
         controls.removeAllViews();controls.isEnabled=true;pages.removeAllViews();pages.visibility=if(reading||adjusting!=null||merging||articleIds!=null||adding)View.GONE else View.VISIBLE
+        autoButton.visibility=if(count>0&&!reading&&articleIds==null&&!merging&&adjusting==null&&!adding)View.VISIBLE else View.GONE
+        clearSelection.visibility=if(count>0&&!reading&&order.isNotEmpty()&&articleIds==null&&!merging&&adjusting==null&&!adding)View.VISIBLE else View.GONE
         title.text=when{reading&&ocrReading->"Texte OCR";reading->"Lecture";articleIds!=null->"Article proposé";merging->"Fusionner des blocs";adjusting!=null->"Ajuster le cadre";count>0->"Préparer ma lecture";else->"PDF Focus Test"}
         info.text=if(count>0)"Page ${page+1} sur $count" else "Lecture privée, hors ligne"
         title.typeface=Typeface.create(if(reading)"sans-serif-medium" else "serif",Typeface.NORMAL)
@@ -228,7 +279,7 @@ class MainActivity:Activity() {
             val read=button("Lire (${order.size})",true){startReader()}.apply{isEnabled=order.isNotEmpty()&&!busy}
             row(button("Ajouter"){adding=true;canvas.drawMode=true;updateControls()},button("Ordre"){showOrder()},button("Fusionner"){(order.firstOrNull()?.let{id->zones.find{it.id==id}}?:zones.firstOrNull())?.let{beginMerge(it)}}.apply{isEnabled=zones.isNotEmpty()},button("Regrouper"){showAutoGroups()}.apply{isEnabled=zones.isNotEmpty()})
             row(read)
-            controls.addView(text("Maintenez-glissez pour choisir · Double tap pour corriger",11))
+            controls.addView(text("Maintenez-glissez pour choisir · Deux doigts pour retirer · Double tap pour corriger",11))
             val prev=button("Précédente"){loadPage(page-1)}.apply{isEnabled=page>0&&!documentLoading}
             val next=button("Suivante"){loadPage(page+1)}.apply{isEnabled=page<count-1&&!documentLoading}
             pages.addView(prev,LinearLayout.LayoutParams(0,dp(44),1f))
@@ -236,13 +287,19 @@ class MainActivity:Activity() {
             pages.addView(next,LinearLayout.LayoutParams(0,dp(44),1f))
         }
         setEnabledRecursive(controls,!busy)
+        refreshPageNav()
+    }
+    private fun styleAutoButton(){
+        autoButton.background=shape(if(autoSelect)Color.rgb(226,239,231)else Color.WHITE,20,if(autoSelect)green else Color.rgb(226,231,226))
+        autoButton.setTextColor(if(autoSelect)green else Color.rgb(120,118,112))
+        autoButton.contentDescription=if(autoSelect)"Choix automatique activé" else "Choix automatique désactivé"
     }
     private fun setEnabledRecursive(v:View,enabled:Boolean){v.isEnabled=v.isEnabled&&enabled;if(v is android.view.ViewGroup)for(i in 0 until v.childCount)setEnabledRecursive(v.getChildAt(i),enabled)}
     private fun sync(save:Boolean=true){
         canvas.zones=zones;canvas.selection=articleIds?:order
         info.text="Page ${page+1} sur $count"
         title.text=documentTitle
-        if(!reading&&!busy)status.text=if(adding)"Cadrage manuel" else "${zones.size} blocs proposés · ${order.size} choisis dans votre ordre"
+        if(!reading&&!busy)status.text=if(adding)"Cadrage manuel" else "${zones.size} blocs proposés · ${order.size} choisis ${if(autoProposed&&!orderTouched)"automatiquement" else "dans votre ordre"}"
         updateControls();if(save&&count>0)saveSession()
     }
     private fun saveSession(){try{store.put(page,PageSession(zones,order,frameIndex,scrollPosition))}catch(_:Exception){status.text="Lecture possible, mais sauvegarde indisponible."}}
@@ -290,7 +347,7 @@ class MainActivity:Activity() {
         articleIds=null;articleReason="";readingColors.clear()
         if(index !in 0 until count)return
         if(pageReady)saveSession()
-        pendingNew=null;merging=false;mergeIds=emptySet();canvas.mergeMode=false;canvas.mergeIds=emptySet();adjusting=null;canvas.adjustingZone=null;canvas.editBox=null;detector?.cancel();ocrRun++;chunkPlan=emptyList();rawChunks.clear();improvedChunks.clear();secondChunks.clear();ocrNotice="";detecting=false;pageReady=false;recognizedWords=null;ocrLoading=false
+        pendingNew=null;merging=false;mergeIds=emptySet();canvas.mergeMode=false;canvas.mergeIds=emptySet();adjusting=null;canvas.adjustingZone=null;canvas.editBox=null;detector?.cancel();ocrRun++;chunkPlan=emptyList();rawChunks.clear();improvedChunks.clear();secondChunks.clear();ocrNotice="";detecting=false;pageReady=false;recognizedWords=null;ocrLoading=false;autoProposed=false;orderTouched=false
         val savedSession=if(force)null else store.get(index)
         reader.clear();reader.visibility=View.GONE;canvas.visibility=View.VISIBLE;scrollPosition=0
         val token=++generation;page=index;reading=false;adding=false;canvas.drawMode=false;canvas.reading=false
@@ -313,7 +370,7 @@ class MainActivity:Activity() {
                                 val engine=ZoneDetector(applicationContext)
                                 synchronized(this@MainActivity){if(token!=generation)return@detection;detector=engine}
                                 val result=engine.detect(ocrImage){token!=generation}
-                                main.post{if(token==generation&&!isDestroyed){detector=null;detecting=false;recognizedWords=engine.words;zones=TextCoverage.bridgeColumnGaps(result);order=emptyList();frameIndex=0;pageReady=true;busy=false;sync();if(zones.isEmpty())status.text="Aucun bloc trouvé. Utilisez + Bloc pour tracer une zone."}}
+                                main.post{if(token==generation&&!isDestroyed){detector=null;detecting=false;recognizedWords=engine.words;zones=TextCoverage.bridgeColumnGaps(result);order=if(autoSelect)AutoOrder.propose(zones)else emptyList();autoProposed=autoSelect&&order.isNotEmpty();frameIndex=0;pageReady=true;busy=false;sync();if(zones.isEmpty())status.text="Aucun bloc trouvé. Utilisez + Bloc pour tracer une zone."}}
                             }catch(_:Exception){main.post{if(token==generation&&!isDestroyed){detector=null;detecting=false;busy=false;pageReady=true;sync(false);status.text="Analyse indisponible. Tracez vos blocs avec + Bloc."}}}
                             finally{ocrImage.recycle()}
                         }
@@ -326,6 +383,7 @@ class MainActivity:Activity() {
     private fun startReader(){
         if(order.isEmpty()||busy)return
         val p=preview?:return;readingSettings=false;currentOrdinal=frameIndex;reading=true;canvas.visibility=View.GONE;reader.visibility=View.VISIBLE
+        reader.endTitle="Fin de la page ${page+1}";reader.hasNextPage=page<count-1
         val chosen=BlockSeams.align(p,ReadingLayout.ordered(zones,order).map{z->if(z.kind==Kind.TEXT&&!z.manual)z.copy(box=TextCoverage.safeTextBox(p,z.box))else z})
         reader.setDocument(chosen.map{ReadingWhitespace.trim(p,it)},p.width,p.height,scrollPosition,chosen.associate{it.id to readingColor(it.box)});if(ocrReading)prepareOcr();updateControls()
     }

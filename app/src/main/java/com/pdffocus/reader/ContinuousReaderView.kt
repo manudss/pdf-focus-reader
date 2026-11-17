@@ -44,10 +44,20 @@ class ContinuousReaderView(context:Context):View(context){
     private val textPaint=TextPaint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.rgb(37,31,33);typeface=Typeface.create("serif",Typeface.NORMAL)}
     var onRequest:((Tile,Int)->Unit)?=null
     var onProgress:((Int,Int)->Unit)?=null
+    /** End-of-page card: title ("Fin de la page N"); empty disables the card and the overscroll gesture. */
+    var endTitle=""
+    var hasNextPage=false
+    var onReturnToPage:(()->Unit)?=null
+    var onNextPage:(()->Unit)?=null
+    internal var footerTop=0f
+    private var overpull=0f
+    private val overpullThreshold get()=110*density
+    private fun footerHeight()=if(endTitle.isEmpty())0f else 244*density
     private var palettes=mapOf<Int,Int>()
     private data class Surface(val top:Float,val bottom:Float,val color:Int)
     private var surfaces=listOf<Surface>()
     private var bands=listOf<ReadBand>();private var pw=1;private var ph=1
+    private var lineHeights=mapOf<Int,Float>();private var lineCounts=mapOf<Int,Int>()
     @Volatile private var tiles=listOf<Tile>();private var totalHeight=0f;@Volatile private var offset=0f;private var magnification=1f
     private val cacheBytes=(Runtime.getRuntime().maxMemory()/6).coerceIn(32L*1024*1024,96L*1024*1024).toInt()
     private val bitmaps=object:android.util.LruCache<Int,Bitmap>(cacheBytes){override fun sizeOf(key:Int,value:Bitmap)=value.byteCount}
@@ -56,11 +66,47 @@ class ContinuousReaderView(context:Context):View(context){
     @Volatile private var revision=0
     @Volatile private var horizontal=0f
     private var multiTouch=false
-    private val scaling=ScaleGestureDetector(context,object:ScaleGestureDetector.SimpleOnScaleGestureListener(){override fun onScale(d:ScaleGestureDetector):Boolean{zoomBy(d.scaleFactor);return true}})
+    // Pinch zoom: preview live by scaling the canvas around the gesture's focal point, then
+    // rebuild the tile grid, layouts and bitmap cache exactly once when the gesture ends.
+    @Volatile private var pinchLive=false
+    private var pinchScale=1f;private var pinchFx=0f;private var pinchFy=0f
+    private val scaling=ScaleGestureDetector(context,object:ScaleGestureDetector.SimpleOnScaleGestureListener(){
+        override fun onScaleBegin(d:ScaleGestureDetector):Boolean{pinchLive=true;pinchScale=1f;pinchFx=d.focusX;pinchFy=d.focusY;return true}
+        override fun onScale(d:ScaleGestureDetector):Boolean{
+            val cumulative=pinchScale*d.scaleFactor
+            pinchScale=if(ocrTexts!=null)cumulative.coerceIn(14f/fontSize,38f/fontSize) else cumulative.coerceIn(1f/magnification,2f/magnification)
+            invalidate();return true
+        }
+        override fun onScaleEnd(d:ScaleGestureDetector){commitPinch()}
+    })
+    private fun commitPinch(){
+        if(!pinchLive)return
+        val s=pinchScale;pinchLive=false;pinchScale=1f
+        if(s<0.999f||s>1.001f){
+            // The live preview holds the content point under the focus fixed; keep that same
+            // point under the focus after the rebuild instead of jumping to the scroll fraction.
+            val contentY=offset+pinchFy
+            val before=if(ocrTexts!=null)fontSize else magnification
+            zoomBy(s)
+            val after=if(ocrTexts!=null)fontSize else magnification
+            if(before>0)move(contentY*(after/before)-pinchFy)
+        }else invalidate()
+    }
     private val gestures=GestureDetector(context,object:GestureDetector.SimpleOnGestureListener(){
-        override fun onDown(e:MotionEvent):Boolean{scroller.forceFinished(true);return true}
-        override fun onScroll(a:MotionEvent?,b:MotionEvent,dx:Float,dy:Float):Boolean{horizontal=if(ocrTexts!=null)0f else (horizontal+dx).coerceIn(-max(0f,(width*magnification-width)/2),max(0f,(width*magnification-width)/2));move(offset+dy);return true}
+        override fun onDown(e:MotionEvent):Boolean{scroller.forceFinished(true);overpull=0f;return true}
+        override fun onScroll(a:MotionEvent?,b:MotionEvent,dx:Float,dy:Float):Boolean{
+            horizontal=if(ocrTexts!=null)0f else (horizontal+dx).coerceIn(-max(0f,(width*magnification-width)/2),max(0f,(width*magnification-width)/2))
+            val maxOff=max(0f,totalHeight-height)
+            // A plain scroll stops at the end; only a sustained pull beyond it arms the next-page gesture.
+            if(dy>0&&offset>=maxOff-2f&&hasNextPage&&onNextPage!=null)overpull+=dy else if(dy<0)overpull=0f
+            move(offset+dy);invalidate();return true
+        }
         override fun onSingleTapUp(e:MotionEvent):Boolean {
+            if(footerHeight()>0){
+                val fy=e.y+offset;val top=footerTop+8*density
+                if(fy>=top+72*density&&fy<=top+126*density){onReturnToPage?.invoke();return true}
+                if(hasNextPage&&fy>=top+138*density&&fy<=top+192*density){onNextPage?.invoke();return true}
+            }
             val x=e.x-16*density;val y=e.y+offset
             for(item in textItems){if(y<item.top||y>item.top+item.layout.height)continue
                 val layout=item.layout;val line=layout.getLineForVertical((y-item.top).toInt());val start=layout.getLineStart(line);val end=layout.getLineEnd(line)
@@ -70,9 +116,9 @@ class ContinuousReaderView(context:Context):View(context){
         override fun onFling(a:MotionEvent?,b:MotionEvent,vx:Float,vy:Float):Boolean{scroller.fling(0,offset.roundToInt(),0,(-vy).roundToInt(),0,0,0,max(0f,totalHeight-height).roundToInt());postInvalidateOnAnimation();return true}
     })
     init{setBackgroundColor(Color.WHITE);isFocusable=true;contentDescription="Lecture continue. Glissez verticalement pour lire les blocs dans votre ordre."}
-    fun setDocument(zones:List<Zone>,pageWidth:Int,pageHeight:Int,position:Int=0,backgrounds:Map<Int,Int> = emptyMap()){clear();palettes=backgrounds;bands=ContinuousLayout.bands(zones);pw=pageWidth;ph=pageHeight;offset=position.toFloat();rebuild()}
+    fun setDocument(zones:List<Zone>,pageWidth:Int,pageHeight:Int,position:Int=0,backgrounds:Map<Int,Int> = emptyMap()){clear();palettes=backgrounds;bands=ContinuousLayout.bands(zones);pw=pageWidth;ph=pageHeight;offset=position.toFloat();lineHeights=zones.mapNotNull{z->ReadingScale.lineHeight(z.lineBottoms,z.box.height)?.let{z.id to it}}.toMap();lineCounts=zones.mapNotNull{z->if(z.lineBottoms.isEmpty())null else z.id to z.lineBottoms.size}.toMap();rebuild()}
     fun zoomBy(f:Float){if(ocrTexts!=null){val fraction=if(totalHeight>0)offset/totalHeight else 0f;fontSize=(fontSize*f).coerceIn(14f,38f);rebuild();move(fraction*totalHeight);return};val fraction=if(totalHeight>0)offset/totalHeight else 0f;magnification=(magnification*f).coerceIn(1f,2f);val limit=max(0f,(width*magnification-width)/2);horizontal=horizontal.coerceIn(-limit,limit);rebuild();move(fraction*totalHeight)}
-    fun clear(){ocrPlan=null;reviews=emptyMap();exposed.clear();streamLoading=false;ocrTexts=null;textItems=emptyList();revision++;pending.clear();failed.clear();bitmaps.evictAll();tiles=emptyList();bands=emptyList();surfaces=emptyList();palettes=emptyMap();offset=0f;horizontal=0f;magnification=1f;totalHeight=0f;scroller.forceFinished(true);invalidate()}
+    fun clear(){ocrPlan=null;reviews=emptyMap();exposed.clear();streamLoading=false;ocrTexts=null;textItems=emptyList();revision++;pending.clear();failed.clear();bitmaps.evictAll();tiles=emptyList();bands=emptyList();surfaces=emptyList();palettes=emptyMap();offset=0f;horizontal=0f;magnification=1f;totalHeight=0f;overpull=0f;scroller.forceFinished(true);invalidate()}
     /** Worker-side guard: discard queued work made obsolete by zoom, mode or a long swipe. */
     fun needsRender(tile:Tile,expected:Int)=expected==revision&&tile.rect.bottom>=offset-height*.5f&&tile.rect.top<=offset+height*1.5f&&tile.rect.right>=horizontal-width*.25f&&tile.rect.left<=horizontal+width*1.25f
     fun skipRequest(tile:Tile,expected:Int){if(expected==revision){pending.remove(tile.key);invalidate()}}
@@ -84,7 +130,13 @@ class ContinuousReaderView(context:Context):View(context){
     private fun rebuild(){
         revision++;pending.clear();failed.clear();bitmaps.evictAll();if(width<=0)return
         val surfaceOut=mutableListOf<Surface>();val out=mutableListOf<Tile>();val textOut=mutableListOf<TextItem>();val done=mutableSetOf<Int>();var y=0f;var last=-1
+        var previousRaster:ReadBand?=null;var previousScale=0f
         val activeBands=ocrPlan?.let{plan->ContinuousLayout.bands(plan.map{Zone(it.key,it.box,it.kind)}).map{it.copy(ordinal=plan[it.ordinal].ordinal)}}?:bands
+        // Text-proportion scaling: one shared scale for every text band, so blocks with the
+        // same source text size render the same size and others keep the original proportions.
+        val textFills=activeBands.filter{it.kind==Kind.TEXT}.map{it.zoneId to (width-16*density)/(it.original.width*pw)}
+        val uniform=ReadingScale.uniform(textFills.mapNotNull{(id,f)->lineHeights[id]?.let{f to (lineCounts[id]?:1)}})
+        val bodyLineHeight=ReadingScale.median(textFills.mapNotNull{(id,_)->lineHeights[id]?.let{it to (lineCounts[id]?:1)}})
         for(b in activeBands){
             val recognized=ocrTexts?.get(b.zoneId)
             if(b.kind==Kind.TEXT&&!recognized.isNullOrBlank()){
@@ -93,13 +145,22 @@ class ContinuousReaderView(context:Context):View(context){
                 textPaint.color=ReadingPalette.foreground(palettes[b.zoneId]?:Color.WHITE)
                 textPaint.textSize=fontSize*resources.displayMetrics.scaledDensity
                 val layout=StaticLayout.Builder.obtain(recognized,0,recognized.length,TextPaint(textPaint),max(1,width-32*density.toInt())).setAlignment(Layout.Alignment.ALIGN_NORMAL).setIncludePad(true).setLineSpacing(4*density,1.12f).build()
+                previousRaster=null
                 textOut+=TextItem(layout,y,b.ordinal,b.zoneId);surfaceOut+=Surface(y-6*density,y+layout.height,palettes[b.zoneId]?:Color.WHITE);y+=layout.height
                 continue
             }
-            if(b.ordinal!=last){if(last>=0&&last!=b.ordinal)y+=6*density;last=b.ordinal}
-            val scaleWidth=if(b.kind==Kind.TEXT&&b.original.width<.35f&&b.original.height<.06f)max(b.original.width,.8f)else b.original.width
-            var scale=(width-16*density)/(scaleWidth*pw)*if(b.kind==Kind.TEXT)magnification else 1f
+            val fill=(width-16*density)/(b.original.width*pw)
+            var scale=if(b.kind==Kind.TEXT)ReadingScale.textScale(fill,uniform?:fill,lineHeights[b.zoneId],bodyLineHeight)*magnification else fill
             if(b.kind==Kind.IMAGE)scale=min(scale,min((width-16*density)/(.5f*pw),max(300f,height*.9f)/(b.original.height*ph)))
+            // Adjacent pieces of the same source column must remain pixel-contiguous,
+            // even when overlap subtraction assigned them to different selected blocks.
+            // A block spacer here used to split glyphs crossing the overlap boundary.
+            val previous=previousRaster
+            val continuousSource=previous!=null&&previous.kind==Kind.TEXT&&b.kind==Kind.TEXT&&
+                abs(previous.bottom-b.top)<.00001f&&abs(previous.original.left-b.original.left)<.00001f&&
+                abs(previous.original.right-b.original.right)<.00001f&&abs(previousScale-scale)<.0001f
+            if(b.ordinal!=last){if(last>=0&&!continuousSource)y+=6*density;last=b.ordinal}
+            previousRaster=b;previousScale=scale
             val bandHeight=(b.bottom-b.top)*ph*scale;surfaceOut+=Surface(y-6*density,y+bandHeight,palettes[b.zoneId]?:Color.WHITE);val fullWidth=b.original.width*pw*scale;val left=(width-fullWidth)/2
             // Two-dimensional tiles: a zoomed column no longer decodes an entire off-screen width.
             val tileHeight=512f
@@ -116,11 +177,14 @@ class ContinuousReaderView(context:Context):View(context){
             y+=bandHeight
         }
         streamTail=y;if(streamLoading)y+=72*density
-        surfaces=surfaceOut;textItems=textOut;tiles=out;totalHeight=y+24*density;move(offset);invalidate()
+        footerTop=y+24*density
+        surfaces=surfaceOut;textItems=textOut;tiles=out;totalHeight=footerTop+footerHeight();move(offset);invalidate()
     }
-    private fun move(value:Float){offset=value.coerceIn(0f,max(0f,totalHeight-height));val ordinal=(tiles.filter{it.rect.bottom>=offset}.map{it.rect.top to it.ordinal}+textItems.filter{it.top+it.layout.height>=offset}.map{it.top to it.ordinal}).minByOrNull{it.first}?.second?:0;onProgress?.invoke(ordinal,offset.roundToInt());invalidate()}
+    internal fun move(value:Float){offset=value.coerceIn(0f,max(0f,totalHeight-height));val ordinal=(tiles.filter{it.rect.bottom>=offset}.map{it.rect.top to it.ordinal}+textItems.filter{it.top+it.layout.height>=offset}.map{it.top to it.ordinal}).minByOrNull{it.first}?.second?:0;onProgress?.invoke(ordinal,offset.roundToInt());invalidate()}
     override fun onDraw(c:Canvas){
-        super.onDraw(c);c.save();c.clipRect(0,0,width,height);c.translate(-horizontal,-offset)
+        super.onDraw(c);c.save();c.clipRect(0,0,width,height)
+        if(pinchLive&&pinchScale!=1f)c.scale(pinchScale,pinchScale,pinchFx,pinchFy)
+        c.translate(-horizontal,-offset)
         paint.color=(surfaces.firstOrNull{it.bottom>=offset}?:surfaces.lastOrNull())?.color?:Color.WHITE;c.drawRect(horizontal,offset,horizontal+width,offset+height,paint)
         surfaces.lastOrNull()?.let{paint.color=it.color;c.drawRect(horizontal,max(offset,it.bottom),horizontal+width,offset+height,paint)}
         for(surface in surfaces)if(surface.bottom>=offset&&surface.top<=offset+height){paint.color=surface.color;c.drawRect(horizontal,surface.top,horizontal+width,surface.bottom,paint)}
@@ -145,9 +209,55 @@ class ContinuousReaderView(context:Context):View(context){
             if(tile.key !in failed&&bitmaps.get(tile.key)==null&&pending.add(tile.key))onRequest?.invoke(tile,revision)
         }
         if(streamLoading&&streamTail<=offset+height){paint.color=Color.DKGRAY;paint.textSize=14*density;c.drawText(streamMessage,16*density,streamTail+30*density,paint)}
-        c.restore();rememberExposed()
+        if(footerHeight()>0&&footerTop<=offset+height)drawEndCard(c)
+        c.restore()
+        if(overpull>8*density){// Deliberate pull past the end: releasing opens the next page's preparation.
+            val ready=overpull>=overpullThreshold
+            val label="Relâchez pour préparer la page suivante ›"
+            paint.textSize=15*density;paint.typeface=Typeface.create("sans-serif",Typeface.BOLD)
+            val tw=paint.measureText(label);val bw=tw+36*density;val bh=44*density;val bx=(width-bw)/2;val by=height-bh-28*density
+            paint.style=Paint.Style.FILL;paint.color=Color.rgb(50,109,93);paint.alpha=(120+135*min(1f,overpull/overpullThreshold)).roundToInt()
+            c.drawRoundRect(RectF(bx,by,bx+bw,by+bh),bh/2,bh/2,paint);paint.alpha=255
+            paint.color=if(ready)Color.WHITE else Color.argb(230,255,255,255);c.drawText(label,bx+18*density,by+bh/2+5*density,paint)
+            paint.style=Paint.Style.FILL
+        }
+        rememberExposed()
+    }
+    private fun drawEndCard(c:Canvas){
+        val l=horizontal+8*density;val r=horizontal+width-8*density;val top=footerTop+8*density;val bottom=footerTop+236*density
+        val green=Color.rgb(50,109,93);val grey=Color.rgb(120,118,112)
+        paint.style=Paint.Style.FILL;paint.color=Color.WHITE;c.drawRoundRect(RectF(l,top,r,bottom),18*density,18*density,paint)
+        paint.style=Paint.Style.STROKE;paint.strokeWidth=density;paint.color=Color.rgb(205,203,198);c.drawRoundRect(RectF(l,top,r,bottom),18*density,18*density,paint);paint.style=Paint.Style.FILL
+        paint.textAlign=Paint.Align.CENTER;paint.typeface=Typeface.create("sans-serif",Typeface.BOLD);paint.color=Color.rgb(37,31,33);paint.textSize=20*density
+        c.drawText(endTitle,(l+r)/2,top+34*density,paint)
+        paint.typeface=Typeface.create("sans-serif",Typeface.NORMAL);paint.textSize=13*density;paint.color=grey
+        c.drawText(if(hasNextPage)"Revenez à la page ou préparez la suite." else "Dernière page du document.",(l+r)/2,top+56*density,paint)
+        val bl=l+16*density;val br=r-16*density
+        val b1=RectF(bl,top+72*density,br,top+126*density)
+        paint.style=Paint.Style.STROKE;paint.strokeWidth=2*density;paint.color=green;c.drawRoundRect(b1,16*density,16*density,paint);paint.style=Paint.Style.FILL
+        paint.typeface=Typeface.create("sans-serif",Typeface.BOLD);paint.textSize=16*density;paint.color=green
+        c.drawText("Revenir à la page",(l+r)/2,b1.centerY()+6*density,paint)
+        if(hasNextPage){
+            val b2=RectF(bl,top+138*density,br,top+192*density)
+            paint.color=green;c.drawRoundRect(b2,16*density,16*density,paint)
+            paint.color=Color.WHITE;c.drawText("Préparer la page suivante  ›",(l+r)/2,b2.centerY()+6*density,paint)
+            paint.typeface=Typeface.create("sans-serif",Typeface.NORMAL);paint.color=grey
+            val caption="Elle s'ouvre pour choisir ses blocs, sans lancer sa lecture."
+            var captionSize=12*density;paint.textSize=captionSize
+            val available=r-l-32*density
+            while(paint.measureText(caption)>available&&captionSize>9*density){captionSize-=density;paint.textSize=captionSize}
+            c.drawText(caption,(l+r)/2,top+212*density,paint)
+        }
+        paint.textAlign=Paint.Align.LEFT
     }
     override fun computeScroll(){if(scroller.computeScrollOffset()){move(scroller.currY.toFloat());postInvalidateOnAnimation()}}
-    override fun onTouchEvent(e:MotionEvent):Boolean{if(e.actionMasked==MotionEvent.ACTION_DOWN)multiTouch=false;if(e.pointerCount>1&&!multiTouch){multiTouch=true;val cancel=MotionEvent.obtain(e);cancel.action=MotionEvent.ACTION_CANCEL;gestures.onTouchEvent(cancel);cancel.recycle()};scaling.onTouchEvent(e);if(!multiTouch&&!scaling.isInProgress)gestures.onTouchEvent(e);if(e.action==MotionEvent.ACTION_UP)performClick();return true}
+    override fun onTouchEvent(e:MotionEvent):Boolean{
+        if(e.actionMasked==MotionEvent.ACTION_DOWN)multiTouch=false
+        if(e.pointerCount>1&&!multiTouch){multiTouch=true;overpull=0f;val cancel=MotionEvent.obtain(e);cancel.action=MotionEvent.ACTION_CANCEL;gestures.onTouchEvent(cancel);cancel.recycle()}
+        scaling.onTouchEvent(e);if(!multiTouch&&!scaling.isInProgress)gestures.onTouchEvent(e)
+        if(e.actionMasked==MotionEvent.ACTION_UP){commitPinch();if(overpull>=overpullThreshold){overpull=0f;onNextPage?.invoke()}else if(overpull>0f){overpull=0f;invalidate()};performClick()}
+        if(e.actionMasked==MotionEvent.ACTION_CANCEL){commitPinch();if(overpull>0f){overpull=0f;invalidate()}}
+        return true
+    }
     override fun performClick():Boolean{super.performClick();return true}
 }
