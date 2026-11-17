@@ -67,7 +67,7 @@ class NativeUiSnapshotTest {
         val c=Canvas(source);val titlePaint=Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.rgb(226,118,27);textSize=40f;typeface=Typeface.create("sans-serif",Typeface.BOLD)}
         c.drawText("Un titre large et inventé",42f,200f,titlePaint)
         val p=Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.BLACK;textSize=22f}
-        for((x,label)in listOf(42f to "Colonne une",325f to "Colonne deux",628f to "Colonne trois"))for(line in 0..29)c.drawText("$label, ligne fictive ${line+1}",x,320f+line*30,p)
+        for((x,label)in listOf(42f to "Colonne une",325f to "Colonne deux",628f to "Colonne trois"))for(line in 0..29)c.drawText("$label, note ${line+1}.",x,320f+line*30,p)
         val requested=mutableMapOf<Int,MutableList<Box>>()
         reader.onRequest={tile,revision->requested.getOrPut(tile.chunkKey){mutableListOf()}.add(tile.source)
             val b=Bitmap.createBitmap(kotlin.math.ceil(tile.rect.width()).toInt(),kotlin.math.ceil(tile.rect.height()).toInt(),Bitmap.Config.ARGB_8888)

@@ -89,4 +89,19 @@ class ContinuousLayoutTest {
         assertEquals(.70f,above.bottom,.00001f);assertEquals(.70f,below.top,.00001f)
         assertNotEquals("Source pieces have distinct block ordinals and require a contiguous raster join",above.ordinal,below.ordinal)
     }
+ @Test fun narrowColumnUnderWideTwoLineTitleKeepsOwnScale(){
+  // A wide two-line title above a narrow left column and a wide right column. The narrow
+  // column must keep its own scale reference: borrowing the title's width would shrink its
+  // text to a strip with a blank right side, then the scale would jump at the next block.
+  val title=z(1,Box(.067f,.120f,.819f,.243f))
+  val colL1=z(2,Box(.067f,.251f,.333f,.601f));val colR1=z(3,Box(.367f,.251f,.933f,.601f))
+  val colL2=z(4,Box(.067f,.616f,.333f,.910f));val colR2=z(5,Box(.367f,.616f,.933f,.910f))
+  val out=ContinuousLayout.bands(listOf(title,colL1,colR1,colL2,colR2))
+  for(id in listOf(2,4))assertEquals(.266f,out.first{it.zoneId==id}.original.width,.0001f)
+  for(id in listOf(3,5))assertEquals(.566f,out.first{it.zoneId==id}.original.width,.0001f)
+  val p2=out.filter{it.zoneId==2}.flatMap{it.pieces}
+  assertTrue(p2.all{it.left>=.066f&&it.right<=.334f})
+  assertEquals(colL1.box.area,p2.sumOf{it.area.toDouble()}.toFloat(),.000001f)
+  val pieces=out.flatMap{it.pieces};for(i in pieces.indices)for(j in i+1 until pieces.size)assertEquals(0f,pieces[i].intersect(pieces[j]),.000001f)
+ }
 }

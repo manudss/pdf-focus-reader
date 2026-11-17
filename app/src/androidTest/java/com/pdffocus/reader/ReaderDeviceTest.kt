@@ -685,7 +685,7 @@ class ReaderDeviceTest {
         val p=Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.BLACK;textSize=9f}
         for((ci,label)in listOf(0 to "Colonne une",1 to "Colonne deux",2 to "Colonne trois")){
             val x=(.06f+ci*.30f)*840
-            for(line in 0..39)cv.drawText("$label : phrase fictive numero ${line+1} pour ce test.",x,(.215f+line*.018f)*594,p)
+            for(line in 0..39)cv.drawText("$label, note fictive ${line+1}.",x,(.215f+line*.018f)*594,p)
         }
         pdf.finishPage(page);File(c.filesDir,"current.pdf").outputStream().use{pdf.writeTo(it)};pdf.close()
         ActivityScenario.launch<MainActivity>(Intent(c,MainActivity::class.java)).use{scenario->
@@ -713,7 +713,12 @@ class ReaderDeviceTest {
                         assertTrue("Band of zone ${zone.id} exceeds its own extent: $piece in ${zone.box}",piece.left>=zone.box.left-.001f&&piece.right<=zone.box.right+.001f)
                     }
                 }
-                val pieces=bands.flatMap{it.pieces};for(x in pieces.indices)for(y in x+1 until pieces.size)assertEquals(0f,pieces[x].intersect(pieces[y]),.000001f)
+                // Side overlap is now intentional: assert intact width instead of zero source overlap.
+                for(band in bands.filter{it.kind==Kind.TEXT}){
+                    val zone=chosen.first{it.id==band.zoneId}
+                    if(zone.box.height<.075f)continue
+                    assertTrue(band.pieces.all{kotlin.math.abs(it.left-zone.box.left)<.001f&&kotlin.math.abs(it.right-zone.box.right)<.001f})
+                }
             }
             screenshot(scenario,"magazine-selected")
             scenario.onActivity{a->findButton(a.window.decorView,"Lire (")!!.performClick()}
@@ -846,7 +851,7 @@ class ReaderDeviceTest {
         val p=Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.BLACK;textSize=9f}
         for((ci,label)in listOf(0 to "Colonne une",1 to "Colonne deux",2 to "Colonne trois")){
             val x=(.06f+ci*.30f)*840
-            for(line in 0..39)cv.drawText("$label : phrase fictive numero ${line+1} pour ce test.",x,(.215f+line*.018f)*594,p)
+            for(line in 0..39)cv.drawText("$label, note fictive ${line+1}.",x,(.215f+line*.018f)*594,p)
         }
         pdf.finishPage(page);File(c.filesDir,"current.pdf").outputStream().use{pdf.writeTo(it)};pdf.close()
         ActivityScenario.launch<MainActivity>(Intent(c,MainActivity::class.java)).use{scenario->
