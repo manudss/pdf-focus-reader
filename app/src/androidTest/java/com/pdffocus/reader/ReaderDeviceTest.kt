@@ -448,6 +448,113 @@ class ReaderDeviceTest {
             Thread.sleep(1500);screenshot(scenario,"magazine-cleaned-end")
         }
     }
+    /** Three fictional portrait pages: one orange title + one text column per page. Content invented. */
+    private fun writeThreePageFixture(c:android.content.Context){
+        File(c.filesDir,"current.pdf").delete();SessionStore(c).clear()
+        val pdf=android.graphics.pdf.PdfDocument()
+        for(p in 1..3){
+            val page=pdf.startPage(android.graphics.pdf.PdfDocument.PageInfo.Builder(595,842,p).create())
+            val cv=page.canvas;cv.drawColor(Color.WHITE)
+            val tp=Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.rgb(226,118,27);textSize=26f;typeface=Typeface.create("sans-serif",Typeface.BOLD)}
+            cv.drawText("Titre invente de la page $p",40f,90f,tp)
+            val t=Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.BLACK;textSize=11f}
+            for(line in 0..44)cv.drawText("Page $p, phrase fictive numero ${line+1} pour ce test.",40f,140f+line*14f,t)
+            pdf.finishPage(page)
+        }
+        File(c.filesDir,"current.pdf").outputStream().use{pdf.writeTo(it)};pdf.close()
+    }
+    private fun awaitDetection(scenario:ActivityScenario<MainActivity>){
+        var ready=false;val end=System.currentTimeMillis()+90000
+        while(System.currentTimeMillis()<end){scenario.onActivity{a->ready=MainActivity::class.java.getDeclaredField("pageReady").apply{isAccessible=true}.getBoolean(a)&&findCanvas(a.window.decorView)!!.zones.isNotEmpty()};if(ready)break;Thread.sleep(100)}
+        assertTrue("Fixture must finish native detection",ready)
+    }
+    private fun startReadingFirstBlock(scenario:ActivityScenario<MainActivity>){
+        scenario.onActivity{a->
+            val canvas=findCanvas(a.window.decorView)!!
+            canvas.zones.filter{it.kind==Kind.TEXT}.sortedBy{it.box.top}.take(1).forEach{canvas.onZoneTap!!.invoke(it)}
+        }
+        scenario.onActivity{a->findButton(a.window.decorView,"Lire (")!!.performClick()}
+        Thread.sleep(2000);InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+        scenario.onActivity{a->findButton(a.window.decorView,"Nettoyé")?.performClick()}
+        Thread.sleep(1500);InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+    }
+    private fun awaitPage(scenario:ActivityScenario<MainActivity>,label:String){
+        var found=false;val end=System.currentTimeMillis()+30000
+        while(System.currentTimeMillis()<end){scenario.onActivity{a->found=findButton(a.window.decorView,label)!=null};if(found)break;Thread.sleep(100)}
+        assertTrue("Expected page control $label",found)
+    }
+    @Test fun endCardKeepsBottomPaddingOnNarrowViewport(){
+        val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext
+        i.runOnMainSync{
+            val reader=ContinuousReaderView(c)
+            reader.measure(View.MeasureSpec.makeMeasureSpec(820,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(2400,View.MeasureSpec.EXACTLY));reader.layout(0,0,820,2400)
+            reader.onRequest={tile,revision->val b=Bitmap.createBitmap(kotlin.math.ceil(tile.rect.width()).toInt(),kotlin.math.ceil(tile.rect.height()).toInt(),Bitmap.Config.ARGB_8888);b.eraseColor(Color.rgb(40,80,60));reader.accept(tile,revision,b)}
+            reader.endTitle="Fin de la page 1";reader.hasNextPage=true
+            reader.setDocument(listOf(Zone(1,Box(0f,0f,1f,1f),Kind.TEXT)),600,12000)
+            reader.move(Float.MAX_VALUE)
+            val out=Bitmap.createBitmap(820,2400,Bitmap.Config.ARGB_8888)
+            repeat(2){reader.draw(Canvas(out))}
+            File(File(c.getExternalFilesDir(null),"screenshots").apply{mkdirs()},"nav-end-card-narrow.png").outputStream().use{out.compress(Bitmap.CompressFormat.PNG,100,it)}
+            out.recycle();reader.clear()
+        }
+    }
+    @Test fun pageSliderChangesPage(){
+        val c=InstrumentationRegistry.getInstrumentation().targetContext
+        writeThreePageFixture(c)
+        ActivityScenario.launch<MainActivity>(Intent(c,MainActivity::class.java)).use{scenario->
+            awaitDetection(scenario)
+            scenario.onActivity{a->
+                var seek:SeekBar?=null
+                fun walk(v:View){if(v is SeekBar)seek=v;if(v is ViewGroup)for(i in 0 until v.childCount)walk(v.getChildAt(i))}
+                walk(a.window.decorView)
+                assertNotNull("Page slider must be visible on a multi-page document",seek)
+                assertTrue(seek!!.isShown);assertEquals(2,seek!!.max)
+            }
+            scenario.onActivity{a->a.sliderPage(1)}
+            awaitPage(scenario,"Pages 2/3")
+            screenshot(scenario,"nav-slider-page-2")
+        }
+    }
+    @Test fun readingEndCardButtonOpensNextPagePreparation(){
+        val c=InstrumentationRegistry.getInstrumentation().targetContext
+        writeThreePageFixture(c)
+        ActivityScenario.launch<MainActivity>(Intent(c,MainActivity::class.java)).use{scenario->
+            awaitDetection(scenario);startReadingFirstBlock(scenario)
+            scenario.onActivity{a->val r=findReader(a.window.decorView)!!;r.move(Float.MAX_VALUE)}
+            Thread.sleep(800);InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+            scenario.onActivity{a->val r=findReader(a.window.decorView)!!;assertTrue("End card must add height",r.footerTop>0);assertTrue(r.hasNextPage)}
+            screenshot(scenario,"nav-reading-end-card")
+            // Tap the card's « Préparer la page suivante » button, drawn in the reader.
+            scenario.onActivity{a->
+                val r=findReader(a.window.decorView)!!;val d=r.resources.displayMetrics.density
+                val contentY=r.footerTop+8*d+165*d;val screenY=contentY-r.currentPosition()
+                val down=MotionEvent.obtain(0,0,MotionEvent.ACTION_DOWN,r.width/2f,screenY,0);r.dispatchTouchEvent(down);down.recycle()
+                val up=MotionEvent.obtain(0,60,MotionEvent.ACTION_UP,r.width/2f,screenY,0);r.dispatchTouchEvent(up);up.recycle()
+            }
+            awaitPage(scenario,"Pages 2/3")
+            screenshot(scenario,"nav-end-card-next-page")
+        }
+    }
+    @Test fun overscrollBeyondReadingEndOpensNextPagePreparation(){
+        val c=InstrumentationRegistry.getInstrumentation().targetContext
+        writeThreePageFixture(c)
+        ActivityScenario.launch<MainActivity>(Intent(c,MainActivity::class.java)).use{scenario->
+            awaitDetection(scenario);startReadingFirstBlock(scenario)
+            scenario.onActivity{a->val r=findReader(a.window.decorView)!!;r.move(Float.MAX_VALUE)}
+            Thread.sleep(800);InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+            // A plain arrival at the bottom changes nothing: only a deliberate sustained pull beyond
+            // the end opens the next page's preparation (inverse pull-to-refresh).
+            scenario.onActivity{a->
+                val r=findReader(a.window.decorView)!!;val x=r.width/2f;val h=r.height
+                var t=0L
+                val down=MotionEvent.obtain(t,t,MotionEvent.ACTION_DOWN,x,h*.7f,0);r.dispatchTouchEvent(down);down.recycle()
+                for(i in 1..6){t+=16;val mv=MotionEvent.obtain(0,t,MotionEvent.ACTION_MOVE,x,h*.7f-i*(h*.09f),0);r.dispatchTouchEvent(mv);mv.recycle()}
+                t+=16;val up=MotionEvent.obtain(0,t,MotionEvent.ACTION_UP,x,h*.7f-6*(h*.09f),0);r.dispatchTouchEvent(up);up.recycle()
+            }
+            awaitPage(scenario,"Pages 2/3")
+            screenshot(scenario,"nav-overscroll-next-page")
+        }
+    }
     private fun findText(v:View,value:String):Boolean{if(v is TextView&&v.text.toString().contains(value))return true;if(v is ViewGroup)for(j in 0 until v.childCount)if(findText(v.getChildAt(j),value))return true;return false}
     private fun findButton(v:View,label:String):Button? {if(v is Button&&v.text.toString().startsWith(label))return v;if(v is ViewGroup)for(i in 0 until v.childCount)findButton(v.getChildAt(i),label)?.let{return it};return null}
     private fun findReader(v:View):ContinuousReaderView?{if(v is ContinuousReaderView)return v;if(v is ViewGroup)for(i in 0 until v.childCount)findReader(v.getChildAt(i))?.let{return it};return null}

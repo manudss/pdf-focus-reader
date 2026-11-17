@@ -28,6 +28,8 @@ class PageCanvas(context:Context):View(context) {
     var onZoneTap:((Zone)->Unit)?=null
     var onZoneLongPress:((Zone)->Unit)?=null
     var onZoneSweep:((Zone)->Unit)?=null
+    /** -1 = previous page (swipe right), +1 = next page (swipe left). Only fires unzoomed. */
+    var onPageSwipe:((Int)->Unit)?=null
     private var sweeping=false
     private var sweepLast:PointF?=null
     private val swept=mutableSetOf<Int>()
@@ -47,6 +49,11 @@ class PageCanvas(context:Context):View(context) {
         override fun onSingleTapConfirmed(e:MotionEvent):Boolean {if(!reading&&editBox==null){point(e)?.let{p->ReadingLayout.smallestHit(zones,p.x,p.y)?.let{onZoneTap?.invoke(it)}}};return true}
         override fun onLongPress(e:MotionEvent){if(!reading&&editBox==null&&!drawMode&&!multiTouch)point(e)?.let{p->ReadingLayout.smallestHit(zones,p.x,p.y)?.let{z->sweeping=true;sweepLast=p;swept.clear();swept+=z.id;parent?.requestDisallowInterceptTouchEvent(true);performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);onZoneSweep?.invoke(z)}}}
         override fun onDoubleTap(e:MotionEvent):Boolean{if(!reading&&editBox==null&&!drawMode&&!mergeMode)point(e)?.let{p->ReadingLayout.smallestHit(zones,p.x,p.y)?.let{onZoneLongPress?.invoke(it)}};return true}
+        override fun onFling(a:MotionEvent?,b:MotionEvent,vx:Float,vy:Float):Boolean{
+            // Page change only when unzoomed: while zoomed, the same gesture pans the page.
+            if(!reading&&editBox==null&&zoom<=1f&&abs(vx)>abs(vy)*1.5f&&abs(vx)>1200f*density){onPageSwipe?.invoke(if(vx<0)1 else -1);return true}
+            return false
+        }
 
     })
     init {setBackgroundColor(Color.rgb(245,243,240));contentDescription="Page PDF. Pincez pour zoomer ; touchez les blocs dans l'ordre. Maintenez puis glissez pour sélectionner. Double tap pour corriger.";isFocusable=true}
