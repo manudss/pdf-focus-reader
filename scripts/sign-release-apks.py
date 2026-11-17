@@ -22,6 +22,7 @@ try:
   subprocess.run([str(bt/'apksigner'),'verify','--verbose',str(dest)],check=True,capture_output=True)
   metadata=subprocess.run([str(bt/'aapt'),'dump','badging',str(dest)],check=True,capture_output=True).stdout.decode()
   assert f"versionName='{version}'" in metadata, 'APK version does not match planned release'
+  assert f"versionCode='{int(os.environ['PDF_FOCUS_RELEASE_CODE'])}'" in metadata, 'APK versionCode mismatch'
   assert "name='com.pdffocus.reader.test'" in metadata, 'Package identity changed'
   checks.append(hashlib.sha256(dest.read_bytes()).hexdigest()+'  '+dest.name)
  (out/'SHA256SUMS.txt').write_text('\n'.join(checks)+'\nCertificate SHA256 '+digest+'\n')

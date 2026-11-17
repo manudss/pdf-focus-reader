@@ -82,6 +82,7 @@ jobs:
         env:
           PDF_FOCUS_TEST_SIGNING_BUNDLE: ${{ secrets.PDF_FOCUS_TEST_SIGNING_BUNDLE }}
           PDF_FOCUS_RELEASE_VERSION: ${{ steps.version.outputs.version }}
+          PDF_FOCUS_RELEASE_CODE: ${{ steps.version.outputs.code }}
         run: python3 scripts/sign-release-apks.py
       - name: Create draft, upload completely, then publish
         if: steps.gate.outputs.allowed == 'true' && steps.existing.outputs.found != 'true'
