@@ -111,6 +111,8 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools platforms;android-35 build-tools;35.0.0
       - name: Build stable 1.0.0 release candidate
         run: ./gradlew --no-daemon testDebugUnitTest lintRelease assembleRelease -PreleasePackage=com.pdffocus.reader -PreleaseLabel="PDF Focus Reader" -PreleaseVersion=1.0.0 -PreleaseCode=100000
       - name: Sign with dedicated stable certificate and verify final metadata
@@ -141,6 +143,8 @@ jobs:
             adb shell am start -W -n com.pdffocus.reader/.MainActivity
             adb shell dumpsys activity activities > stable-smoke/activities.txt
             grep -E 'com.pdffocus.reader/.*(MainActivity|TutorialActivity)' stable-smoke/activities.txt
+            for attempt in $(seq 1 45); do adb shell uiautomator dump /sdcard/stable-ui.xml; adb pull /sdcard/stable-ui.xml stable-smoke/ui.xml; grep -q 'Choisir vos blocs' stable-smoke/ui.xml && break; sleep 1; done
+            grep -q 'Choisir vos blocs' stable-smoke/ui.xml
             adb shell screencap -p /sdcard/stable-tutorial.png
             adb pull /sdcard/stable-tutorial.png stable-smoke/tutorial.png
             adb shell am force-stop com.pdffocus.reader
