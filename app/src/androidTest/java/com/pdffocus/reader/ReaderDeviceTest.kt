@@ -1018,4 +1018,18 @@ class ReaderDeviceTest {
             assertTrue(File(dir,"$name.png").length()>1000)
         }
     }
+    @Test fun groupedMenuListsBlockActionsWithDescriptions(){
+        val c=InstrumentationRegistry.getInstrumentation().targetContext
+        File(c.filesDir,"current.pdf").delete();SessionStore(c).clear()
+        ActivityScenario.launch<MainActivity>(Intent(c,MainActivity::class.java)).use{scenario->
+            scenario.onActivity{a->findButton(a.window.decorView,"Menu")!!.performClick()}
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+            scenario.onActivity{a->
+                val d=MainActivity::class.java.getDeclaredField("menuDialog").apply{isAccessible=true}.get(a)as android.app.Dialog
+                val root=d.window!!.decorView
+                for(label in listOf("Document","Blocs de la page","Aide","Ouvrir un autre PDF","Ajouter un bloc","Voir l'ordre de lecture","Fusionner des blocs","Regrouper automatiquement","Propose des regroupements parmi les blocs choisis. Vous validez ceux à appliquer.","Réessayer la détection","Annuler le dernier regroupement","Confidentialité et aide","Licences des composants"))
+                    assertTrue("Menu must show « $label »",findText(root,label))
+            }
+        }
+    }
 }
