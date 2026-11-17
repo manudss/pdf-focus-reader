@@ -145,6 +145,146 @@ class ReaderDeviceTest {
             reader.clear();b.recycle()
         }
     }
+    @Test fun continuousReaderKeepsSharedScaleForColumnBottomFragment(){
+        // Fictional magazine layout: a column and a short overlapping paragraph at its bottom,
+        // both with the same source text size. The fragment must render at the body scale,
+        // not shrunk by a width rule (real bug: 4.7x smaller than the surrounding text).
+        val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext
+        i.runOnMainSync{
+            val reader=ContinuousReaderView(c)
+            reader.measure(View.MeasureSpec.makeMeasureSpec(700,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(1000,View.MeasureSpec.EXACTLY));reader.layout(0,0,700,1000)
+            fun lines(top:Float,bottom:Float,step:Float):List<Float>{val out=mutableListOf<Float>();var y=top+step;while(y<=bottom+.0001f){out+=y;y+=step};return out}
+            val body=Zone(1,Box(.41f,.50f,.59f,.70f),Kind.TEXT,lines(.50f,.695f,.0105f))
+            val fragment=Zone(2,Box(.41f,.675f,.59f,.75f),Kind.TEXT,lines(.675f,.748f,.0105f))
+            reader.onRequest={tile,revision->reader.skipRequest(tile,revision)}
+            reader.setDocument(listOf(body,fragment),700,1400)
+            val tiles=ContinuousReaderView::class.java.getDeclaredField("tiles").apply{isAccessible=true}.get(reader)as List<ContinuousReaderView.Tile>
+            val bodyTile=tiles.first{it.chunkKey==1};val fragTile=tiles.first{it.chunkKey==2}
+            val bodyScale=bodyTile.rect.height()/((bodyTile.source.bottom-bodyTile.source.top)*1400)
+            val fragScale=fragTile.rect.height()/((fragTile.source.bottom-fragTile.source.top)*1400)
+            assertEquals("A short column-bottom fragment keeps the body text size",bodyScale,fragScale,bodyScale*.05f)
+            reader.clear()
+        }
+    }
+    @Test fun continuousReaderRendersBottomFragmentAtBodySizeVisually(){
+        // Fictional page raster with real text: a prose column and a short overlapping
+        // fragment at its bottom, ALL drawn at the same pixel size. Real ContinuousReaderView
+        // layout + real tile rendering: the fragment must come out at the body text size.
+        val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext
+        i.runOnMainSync{
+            val src=Bitmap.createBitmap(700,1400,Bitmap.Config.ARGB_8888)
+            val cv=Canvas(src);cv.drawColor(Color.WHITE)
+            val paint=Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.BLACK;textSize=13f}
+            var y=.50f*1400+13f
+            var n=0
+            val words=listOf("le","conseil","invente","une","histoire","complete","pour","ce","test","visuel","du","parcours")
+            while(y<.670f*1400){cv.drawText("${words[n%12]} ${words[(n+3)%12]} ${words[(n+5)%12]} ${words[(n+7)%12]} du corps",.41f*700,y,paint);y+=.0105f*1400;n++}
+            var fy=.701f*1400+13f
+            while(fy<.748f*1400){cv.drawText("${words[n%12]} ${words[(n+4)%12]} du fragment",.41f*700,fy,paint);fy+=.0105f*1400;n++}
+            fun lines(top:Float,bottom:Float,step:Float):List<Float>{val out=mutableListOf<Float>();var yy=top+step;while(yy<=bottom+.0001f){out+=yy;yy+=step};return out}
+            val body=Zone(1,Box(.41f,.50f,.59f,.70f),Kind.TEXT,lines(.50f,.695f,.0105f))
+            val fragment=Zone(2,Box(.41f,.675f,.59f,.75f),Kind.TEXT,lines(.675f,.748f,.0105f))
+            val reader=ContinuousReaderView(c)
+            reader.measure(View.MeasureSpec.makeMeasureSpec(700,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(1000,View.MeasureSpec.EXACTLY));reader.layout(0,0,700,1000)
+            reader.onRequest={tile,revision->
+                val scaled=Bitmap.createBitmap(maxOf(1,kotlin.math.ceil(tile.rect.width()).toInt()),maxOf(1,kotlin.math.ceil(tile.rect.height()).toInt()),Bitmap.Config.ARGB_8888)
+                val raster=Canvas(scaled);raster.drawColor(Color.WHITE)
+                // Preserve exact floating source bounds, as PdfRenderer's region matrix
+                // does. Integer crop+resize rounds the seam independently on each tile.
+                val matrix=android.graphics.Matrix().apply { setRectToRect(RectF(tile.source.left*700,tile.source.top*1400,tile.source.right*700,tile.source.bottom*1400),RectF(0f,0f,scaled.width.toFloat(),scaled.height.toFloat()),android.graphics.Matrix.ScaleToFit.FILL) }
+                raster.drawBitmap(src,matrix,Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
+                reader.accept(tile,revision,scaled)
+            }
+            reader.setDocument(listOf(body,fragment),700,1400)
+            val tiles=ContinuousReaderView::class.java.getDeclaredField("tiles").apply{isAccessible=true}.get(reader)as List<ContinuousReaderView.Tile>
+            val fragTile=tiles.first{it.chunkKey==2}
+            reader.setDocument(listOf(body,fragment),700,1400,(fragTile.rect.top-60).toInt().coerceAtLeast(0))
+            val shot=Bitmap.createBitmap(700,1000,Bitmap.Config.ARGB_8888)
+            val shotCanvas=Canvas(shot);shotCanvas.drawColor(Color.WHITE)
+            // The first draw queues tile requests; the second displays their accepted rasters.
+            repeat(2){reader.draw(shotCanvas)}
+            val dir=File(c.getExternalFilesDir(null),"screenshots").apply{mkdirs()}
+            File(dir,"continuous-fragment-body-size.png").outputStream().use{shot.compress(Bitmap.CompressFormat.PNG,100,it)}
+            // The rendered fragment rows must carry real glyph pixels (not a blank or stub tile).
+            fun glyphRows(bitmap:Bitmap):Int{
+                var rows=0
+                for(yy in 0 until bitmap.height){var dark=0;for(xx in 0 until bitmap.width step 7){if(Color.luminance(bitmap.getPixel(xx,yy))<.45)dark++};if(dark>=4)rows++}
+                return rows
+            }
+            val tiles2=ContinuousReaderView::class.java.getDeclaredField("tiles").apply{isAccessible=true}.get(reader)as List<ContinuousReaderView.Tile>
+            val frag=tiles2.first{it.chunkKey==2};val bod=tiles2.first{it.chunkKey==1}
+            val top=(frag.rect.top-ContinuousReaderView::class.java.getDeclaredField("offset").apply{isAccessible=true}.get(reader)as Float).toInt()
+            val bandTop=top.coerceIn(0,shot.height-1)
+            val band=Bitmap.createBitmap(shot,frag.rect.left.toInt().coerceAtLeast(0),bandTop,minOf(frag.rect.width(),shot.width.toFloat()).toInt().coerceAtLeast(20),minOf(frag.rect.height().toInt(),shot.height-bandTop).coerceAtLeast(1))
+            assertTrue("Fragment band must show rendered text rows",glyphRows(band)>=2)
+            val bodyScale=bod.rect.height()/((bod.source.bottom-bod.source.top)*1400)
+            val fragScale=frag.rect.height()/((frag.source.bottom-frag.source.top)*1400)
+            assertEquals("Fragment renders at the body scale",bodyScale,fragScale,bodyScale*.05f)
+            band.recycle();shot.recycle();src.recycle();reader.clear()
+        }
+    }
+
+    @Test fun continuousReaderPreservesCrossingGlyphAtOverlappingBlockSeam(){
+        // Fictional page raster with real text: a prose column and a short overlapping
+        // fragment at its bottom, ALL drawn at the same pixel size. Real ContinuousReaderView
+        // layout + real tile rendering: the fragment must come out at the body text size.
+        val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext
+        i.runOnMainSync{
+            val src=Bitmap.createBitmap(700,1400,Bitmap.Config.ARGB_8888)
+            val cv=Canvas(src);cv.drawColor(Color.WHITE)
+            val paint=Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.BLACK;textSize=13f}
+            var y=.50f*1400+13f
+            var n=0
+            val words=listOf("le","conseil","invente","une","histoire","complete","pour","ce","test","visuel","du","parcours")
+            while(y<.670f*1400){cv.drawText("${words[n%12]} ${words[(n+3)%12]} ${words[(n+5)%12]} ${words[(n+7)%12]} du corps",.41f*700,y,paint);y+=.0105f*1400;n++}
+            var fy=.675f*1400+13f
+            while(fy<.748f*1400){cv.drawText("${words[n%12]} ${words[(n+4)%12]} du fragment",.41f*700,fy,paint);fy+=.0105f*1400;n++}
+            fun lines(top:Float,bottom:Float,step:Float):List<Float>{val out=mutableListOf<Float>();var yy=top+step;while(yy<=bottom+.0001f){out+=yy;yy+=step};return out}
+            val body=Zone(1,Box(.41f,.50f,.59f,.70f),Kind.TEXT,lines(.50f,.695f,.0105f))
+            val fragment=Zone(2,Box(.41f,.675f,.59f,.75f),Kind.TEXT,lines(.675f,.748f,.0105f))
+            val reader=ContinuousReaderView(c)
+            reader.measure(View.MeasureSpec.makeMeasureSpec(700,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(1000,View.MeasureSpec.EXACTLY));reader.layout(0,0,700,1000)
+            reader.onRequest={tile,revision->
+                val scaled=Bitmap.createBitmap(maxOf(1,kotlin.math.ceil(tile.rect.width()).toInt()),maxOf(1,kotlin.math.ceil(tile.rect.height()).toInt()),Bitmap.Config.ARGB_8888)
+                val raster=Canvas(scaled);raster.drawColor(Color.WHITE)
+                // Preserve exact floating source bounds, as PdfRenderer's region matrix
+                // does. Integer crop+resize rounds the seam independently on each tile.
+                val matrix=android.graphics.Matrix().apply { setRectToRect(RectF(tile.source.left*700,tile.source.top*1400,tile.source.right*700,tile.source.bottom*1400),RectF(0f,0f,scaled.width.toFloat(),scaled.height.toFloat()),android.graphics.Matrix.ScaleToFit.FILL) }
+                raster.drawBitmap(src,matrix,Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
+                reader.accept(tile,revision,scaled)
+            }
+            reader.setDocument(listOf(body,fragment),700,1400)
+            val tiles=ContinuousReaderView::class.java.getDeclaredField("tiles").apply{isAccessible=true}.get(reader)as List<ContinuousReaderView.Tile>
+            val fragTile=tiles.first{it.chunkKey==2}
+            reader.setDocument(listOf(body,fragment),700,1400,(fragTile.rect.top-60).toInt().coerceAtLeast(0))
+            val shot=Bitmap.createBitmap(700,1000,Bitmap.Config.ARGB_8888)
+            val shotCanvas=Canvas(shot);shotCanvas.drawColor(Color.WHITE)
+            // The first draw queues tile requests; the second displays their accepted rasters.
+            repeat(2){reader.draw(shotCanvas)}
+            val dir=File(c.getExternalFilesDir(null),"screenshots").apply{mkdirs()}
+            File(dir,"continuous-overlap-seam.png").outputStream().use{shot.compress(Bitmap.CompressFormat.PNG,100,it)}
+            // The rendered fragment rows must carry real glyph pixels (not a blank or stub tile).
+            fun glyphRows(bitmap:Bitmap):Int{
+                var rows=0
+                for(yy in 0 until bitmap.height){var dark=0;for(xx in 0 until bitmap.width step 7){if(Color.luminance(bitmap.getPixel(xx,yy))<.45)dark++};if(dark>=4)rows++}
+                return rows
+            }
+            val tiles2=ContinuousReaderView::class.java.getDeclaredField("tiles").apply{isAccessible=true}.get(reader)as List<ContinuousReaderView.Tile>
+            val frag=tiles2.first{it.chunkKey==2};val bod=tiles2.first{it.chunkKey==1}
+            val lastBodyBottom=tiles2.filter{it.chunkKey==1}.maxOf{it.rect.bottom}
+            val firstFragmentTop=tiles2.filter{it.chunkKey==2}.minOf{it.rect.top}
+            assertEquals("Overlap seam must add no white spacer through source glyphs",lastBodyBottom,firstFragmentTop,.01f)
+            val top=(frag.rect.top-ContinuousReaderView::class.java.getDeclaredField("offset").apply{isAccessible=true}.get(reader)as Float).toInt()
+            val bandTop=top.coerceIn(0,shot.height-1)
+            val band=Bitmap.createBitmap(shot,frag.rect.left.toInt().coerceAtLeast(0),bandTop,minOf(frag.rect.width(),shot.width.toFloat()).toInt().coerceAtLeast(20),minOf(frag.rect.height().toInt(),shot.height-bandTop).coerceAtLeast(1))
+            assertTrue("Fragment band must show rendered text rows",glyphRows(band)>=2)
+            val bodyScale=bod.rect.height()/((bod.source.bottom-bod.source.top)*1400)
+            val fragScale=frag.rect.height()/((frag.source.bottom-frag.source.top)*1400)
+            assertEquals("Fragment renders at the body scale",bodyScale,fragScale,bodyScale*.05f)
+            band.recycle();shot.recycle();src.recycle();reader.clear()
+        }
+    }
+
     @Test fun bundledOcrWorksWithoutNetworkAndFindsSyntheticText(){
         val c=InstrumentationRegistry.getInstrumentation().targetContext
         c.assets.open("tessdata_best/fra-words.txt").bufferedReader().use{assertTrue("Packaged repair lexicon must be readable",it.readLines().size>10000)}

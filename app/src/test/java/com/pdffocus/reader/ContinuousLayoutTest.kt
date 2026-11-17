@@ -49,4 +49,31 @@ class ContinuousLayoutTest {
   assertEquals(.284f,out.first{it.zoneId==2}.original.width,.000001f)
   val pieces=out.flatMap{it.pieces};for(i in pieces.indices)for(j in i+1 until pieces.size)assertEquals(0f,pieces[i].intersect(pieces[j]),.000001f)
  }
+ @Test fun quoteBelowWideTitleKeepsOwnScaleReference(){
+  // A short quote/fragment under a wide title must keep its own width: the title is ABOVE,
+  // not the column it tops. Borrowing the title's width would render its text tiny.
+  val title=z(1,Box(.05f,.12f,.76f,.32f));val quote=z(2,Box(.05f,.34f,.22f,.37f))
+  val out=ContinuousLayout.bands(listOf(title,quote))
+  assertTrue(out.first{it.zoneId==2}.original.width<.2f)
+ }
+ @Test fun headingStillBorrowsScaleFromColumnBelow(){
+  val title=z(1,Box(.1f,.1f,.25f,.14f));val body=z(2,Box(.1f,.15f,.48f,.4f))
+  val out=ContinuousLayout.bands(listOf(title,body))
+  assertEquals(.38f,out.first().original.width,.00001f)
+ }
+    @Test fun overlappingBlockBoundaryPreservesSourceOnceButSplitsCrossingGlyph(){
+        // Source-layout characterization. A glyph spans y=.695..705,
+        // crossing the first block's bottom. The source union keeps it exactly once,
+        // but as two bands with different ordinals. The reader must join them without a gap.
+        val zones=listOf(Zone(1,Box(.41f,.50f,.59f,.70f),Kind.TEXT),Zone(2,Box(.41f,.675f,.59f,.75f),Kind.TEXT))
+        val bands=ContinuousLayout.bands(zones)
+        for(y in listOf(.695f,.6999f,.7001f,.705f)){
+            val owners=bands.flatMap{b->b.pieces}.count{p->.5f>=p.left&&.5f<p.right&&y>=p.top&&y<p.bottom}
+            assertEquals("Every sampled glyph source row must survive exactly once",1,owners)
+        }
+        val above=bands.single{b->b.pieces.any{p->.6999f>=p.top&&.6999f<p.bottom}}
+        val below=bands.single{b->b.pieces.any{p->.7001f>=p.top&&.7001f<p.bottom}}
+        assertEquals(.70f,above.bottom,.00001f);assertEquals(.70f,below.top,.00001f)
+        assertNotEquals("Source pieces have distinct block ordinals and require a contiguous raster join",above.ordinal,below.ordinal)
+    }
 }
