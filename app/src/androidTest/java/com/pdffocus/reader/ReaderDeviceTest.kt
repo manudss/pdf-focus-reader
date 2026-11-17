@@ -1045,6 +1045,9 @@ class ReaderDeviceTest {
                 pill.on=true
                 assertEquals("Choix automatique activé",pill.contentDescription)
             }
+            screenshot(scenario,"auto-pill-on-product")
+            scenario.onActivity{a->(findButton(a.window.decorView,"Auto")as AutoToggleButton).on=false}
+            screenshot(scenario,"auto-pill-off-product")
         }
     }
 }
