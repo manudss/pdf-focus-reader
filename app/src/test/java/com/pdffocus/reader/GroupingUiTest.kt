@@ -52,9 +52,12 @@ class GroupingUiTest {
  @Test fun menuKeepsOnlyTheUndoEntry(){
   val a=prepare(listOf(1,2),twoColumns)
   call(a,"menu")
-  val dialog=ShadowAlertDialog.getLatestAlertDialog();assertNotNull(dialog)
-  val items=(0 until dialog!!.listView.adapter.count).map{dialog.listView.adapter.getItem(it).toString()}
-  assertFalse(items.any{it=="Proposer des regroupements"})
-  assertTrue(items.any{it=="Annuler le dernier regroupement"})
+  val dialog=get(a,"menuDialog")as android.app.Dialog;assertTrue(dialog.isShowing)
+  val labels=mutableListOf<String>()
+  fun collect(v:android.view.View){if(v is android.widget.TextView)labels+=v.text.toString();if(v is android.view.ViewGroup)for(i in 0 until v.childCount)collect(v.getChildAt(i))}
+  collect(dialog.window!!.decorView)
+  assertFalse(labels.any{it=="Proposer des regroupements"})
+  assertTrue(labels.any{it=="Annuler le dernier regroupement"})
+  assertTrue(labels.any{it=="Blocs de la page"})
  }
 }
