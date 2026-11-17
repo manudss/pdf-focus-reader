@@ -77,6 +77,45 @@ class ReaderDeviceTest {
             }
         };f.delete()
     }
+    @Test fun changingPageModeRequiresPreviewAndCancellationKeepsOriginal(){
+        val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext
+        c.assets.open("examples/decouverte.pdf").use{input->File(c.filesDir,"current.pdf").outputStream().use{input.copyTo(it)}};SessionStore(c).clear()
+        ActivityScenario.launch<MainActivity>(Intent(c,MainActivity::class.java)).use{scenario->
+            fun f(a:MainActivity,n:String)=MainActivity::class.java.getDeclaredField(n).apply{isAccessible=true}
+            fun ready(){val end=System.currentTimeMillis()+90000;var done=false;while(System.currentTimeMillis()<end&&!done){Thread.sleep(100);scenario.onActivity{a->done=f(a,"pageReady").getBoolean(a)}};assertTrue(done)}
+            ready();scenario.onActivity{a->MainActivity::class.java.getDeclaredMethod("loadPage",Int::class.javaPrimitiveType,Boolean::class.javaPrimitiveType).apply{isAccessible=true}.invoke(a,6,false)};ready()
+            var beforeZones=listOf<Zone>();var beforeOrder=listOf<Int>()
+            scenario.onActivity{a->beforeZones=f(a,"zones").get(a)as List<Zone>;beforeOrder=listOf(beforeZones.last().id,beforeZones.first().id);f(a,"order").set(a,beforeOrder);findButton(a.window.decorView,"Manga")!!.performClick()}
+            fun prepared():android.app.Dialog{var out:android.app.Dialog?=null;val end=System.currentTimeMillis()+60000;while(System.currentTimeMillis()<end){Thread.sleep(100);var done=false;scenario.onActivity{a->out=f(a,"modePreviewDialog").get(a)as? android.app.Dialog;done=out?.let{findButton(it.window!!.decorView,"Appliquer")?.isEnabled}==true;assertEquals(beforeZones,f(a,"zones").get(a));assertEquals(beforeOrder,f(a,"order").get(a))};if(done)return out!!};error("Mode preview did not finish")}
+            var dialog=prepared()
+            scenario.onActivity{a->val root=dialog.window!!.decorView;val shot=Bitmap.createBitmap(root.width,root.height,Bitmap.Config.ARGB_8888);root.draw(Canvas(shot));File(File(a.getExternalFilesDir(null),"screenshots").apply{mkdirs()},"manga-mode-preview.png").outputStream().use{shot.compress(Bitmap.CompressFormat.PNG,100,it)};shot.recycle();findButton(root,"Annuler")!!.performClick();assertEquals(beforeOrder,f(a,"order").get(a));assertEquals(beforeZones,f(a,"zones").get(a));findButton(a.window.decorView,"Manga")!!.performClick()}
+            dialog=prepared();scenario.onActivity{a->findButton(dialog.window!!.decorView,"Appliquer")!!.performClick();assertEquals(PageMode.MANGA,f(a,"pageMode").get(a));val z=f(a,"zones").get(a)as List<Zone>;val order=f(a,"order").get(a)as List<Int>;assertEquals(z.size,order.size);assertEquals(1f,z.sumOf{it.box.area.toDouble()}.toFloat(),.00001f);val panels=order.map{id->z.single{it.id==id}}.filter{it.panel};assertTrue(panels[0].box.left>panels[1].box.left)}
+            Thread.sleep(1000);i.waitForIdleSync();screenshot(scenario,"manga-mode-applied")
+            scenario.recreate();ready();scenario.onActivity{a->assertEquals(PageMode.MANGA,f(a,"pageMode").get(a));findButton(a.window.decorView,"Manuel")!!.performClick();val keep=f(a,"order").get(a);assertEquals(PageMode.MANUAL,f(a,"pageMode").get(a));assertEquals(keep,f(a,"order").get(a))}
+        }
+    }
+    @Test fun preparationModesDriveDetectionCoverageDirectionAndManualProtection(){
+        val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext
+        val source=File(c.cacheDir,"mode-source.pdf");c.assets.open("examples/decouverte.pdf").use{a->source.outputStream().use{a.copyTo(it)}}
+        PdfDocument(source).use{pdf->val bitmap=pdf.preview(6)
+            fun verify(zones:List<Zone>){assertEquals(1f,zones.sumOf{it.box.area.toDouble()}.toFloat(),.00001f);for(a in zones.indices)for(b in a+1 until zones.size)assertEquals(0f,zones[a].box.intersect(zones[b].box),.000001f)}
+            val bd=ZoneDetector(c).detect(bitmap,PageMode.COMIC){false};val manga=ZoneDetector(c).detect(bitmap,PageMode.MANGA){false};verify(bd);verify(manga)
+            assertEquals(6,bd.count{it.panel});assertEquals(bd.map{it.box}.toSet(),manga.map{it.box}.toSet())
+            val ltr=bd.filter{it.panel};val rtl=manga.filter{it.panel};assertTrue(ltr[0].box.left<ltr[1].box.left);assertTrue(rtl[0].box.left>rtl[1].box.left)
+            bitmap.recycle()
+        }
+        val frameless=Bitmap.createBitmap(700,1700,Bitmap.Config.ARGB_8888).apply{eraseColor(Color.WHITE)};val cv=Canvas(frameless);val paint=Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.BLACK;textSize=28f}
+        cv.drawText("Une première page de livre.",45f,90f,paint);for(k in 0..4)cv.drawText("Un premier paragraphe pour lire.",45f,140f+k*40,paint)
+        for(k in 0..4)cv.drawText("Un second paragraphe, plus bas.",45f,580f+k*40,paint)
+        val book=ZoneDetector(c).detect(frameless,PageMode.BOOK){false};assertTrue(book.size>=2);assertTrue(book.all{it.kind==Kind.TEXT&&!it.panel});assertEquals(book.sortedBy{it.box.top}.map{it.id},PageReadingOrder.propose(book,PageMode.BOOK))
+        val fallback=ZoneDetector(c).detect(frameless,PageMode.COMIC){false};assertEquals(1f,fallback.sumOf{it.box.area.toDouble()}.toFloat(),.00001f);frameless.recycle()
+        File(c.filesDir,"current.pdf").delete();SessionStore(c).clear()
+        ActivityScenario.launch<MainActivity>(Intent(c,MainActivity::class.java)).use{scenario->
+            fun field(a:MainActivity,n:String)=MainActivity::class.java.getDeclaredField(n).apply{isAccessible=true}
+            scenario.onActivity{a->field(a,"order").set(a,listOf(9,3));MainActivity::class.java.getDeclaredMethod("choosePageMode",PageMode::class.java).apply{isAccessible=true}.invoke(a,PageMode.MANUAL);assertEquals(listOf(9,3),field(a,"order").get(a));assertEquals(PageMode.MANUAL,field(a,"pageMode").get(a))}
+            screenshot(scenario,"modes-manual-before-document")
+        };source.delete()
+    }
     @Test fun framedComicProposesSixWholeImagePanelsWithoutOcrFragments(){
         val instrumentation=InstrumentationRegistry.getInstrumentation();val c=instrumentation.targetContext
         File(c.filesDir,"current.pdf").delete();SessionStore(c).clear()
@@ -86,10 +125,10 @@ class ReaderDeviceTest {
             while(System.currentTimeMillis()<end){scenario.onActivity{a->ready=MainActivity::class.java.getDeclaredField("pageReady").apply{isAccessible=true}.getBoolean(a)};if(ready)break;Thread.sleep(100)};assertTrue(ready)
             scenario.onActivity{a->MainActivity::class.java.getDeclaredMethod("loadPage",Int::class.javaPrimitiveType,Boolean::class.javaPrimitiveType).apply{isAccessible=true}.invoke(a,6,false)}
             ready=false;val finish=System.currentTimeMillis()+90000
-            while(System.currentTimeMillis()<finish){scenario.onActivity{a->ready=MainActivity::class.java.getDeclaredField("pageReady").apply{isAccessible=true}.getBoolean(a)&&findCanvas(a.window.decorView)!!.zones.size==6};if(ready)break;Thread.sleep(100)}
+            while(System.currentTimeMillis()<finish){scenario.onActivity{a->ready=MainActivity::class.java.getDeclaredField("pageReady").apply{isAccessible=true}.getBoolean(a)&&findCanvas(a.window.decorView)!!.zones.count{it.panel}==6};if(ready)break;Thread.sleep(100)}
             assertTrue("The full detection path must propose six comic panels",ready)
             clearAutoProposal(scenario)
-            scenario.onActivity{a->val page=findCanvas(a.window.decorView)!!;assertTrue(page.zones.all{it.kind==Kind.IMAGE});assertTrue(page.zones.all{it.box.height>.25f});assertTrue(page.selection.isEmpty());page.zones.forEach{page.onZoneTap!!.invoke(it)};assertEquals((1..6).toList(),page.selection)}
+            scenario.onActivity{a->val page=findCanvas(a.window.decorView)!!;assertTrue(page.zones.all{it.kind==Kind.IMAGE});assertEquals(6,page.zones.count{it.panel});assertEquals(1f,page.zones.sumOf{it.box.area.toDouble()}.toFloat(),.00001f);assertTrue(page.selection.isEmpty());page.zones.forEach{page.onZoneTap!!.invoke(it)};assertEquals(page.zones.map{it.id},page.selection)}
             screenshot(scenario,"comic-six-panels")
             scenario.onActivity{a->findButton(a.window.decorView,"Lire (")!!.performClick();findButton(a.window.decorView,"Original")!!.performClick()}
             Thread.sleep(700);screenshot(scenario,"comic-original-reader")
@@ -116,9 +155,9 @@ class ReaderDeviceTest {
             assertTrue("Synthetic comic detection must complete",ready)
             clearAutoProposal(scenario)
             scenario.onActivity{a->val view=findCanvas(a.window.decorView)!!
-                assertEquals("Six panels, not caption fragments",6,view.zones.size);assertTrue(view.zones.all{it.kind==Kind.IMAGE});assertTrue(view.selection.isEmpty())
+                assertEquals("Six panels, not caption fragments",6,view.zones.count{it.panel});assertEquals(1f,view.zones.sumOf{it.box.area.toDouble()}.toFloat(),.00001f);assertTrue(view.zones.all{it.kind==Kind.IMAGE});assertTrue(view.selection.isEmpty())
                 for(b in expected)assertTrue("Caption and drawing must be in the same whole panel",view.zones.any{it.box.intersect(b)/b.area>.98f})
-                view.zones.reversed().forEach{view.onZoneTap!!.invoke(it)};assertEquals((6 downTo 1).toList(),view.selection)
+                view.zones.reversed().forEach{view.onZoneTap!!.invoke(it)};assertEquals(view.zones.reversed().map{it.id},view.selection)
             }
             screenshot(scenario,"comic-thin-inset-six-panels")
             scenario.onActivity{a->findButton(a.window.decorView,"Lire (")!!.performClick();findButton(a.window.decorView,"Original")!!.performClick()}
@@ -1010,7 +1049,7 @@ class ReaderDeviceTest {
                 for((n,z)in zones.withIndex())for(line in 0..28)cc.drawText("Colonne ${n+1} : ligne $line",z.box.left*700+4,140f+line*22,ink)
                 field(a,"preview").set(a,image);field(a,"count").set(a,1);field(a,"pageReady").set(a,true);field(a,"zones").set(a,zones);field(a,"order").set(a,listOf(1,2,3))
                 findCanvas(a.window.decorView)!!.image=image;MainActivity::class.java.getDeclaredMethod("sync",Boolean::class.javaPrimitiveType).apply{isAccessible=true}.invoke(a,false)
-            };i.waitForIdleSync();screenshot(scenario,"two-finger-columns-before")
+            };Thread.sleep(400);i.waitForIdleSync();screenshot(scenario,"two-finger-columns-before")
             fun point(x:Float,y:Float):PointF{var out=PointF();scenario.onActivity{a->
                 val v=findCanvas(a.window.decorView)!!;val matrix=PageCanvas::class.java.getDeclaredField("matrix").apply{isAccessible=true}.get(v)as Matrix
                 val xy=floatArrayOf(x*700,y*1000);matrix.mapPoints(xy);val offset=IntArray(2);v.getLocationOnScreen(offset);out=PointF(xy[0]+offset[0],xy[1]+offset[1])
@@ -1025,7 +1064,9 @@ class ReaderDeviceTest {
             }
             inject(MotionEvent.ACTION_DOWN,left);Thread.sleep(80)
             inject(MotionEvent.ACTION_POINTER_DOWN or (1 shl 8),left,right)
-            repeat(8){k->Thread.sleep(90);val jitter=if(k%2==0)2f else -2f;inject(MotionEvent.ACTION_MOVE,PointF(left.x+jitter,left.y+1),PointF(right.x+jitter,right.y-1))}
+            var armed=false;val holdDeadline=android.os.SystemClock.uptimeMillis()+3000;var k=0
+            while(!armed&&android.os.SystemClock.uptimeMillis()<holdDeadline){Thread.sleep(90);val jitter=if(k++%2==0)2f else -2f;inject(MotionEvent.ACTION_MOVE,PointF(left.x+jitter,left.y+1),PointF(right.x+jitter,right.y-1));scenario.onActivity{a->val view=findCanvas(a.window.decorView)!!;armed=PageCanvas::class.java.getDeclaredField("twoSweeping").apply{isAccessible=true}.getBoolean(view)}}
+            assertTrue("Physical two-finger hold must activate before sweep",armed)
             for(k in 1..18){val dy=(end.y-left.y)*k/18;inject(MotionEvent.ACTION_MOVE,PointF(left.x,left.y+dy),PointF(right.x,right.y+dy));Thread.sleep(18)}
             i.waitForIdleSync();screenshot(scenario,"two-finger-columns-dragged")
             inject(MotionEvent.ACTION_POINTER_UP or (1 shl 8),PointF(left.x,end.y),PointF(right.x,end.y));Thread.sleep(60);inject(MotionEvent.ACTION_UP,PointF(left.x,end.y));Thread.sleep(350)

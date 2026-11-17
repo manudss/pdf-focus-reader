@@ -14,13 +14,22 @@ class ZoneDetector(private val context:Context) {
     // Native stop/recycle can contend; never wait for that lock on the UI thread.
     fun cancel(){stopped=true;stopWorker.execute{synchronized(lifecycle){active?.stop()}}}
     companion object { private val stopWorker=java.util.concurrent.Executors.newSingleThreadExecutor() }
-    fun detect(bitmap:Bitmap,obsolete:()->Boolean):List<Zone> {
+    fun detect(bitmap:Bitmap,obsolete:()->Boolean):List<Zone> = detect(bitmap,PageMode.AUTO,obsolete)
+    fun detect(bitmap:Bitmap,mode:PageMode,obsolete:()->Boolean):List<Zone> {
         val cancelled={stopped||obsolete()}
         val scale=min(1f,900f/bitmap.width)
         val panelRaster=if(scale<1f)Bitmap.createScaledBitmap(bitmap,(bitmap.width*scale).roundToInt(),(bitmap.height*scale).roundToInt(),true)else bitmap
-        val panels=try{val pixels=IntArray(panelRaster.width*panelRaster.height);panelRaster.getPixels(pixels,0,panelRaster.width,0,0,panelRaster.width,panelRaster.height);ComicPanels.find(pixels,panelRaster.width,panelRaster.height,cancelled)}finally{if(panelRaster!==bitmap)panelRaster.recycle()}
+        val panels=try{if(mode==PageMode.JOURNAL||mode==PageMode.BOOK)emptyList()else run{val pixels=IntArray(panelRaster.width*panelRaster.height);panelRaster.getPixels(pixels,0,panelRaster.width,0,0,panelRaster.width,panelRaster.height);ComicPanels.find(pixels,panelRaster.width,panelRaster.height,cancelled)}}finally{if(panelRaster!==bitmap)panelRaster.recycle()}
         if(cancelled())return emptyList()
-        if(panels.isNotEmpty()){words=emptyList();return panels.mapIndexed{i,box->Zone(i+1,box.pad(.0015f),Kind.IMAGE)}}
+        if(panels.isNotEmpty()||mode==PageMode.COMIC||mode==PageMode.MANGA){
+            words=emptyList()
+            val anchors=panels.mapIndexed{i,box->Zone(i+1,box,Kind.IMAGE,panel=true)}
+            val direction=if(mode==PageMode.MANGA)ReadingDirection.RIGHT_TO_LEFT else ReadingDirection.LEFT_TO_RIGHT
+            return ComicPagePartition.propose(anchors,bitmap.width,bitmap.height,direction){row->
+                val y=(row*bitmap.height).toInt().coerceIn(0,bitmap.height-1);var score=0f;var last=255
+                for(x in 0 until bitmap.width step max(1,bitmap.width/400)){val color=bitmap.getPixel(x,y);val l=(((color shr 16)and 255)*299+((color shr 8)and 255)*587+(color and 255)*114)/1000;score+=abs(l-last);last=l};score
+            }.zones
+        }
         val root=File(context.filesDir,"ocr");val data=File(root,"tessdata").apply{mkdirs()}
         for(lang in listOf("fra","eng")) {
             val target=File(data,"$lang.traineddata")
@@ -34,7 +43,7 @@ class ZoneDetector(private val context:Context) {
         val api=TessBaseAPI()
         try {
             check(api.init(root.absolutePath,"fra+eng")){"Le moteur OCR n'a pas pu démarrer"}
-            api.setPageSegMode(TessBaseAPI.PageSegMode.PSM_AUTO)
+            api.setPageSegMode(if(mode==PageMode.BOOK)TessBaseAPI.PageSegMode.PSM_SINGLE_COLUMN else TessBaseAPI.PageSegMode.PSM_AUTO)
             synchronized(lifecycle){if(cancelled())return emptyList();active=api}
             api.setImage(bitmap);api.getHOCRText(0)
             if(!cancelled())words=recognizedWords(api,bitmap.width.toFloat(),bitmap.height.toFloat(),cancelled)
@@ -48,7 +57,7 @@ class ZoneDetector(private val context:Context) {
                     val words=it.getUTF8Text(TessBaseAPI.PageIteratorLevel.RIL_PARA).orEmpty()
                     if(r.width()>8&&r.height()>8&&words.count{c->c.isLetterOrDigit()}>=3) {
                         val b=Box(r.left/w,r.top/h,r.right/w,r.bottom/h).pad(.003f)
-                        if(b.area>.00015f&&b.area<.65f)text+=Zone(text.size+1,b,Kind.TEXT)
+                        if(b.area>.00015f&&b.area<(if(mode==PageMode.BOOK).98f else .65f))text+=Zone(text.size+1,b,Kind.TEXT)
                     }
                 }while(it.next(TessBaseAPI.PageIteratorLevel.RIL_PARA)&&!cancelled())
             }finally{it.delete()}
@@ -61,7 +70,7 @@ class ZoneDetector(private val context:Context) {
             }finally{lineIterator.delete()}
             val withLines=TextCoverage.includeLines(text,lines.map{it.first}).map{it.copy(box=TextCoverage.safeTextBox(bitmap,it.box))}
             val pictures=pictureCandidates(bitmap,text.map{it.box},cancelled)
-            return (TextGrouping.merge(withLines)+pictures.mapIndexed{i,b->Zone((withLines.maxOfOrNull{it.id}?:0)+i+1,b,Kind.IMAGE)})
+            return ((if(mode==PageMode.BOOK)withLines else TextGrouping.merge(withLines))+(if(mode==PageMode.BOOK)emptyList()else pictures).mapIndexed{i,b->Zone((withLines.maxOfOrNull{it.id}?:0)+i+1,b,Kind.IMAGE)})
                 .sortedWith(compareBy<Zone>{(it.box.top*35).toInt()}.thenBy{it.box.left}).mapIndexed{i,z->z.copy(id=i+1)}
         }finally{synchronized(lifecycle){active=null;api.recycle()}}
     }

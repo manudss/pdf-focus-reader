@@ -72,6 +72,9 @@ class MainActivity:Activity() {
     private var editDialog:Dialog?=null
     private var adding=false;private var replaceId:Int?=null
     private var documentTitle="Document PDF"
+    private var pageMode=PageMode.AUTO
+    private lateinit var modeControls:LinearLayout
+    private var modePreviewDialog:Dialog?=null
     private var autoSelect=true
     private var autoProposed=false
     private var orderTouched=false
@@ -102,13 +105,14 @@ class MainActivity:Activity() {
         detectionSpinner=ProgressBar(this).apply{isIndeterminate=true;indeterminateTintList=android.content.res.ColorStateList.valueOf(green);contentDescription="Recherche des blocs en cours";visibility=View.GONE}
         header.addView(detectionSpinner,LinearLayout.LayoutParams(dp(24),dp(24)).apply{marginEnd=dp(8);gravity=Gravity.CENTER_VERTICAL})
         autoButton=AutoToggleButton(this).apply{
-            setOnClickListener{autoSelect=!autoSelect;getPreferences(0).edit().putBoolean("autoSelect",autoSelect).apply();styleAutoButton()}
+            setOnClickListener{if(pageMode==PageMode.MANUAL){toast("Mode Manuel : aucun bloc choisi automatiquement.");return@setOnClickListener};autoSelect=!autoSelect;getPreferences(0).edit().putBoolean("autoSelect",autoSelect).apply();styleAutoButton()}
         }
         styleAutoButton();header.addView(autoButton,LinearLayout.LayoutParams(dp(86),dp(38)).apply{marginEnd=dp(8);gravity=Gravity.CENTER_VERTICAL})
         menuButton=button("Menu",false){menu()};header.addView(menuButton,LinearLayout.LayoutParams(dp(72),dp(48)));root.addView(header)
         progress=ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal).apply{max=1000;progressTintList=android.content.res.ColorStateList.valueOf(green);progressBackgroundTintList=android.content.res.ColorStateList.valueOf(Color.rgb(226,231,226));visibility=View.GONE};root.addView(progress,LinearLayout.LayoutParams(-1,dp(3)))
         status=text("Ouvrez un PDF pour préparer votre parcours.",13).apply{setPadding(dp(16),dp(4),dp(16),dp(4));accessibilityLiveRegion=View.ACCESSIBILITY_LIVE_REGION_POLITE}
         status.setBackgroundColor(Color.WHITE);root.addView(status)
+        modeControls=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(12),0,dp(12),dp(4))};root.addView(modeControls)
         pages=LinearLayout(this).apply{gravity=Gravity.CENTER_VERTICAL;setPadding(dp(10),0,dp(10),dp(4))};root.addView(pages)
         val viewport=android.widget.FrameLayout(this);root.addView(viewport,LinearLayout.LayoutParams(-1,0,1f))
         canvas=PageCanvas(this);viewport.addView(canvas,android.widget.FrameLayout.LayoutParams(-1,-1))
@@ -209,7 +213,7 @@ class MainActivity:Activity() {
         compoundDrawablePadding=dp(6);contentDescription=label.replace("✓","sélectionné")
         setOnClickListener{action()}
     }
-    private fun row(vararg buttons:Button){val row=LinearLayout(this).apply{isBaselineAligned=false};buttons.forEachIndexed{i,b->row.addView(b,LinearLayout.LayoutParams(0,dp(48),1f).apply{if(i>0)marginStart=dp(6)})};controls.addView(row,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=dp(6)})}
+    private fun row(vararg buttons:Button){val row=LinearLayout(this).apply{isBaselineAligned=false};buttons.forEachIndexed{i,b->if(resources.configuration.screenWidthDp<=360){b.setCompoundDrawablesRelative(null,null,null,null);b.compoundDrawablePadding=0;b.setPadding(dp(3),0,dp(3),0)};row.addView(b,LinearLayout.LayoutParams(0,dp(48),1f).apply{if(i>0)marginStart=dp(6)})};controls.addView(row,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=dp(6)})}
     private fun showOrder(){
         val panel=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(20),dp(8),dp(20),dp(8))}
         val dialog=AlertDialog.Builder(this).setTitle("Votre parcours · ${order.size} blocs").setView(panel).create()
@@ -219,11 +223,49 @@ class MainActivity:Activity() {
         action("Effacer l'ordre"){order=emptyList();orderTouched=true;frameIndex=0;scrollPosition=0;sync()}
         action("Recentrer"){canvas.resetZoom()};action("Fermer"){};dialog.show()
     }
+    private fun modeLabel(mode:PageMode)=when(mode){PageMode.AUTO->"Auto";PageMode.COMIC->"BD";PageMode.MANGA->"Manga";PageMode.JOURNAL->"Journal";PageMode.BOOK->"Livre";PageMode.MANUAL->"Manuel"}
+    private fun updateModeControls(){
+        modeControls.removeAllViews();modeControls.visibility=if(reading||adding||merging||adjusting!=null||articleIds!=null)View.GONE else View.VISIBLE
+        val strip=LinearLayout(this).apply{gravity=Gravity.CENTER_VERTICAL}
+        for(mode in listOf(PageMode.AUTO,PageMode.COMIC,PageMode.MANGA,PageMode.JOURNAL,PageMode.BOOK,PageMode.MANUAL)){
+            val b=button(modeLabel(mode)){choosePageMode(mode)}.apply{
+                setCompoundDrawablesRelative(null,null,null,null);setPadding(dp(3),0,dp(3),0);isSelected=pageMode==mode
+                background=shape(if(isSelected)Color.rgb(226,239,231)else Color.WHITE,8,if(isSelected)green else Color.rgb(226,231,226));contentDescription="Mode ${modeLabel(mode)}${if(isSelected)", choisi" else ""}"
+            }
+            strip.addView(b,LinearLayout.LayoutParams(0,dp(44),1f).apply{marginEnd=dp(3)})
+        };modeControls.addView(strip)
+        modeControls.addView(text(if(pageMode==PageMode.MANUAL)"Manuel : aucun choix auto · T Texte · ▧ Image · ▣ Case" else "T Texte · ▧ Image · ▣ Case · ◇ Complément",10).apply{setPadding(dp(3),dp(2),0,0)})
+    }
+    private fun choosePageMode(mode:PageMode){
+        if(mode==pageMode)return
+        if(reading||adding||merging||adjusting!=null)return
+        if(mode==PageMode.MANUAL){pageMode=mode;autoProposed=false;orderTouched=true;sync(pageReady||(!busy&&!detecting));return}
+        if(count==0){pageMode=mode;updateControls();return}
+        if(busy||detecting){pageMode=mode;loadPage(page,true);return}
+        val bitmap=preview?:return;val token=generation;val cancelled=java.util.concurrent.atomic.AtomicBoolean(false)
+        val dialog=Dialog(this);modePreviewDialog=dialog
+        val panel=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(16),dp(12),dp(16),dp(12));background=shape(Color.rgb(250,249,246),18)}
+        panel.addView(text("Préparer en mode ${modeLabel(mode)}",21,true));val hint=text("Aperçu en cours. Vos blocs et votre ordre sont conservés tant que vous n'appliquez pas.",13);panel.addView(hint)
+        val sample=PageCanvas(this).apply{image=bitmap};panel.addView(sample,LinearLayout.LayoutParams(-1,0,1f))
+        var proposed=listOf<Zone>();var proposedOrder=listOf<Int>();var words:List<OcrWord> = emptyList()
+        val actions=LinearLayout(this)
+        val apply=button("Appliquer",true){
+            if(token!=generation)return@button
+            zones=proposed;order=proposedOrder;recognizedWords=words;pageMode=mode;autoProposed=order.isNotEmpty();orderTouched=false;frameIndex=0;scrollPosition=0;chunkPlan=emptyList();rawChunks.clear();improvedChunks.clear();secondChunks.clear();sync();canvas.animateSelectionOrder();dialog.dismiss()
+        }.apply{isEnabled=false}
+        actions.addView(button("Annuler"){dialog.dismiss()},LinearLayout.LayoutParams(0,dp(48),1f));actions.addView(apply,LinearLayout.LayoutParams(0,dp(48),1f));panel.addView(actions)
+        dialog.setContentView(panel);dialog.setOnDismissListener{cancelled.set(true);if(modePreviewDialog===dialog)modePreviewDialog=null;sample.image=null};dialog.show();dialog.window?.apply{setBackgroundDrawableResource(android.R.color.transparent);setLayout(-1,(resources.displayMetrics.heightPixels*.9f).toInt())}
+        val copy=bitmap.copy(Bitmap.Config.ARGB_8888,false)
+        detectionWorker.execute{try{val engine=ZoneDetector(applicationContext);val found=engine.detect(copy,mode){cancelled.get()||token!=generation};val next=if(mode==PageMode.BOOK)found else TextCoverage.bridgeColumnGaps(found);val ids=if(mode!=PageMode.AUTO||autoSelect)PageReadingOrder.propose(next,mode)else emptyList();words=engine.words
+            main.post{if(!cancelled.get()&&token==generation&&!isDestroyed){proposed=next;proposedOrder=ids;sample.zones=next;sample.selection=ids;hint.text=when(mode){PageMode.COMIC,PageMode.MANGA->"Toute la page est couverte. Vérifiez les coupes, surtout sans cadres nets. Appliquer remplacera les blocs et le parcours de cette page.";PageMode.BOOK->"Paragraphes proposés dans l'ordre. Appliquer remplacera les blocs et le parcours de cette page.";else->"${next.size} blocs proposés. Appliquer remplacera les blocs et le parcours de cette page."};apply.isEnabled=next.isNotEmpty()}}
+        }catch(_:Exception){main.post{if(!cancelled.get())hint.text="Préparation indisponible. Vos blocs et votre ordre sont inchangés."}}finally{copy.recycle()}}
+    }
     private fun updateControls(){
+        updateModeControls()
         detectionSpinner.visibility=if(detecting&&!reading)View.VISIBLE else View.GONE
         changePdfButton.isEnabled=!documentLoading
         controls.removeAllViews();controls.isEnabled=true;pages.removeAllViews();pages.visibility=if(reading||adjusting!=null||merging||articleIds!=null||adding)View.GONE else View.VISIBLE
-        autoButton.visibility=if(count>0&&!reading&&articleIds==null&&!merging&&adjusting==null&&!adding)View.VISIBLE else View.GONE
+        autoButton.visibility=if(pageMode==PageMode.AUTO&&count>0&&!reading&&articleIds==null&&!merging&&adjusting==null&&!adding)View.VISIBLE else View.GONE
         clearSelection.visibility=if(count>0&&!reading&&order.isNotEmpty()&&articleIds==null&&!merging&&adjusting==null&&!adding)View.VISIBLE else View.GONE
         title.text=when{reading&&ocrReading->"Texte OCR";reading->"Lecture";articleIds!=null->"Article proposé";merging->"Fusionner des blocs";adjusting!=null->"Ajuster le cadre";count>0->"Préparer ma lecture";else->applicationInfo.loadLabel(packageManager).toString()}
         info.text=if(count>0)"Page ${page+1} sur $count" else "Lecture privée, hors ligne"
@@ -318,7 +360,7 @@ class MainActivity:Activity() {
         if(!reading&&!busy)status.text=if(adding)"Cadrage manuel" else "${zones.size} blocs proposés · ${order.size} choisis ${if(autoProposed&&!orderTouched)"automatiquement" else "dans votre ordre"}"
         updateControls();if(save&&count>0)saveSession()
     }
-    private fun saveSession(){try{store.put(page,PageSession(zones,order,frameIndex,scrollPosition))}catch(_:Exception){status.text="Lecture possible, mais sauvegarde indisponible."}}
+    private fun saveSession(){try{store.put(page,PageSession(zones,order,frameIndex,scrollPosition,pageMode))}catch(_:Exception){status.text="Lecture possible, mais sauvegarde indisponible."}}
     private fun pickPdf(){startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply{addCategory(Intent.CATEGORY_OPENABLE);type="application/pdf"},100)}
     private fun handleIntent(intent:Intent?){
         val uri=when(intent?.action){Intent.ACTION_VIEW->intent.data;Intent.ACTION_SEND->intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM);else->null}
@@ -366,6 +408,7 @@ class MainActivity:Activity() {
         canvas.finishSelectionReveal()
         pendingNew=null;merging=false;mergeIds=emptySet();canvas.mergeMode=false;canvas.mergeIds=emptySet();adjusting=null;canvas.adjustingZone=null;canvas.editBox=null;detector?.cancel();ocrRun++;chunkPlan=emptyList();rawChunks.clear();improvedChunks.clear();secondChunks.clear();ocrNotice="";detecting=false;pageReady=false;recognizedWords=null;ocrLoading=false;autoProposed=false;orderTouched=false
         val savedSession=if(force)null else store.get(index)
+        val requestedMode=pageMode
         reader.clear();reader.visibility=View.GONE;canvas.visibility=View.VISIBLE;scrollPosition=0
         val token=++generation;page=index;reading=false;adding=false;canvas.drawMode=false;canvas.reading=false
         busy=true;order=emptyList();zones=emptyList();canvas.zones=emptyList();canvas.selection=emptyList();status.text="Préparation de la page ${page+1}…";updateControls()
@@ -377,7 +420,7 @@ class MainActivity:Activity() {
                     if(token!=generation||isDestroyed){image.recycle();return@post}
                     val old=preview;preview=image;canvas.image=image;old?.recycle();readingBitmap?.recycle();readingBitmap=null
                     info.text="Page ${index+1} sur $count";title.text=documentTitle
-                    if(savedSession!=null){zones=TextCoverage.bridgeColumnGaps(savedSession.zones);order=savedSession.order.filter{id->zones.any{it.id==id}};frameIndex=savedSession.frame;scrollPosition=savedSession.scroll;pageReady=true;busy=false;sync()}
+                    if(savedSession!=null){if(pageMode==requestedMode)pageMode=savedSession.mode;zones=if(savedSession.mode==PageMode.BOOK)savedSession.zones else TextCoverage.bridgeColumnGaps(savedSession.zones);order=savedSession.order.filter{id->zones.any{it.id==id}};frameIndex=savedSession.frame;scrollPosition=savedSession.scroll;pageReady=true;busy=false;sync()}
                     else{
                         busy=true;detecting=true;status.text="Détection locale en cours. Vous pouvez changer de page.";updateControls()
                         val ocrImage=image.copy(Bitmap.Config.ARGB_8888,false)
@@ -386,8 +429,8 @@ class MainActivity:Activity() {
                                 if(token!=generation)return@detection
                                 val engine=ZoneDetector(applicationContext)
                                 synchronized(this@MainActivity){if(token!=generation)return@detection;detector=engine}
-                                val result=engine.detect(ocrImage){token!=generation}
-                                main.post{if(token==generation&&!isDestroyed){detector=null;detecting=false;recognizedWords=engine.words;zones=TextCoverage.bridgeColumnGaps(result);order=if(autoSelect)AutoOrder.propose(zones)else emptyList();autoProposed=autoSelect&&order.isNotEmpty();frameIndex=0;pageReady=true;busy=false;sync();if(autoProposed)canvas.animateSelectionOrder();if(zones.isEmpty())status.text="Aucun bloc trouvé. Utilisez + Bloc pour tracer une zone."}}
+                                val result=engine.detect(ocrImage,requestedMode){token!=generation}
+                                main.post{if(token==generation&&!isDestroyed){detector=null;detecting=false;recognizedWords=engine.words;zones=if(requestedMode==PageMode.BOOK)result else TextCoverage.bridgeColumnGaps(result);order=if((requestedMode!=PageMode.AUTO||autoSelect)&&requestedMode!=PageMode.MANUAL&&pageMode!=PageMode.MANUAL)PageReadingOrder.propose(zones,requestedMode)else emptyList();autoProposed=order.isNotEmpty();frameIndex=0;pageReady=true;busy=false;sync();if(autoProposed)canvas.animateSelectionOrder();if(zones.isEmpty())status.text="Aucun bloc trouvé. Utilisez + Bloc pour tracer une zone."}}
                             }catch(_:Exception){main.post{if(token==generation&&!isDestroyed){detector=null;detecting=false;busy=false;pageReady=true;sync(false);status.text="Analyse indisponible. Tracez vos blocs avec + Bloc."}}}
                             finally{ocrImage.recycle()}
                         }
@@ -594,7 +637,7 @@ class MainActivity:Activity() {
     private fun editZoneAction(z:Zone,which:Int){
         when(which){
                 0->{replaceId=z.id;adding=true;canvas.drawMode=true}
-                1->{zones=zones.map{if(it.id==z.id)it.copy(kind=if(it.kind==Kind.TEXT)Kind.IMAGE else Kind.TEXT)else it}}
+                1->{zones=zones.map{if(it.id==z.id)it.copy(kind=if(it.kind==Kind.TEXT)Kind.IMAGE else Kind.TEXT,panel=false,complement=false)else it}}
                 2,3->{showSplit(z,which==2);return}
                 4->{beginMerge(z)}
 
@@ -763,5 +806,5 @@ class MainActivity:Activity() {
     private fun demo(){openDocument("PDF Focus - Découverte"){target->assets.open("examples/decouverte.pdf").use{input->target.outputStream().use{output->input.copyTo(output)}}}}
     @Deprecated("Activity back callback")
     override fun onBackPressed(){if(articleIds!=null)finishArticle(false)else if(merging)finishMerge(false)else if(adjusting!=null)finishAdjustment(false)else if(reading)exitReader()else if(adding){adding=false;replaceId=null;canvas.drawMode=false;sync()}else super.onBackPressed()}
-    override fun onDestroy(){articleShareDialog?.dismiss();canvas.finishSelectionReveal();pageSummary?.dismiss();editDialog?.dismiss();main.removeCallbacks(saveProgress);if(pageReady)saveSession();reader.clear();++generation;detector?.cancel();detectionWorker.shutdown();super.onDestroy();worker.execute{document?.close();document=null};worker.shutdown()}
+    override fun onDestroy(){modePreviewDialog?.dismiss();articleShareDialog?.dismiss();canvas.finishSelectionReveal();pageSummary?.dismiss();editDialog?.dismiss();main.removeCallbacks(saveProgress);if(pageReady)saveSession();reader.clear();++generation;detector?.cancel();detectionWorker.shutdown();super.onDestroy();worker.execute{document?.close();document=null};worker.shutdown()}
 }
