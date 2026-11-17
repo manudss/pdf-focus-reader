@@ -79,4 +79,25 @@ class ComicReaderUiTest {
   v.clear()
  }
 
+ @Test fun activityRoutesComicMangaAndAutoButPreservesOrdinaryReaderAndSourceOrder(){
+  val ctl=Robolectric.buildActivity(MainActivity::class.java).setup().visible();val a=ctl.get()
+  val image=Bitmap.createBitmap(1200,1800,Bitmap.Config.ARGB_8888);image.eraseColor(Color.rgb(243,223,181))
+  val zones=listOf(Zone(31,Box(0f,0f,1f,.35f),Kind.IMAGE,panel=true),Zone(32,Box(0f,.35f,.5f,1f),Kind.IMAGE,panel=true))
+  fun set(n:String,v:Any){field(a,n).set(a,v)}
+  set("preview",image);set("count",1);set("pageReady",true);set("busy",false);set("ocrReading",false);set("zones",zones);set("order",listOf(32,31))
+  val reader=field(a,"reader").get(a) as ContinuousReaderView
+  reader.measure(View.MeasureSpec.makeMeasureSpec(390,1073741824),View.MeasureSpec.makeMeasureSpec(760,1073741824));reader.layout(0,0,390,760)
+  for((mode,expected)in listOf(PageMode.COMIC to 1,PageMode.MANGA to -1,PageMode.AUTO to 1,PageMode.BOOK to 0,PageMode.MANUAL to 0,PageMode.JOURNAL to 0)){
+   set("pageMode",mode)
+   MainActivity::class.java.getDeclaredMethod("startReader").apply{isAccessible=true}.invoke(a)
+   assertEquals(expected,field(reader,"comicDirection").getInt(reader));assertEquals(View.VISIBLE,reader.visibility)
+   assertEquals(listOf(32,31),field(a,"order").get(a));assertEquals(zones,field(a,"zones").get(a))
+   val groups=tiles(reader).groupBy{it.chunkKey};assertEquals(setOf(31,32),groups.keys)
+   for(z in zones){assertEquals(z.box.left,groups.getValue(z.id).minOf{it.source.left},.0001f);assertEquals(z.box.right,groups.getValue(z.id).maxOf{it.source.right},.0001f)}
+  }
+  set("pageMode",PageMode.AUTO);set("zones",zones.map{it.copy(panel=false)})
+  MainActivity::class.java.getDeclaredMethod("startReader").apply{isAccessible=true}.invoke(a);assertEquals(0,field(reader,"comicDirection").getInt(reader))
+  ctl.pause().stop().destroy()
+ }
+
 }
