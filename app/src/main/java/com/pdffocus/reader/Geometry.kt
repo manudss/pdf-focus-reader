@@ -12,7 +12,7 @@ data class Box(val left: Float, val top: Float, val right: Float, val bottom: Fl
     fun union(o: Box) = Box(min(left,o.left),min(top,o.top),max(right,o.right),max(bottom,o.bottom))
 }
 enum class Kind { TEXT, IMAGE }
-data class Zone(val id: Int, val box: Box, val kind: Kind, val lineBottoms: List<Float> = emptyList(),val manual:Boolean=false,val panel:Boolean=false)
+data class Zone(val id: Int, val box: Box, val kind: Kind, val lineBottoms: List<Float> = emptyList(),val manual:Boolean=false,val panel:Boolean=false,val complement:Boolean=false)
 data class ReadingFrame(val zoneId: Int,val box: Box,val part: Int,val total: Int)
 
 /** Coordinates normalised to displayed page orientation, not bitmap pixels. */

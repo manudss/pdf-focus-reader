@@ -16,11 +16,11 @@ class SessionStore(context:Context) {
         get()=root.optInt("page",0)
         set(value){root.put("page",value);flush()}
     fun get(index:Int):PageSession?=try{
-        val p=root.getJSONObject(index.toString());val a=p.getJSONArray("zones");val zones=(0 until a.length()).map{i->val z=a.getJSONObject(i);Zone(z.getInt("id"),Box(z.getDouble("l").toFloat(),z.getDouble("t").toFloat(),z.getDouble("r").toFloat(),z.getDouble("b").toFloat()),Kind.valueOf(z.getString("kind")),z.optJSONArray("lines")?.let{ls->(0 until ls.length()).map{ls.getDouble(it).toFloat()}}?:emptyList(),z.optBoolean("manual",false),z.optBoolean("panel",false))}
+        val p=root.getJSONObject(index.toString());val a=p.getJSONArray("zones");val zones=(0 until a.length()).map{i->val z=a.getJSONObject(i);Zone(z.getInt("id"),Box(z.getDouble("l").toFloat(),z.getDouble("t").toFloat(),z.getDouble("r").toFloat(),z.getDouble("b").toFloat()),Kind.valueOf(z.getString("kind")),z.optJSONArray("lines")?.let{ls->(0 until ls.length()).map{ls.getDouble(it).toFloat()}}?:emptyList(),z.optBoolean("manual",false),z.optBoolean("panel",false),z.optBoolean("complement",false))}
         val o=p.getJSONArray("order");PageSession(zones,(0 until o.length()).map{o.getInt(it)},p.optInt("frame"),p.optInt("scroll"),runCatching{PageMode.valueOf(p.optString("mode","AUTO"))}.getOrDefault(PageMode.AUTO),runCatching{ReadingDirection.valueOf(p.optString("direction","LEFT_TO_RIGHT"))}.getOrDefault(ReadingDirection.LEFT_TO_RIGHT))
     }catch(_:Exception){null}
     fun put(index:Int,session:PageSession){
-        val zones=JSONArray();session.zones.forEach{z->zones.put(JSONObject().put("id",z.id).put("l",z.box.left).put("t",z.box.top).put("r",z.box.right).put("b",z.box.bottom).put("kind",z.kind.name).put("lines",JSONArray(z.lineBottoms)).put("manual",z.manual).put("panel",z.panel))}
+        val zones=JSONArray();session.zones.forEach{z->zones.put(JSONObject().put("id",z.id).put("l",z.box.left).put("t",z.box.top).put("r",z.box.right).put("b",z.box.bottom).put("kind",z.kind.name).put("lines",JSONArray(z.lineBottoms)).put("manual",z.manual).put("panel",z.panel).put("complement",z.complement))}
         root.put(index.toString(),JSONObject().put("zones",zones).put("order",JSONArray(session.order)).put("frame",session.frame).put("scroll",session.scroll).put("mode",session.mode.name).put("direction",session.direction.name));root.put("page",index);flush()
     }
     /** Only fingerprints and numeric choices are persisted, never recognized article text. */

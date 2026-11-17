@@ -77,6 +77,28 @@ class ReaderDeviceTest {
             }
         };f.delete()
     }
+    @Test fun preparationModesDriveDetectionCoverageDirectionAndManualProtection(){
+        val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext
+        val source=File(c.cacheDir,"mode-source.pdf");c.assets.open("examples/decouverte.pdf").use{a->source.outputStream().use{a.copyTo(it)}}
+        PdfDocument(source).use{pdf->val bitmap=pdf.preview(6)
+            fun verify(zones:List<Zone>){assertEquals(1f,zones.sumOf{it.box.area.toDouble()}.toFloat(),.00001f);for(a in zones.indices)for(b in a+1 until zones.size)assertEquals(0f,zones[a].box.intersect(zones[b].box),.000001f)}
+            val bd=ZoneDetector(c).detect(bitmap,PageMode.COMIC){false};val manga=ZoneDetector(c).detect(bitmap,PageMode.MANGA){false};verify(bd);verify(manga)
+            assertEquals(6,bd.count{it.panel});assertEquals(bd.map{it.box}.toSet(),manga.map{it.box}.toSet())
+            val ltr=bd.filter{it.panel};val rtl=manga.filter{it.panel};assertTrue(ltr[0].box.left<ltr[1].box.left);assertTrue(rtl[0].box.left>rtl[1].box.left)
+            bitmap.recycle()
+        }
+        val frameless=Bitmap.createBitmap(700,1700,Bitmap.Config.ARGB_8888).apply{eraseColor(Color.WHITE)};val cv=Canvas(frameless);val paint=Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.BLACK;textSize=28f}
+        cv.drawText("Une première page de livre.",45f,90f,paint);for(k in 0..4)cv.drawText("Un premier paragraphe pour lire.",45f,140f+k*40,paint)
+        for(k in 0..4)cv.drawText("Un second paragraphe, plus bas.",45f,580f+k*40,paint)
+        val book=ZoneDetector(c).detect(frameless,PageMode.BOOK){false};assertTrue(book.size>=2);assertTrue(book.all{it.kind==Kind.TEXT&&!it.panel});assertEquals(book.sortedBy{it.box.top}.map{it.id},PageReadingOrder.propose(book,PageMode.BOOK))
+        val fallback=ZoneDetector(c).detect(frameless,PageMode.COMIC){false};assertEquals(1f,fallback.sumOf{it.box.area.toDouble()}.toFloat(),.00001f);frameless.recycle()
+        File(c.filesDir,"current.pdf").delete();SessionStore(c).clear()
+        ActivityScenario.launch<MainActivity>(Intent(c,MainActivity::class.java)).use{scenario->
+            fun field(a:MainActivity,n:String)=MainActivity::class.java.getDeclaredField(n).apply{isAccessible=true}
+            scenario.onActivity{a->field(a,"order").set(a,listOf(9,3));MainActivity::class.java.getDeclaredMethod("choosePageMode",PageMode::class.java).apply{isAccessible=true}.invoke(a,PageMode.MANUAL);assertEquals(listOf(9,3),field(a,"order").get(a));assertEquals(PageMode.MANUAL,field(a,"pageMode").get(a))}
+            screenshot(scenario,"modes-manual-before-document")
+        };source.delete()
+    }
     @Test fun framedComicProposesSixWholeImagePanelsWithoutOcrFragments(){
         val instrumentation=InstrumentationRegistry.getInstrumentation();val c=instrumentation.targetContext
         File(c.filesDir,"current.pdf").delete();SessionStore(c).clear()
@@ -86,10 +108,10 @@ class ReaderDeviceTest {
             while(System.currentTimeMillis()<end){scenario.onActivity{a->ready=MainActivity::class.java.getDeclaredField("pageReady").apply{isAccessible=true}.getBoolean(a)};if(ready)break;Thread.sleep(100)};assertTrue(ready)
             scenario.onActivity{a->MainActivity::class.java.getDeclaredMethod("loadPage",Int::class.javaPrimitiveType,Boolean::class.javaPrimitiveType).apply{isAccessible=true}.invoke(a,6,false)}
             ready=false;val finish=System.currentTimeMillis()+90000
-            while(System.currentTimeMillis()<finish){scenario.onActivity{a->ready=MainActivity::class.java.getDeclaredField("pageReady").apply{isAccessible=true}.getBoolean(a)&&findCanvas(a.window.decorView)!!.zones.size==6};if(ready)break;Thread.sleep(100)}
+            while(System.currentTimeMillis()<finish){scenario.onActivity{a->ready=MainActivity::class.java.getDeclaredField("pageReady").apply{isAccessible=true}.getBoolean(a)&&findCanvas(a.window.decorView)!!.zones.count{it.panel}==6};if(ready)break;Thread.sleep(100)}
             assertTrue("The full detection path must propose six comic panels",ready)
             clearAutoProposal(scenario)
-            scenario.onActivity{a->val page=findCanvas(a.window.decorView)!!;assertTrue(page.zones.all{it.kind==Kind.IMAGE});assertTrue(page.zones.all{it.box.height>.25f});assertTrue(page.selection.isEmpty());page.zones.forEach{page.onZoneTap!!.invoke(it)};assertEquals((1..6).toList(),page.selection)}
+            scenario.onActivity{a->val page=findCanvas(a.window.decorView)!!;assertTrue(page.zones.all{it.kind==Kind.IMAGE});assertEquals(6,page.zones.count{it.panel});assertEquals(1f,page.zones.sumOf{it.box.area.toDouble()}.toFloat(),.00001f);assertTrue(page.selection.isEmpty());page.zones.forEach{page.onZoneTap!!.invoke(it)};assertEquals(page.zones.map{it.id},page.selection)}
             screenshot(scenario,"comic-six-panels")
             scenario.onActivity{a->findButton(a.window.decorView,"Lire (")!!.performClick();findButton(a.window.decorView,"Original")!!.performClick()}
             Thread.sleep(700);screenshot(scenario,"comic-original-reader")
@@ -116,9 +138,9 @@ class ReaderDeviceTest {
             assertTrue("Synthetic comic detection must complete",ready)
             clearAutoProposal(scenario)
             scenario.onActivity{a->val view=findCanvas(a.window.decorView)!!
-                assertEquals("Six panels, not caption fragments",6,view.zones.size);assertTrue(view.zones.all{it.kind==Kind.IMAGE});assertTrue(view.selection.isEmpty())
+                assertEquals("Six panels, not caption fragments",6,view.zones.count{it.panel});assertEquals(1f,view.zones.sumOf{it.box.area.toDouble()}.toFloat(),.00001f);assertTrue(view.zones.all{it.kind==Kind.IMAGE});assertTrue(view.selection.isEmpty())
                 for(b in expected)assertTrue("Caption and drawing must be in the same whole panel",view.zones.any{it.box.intersect(b)/b.area>.98f})
-                view.zones.reversed().forEach{view.onZoneTap!!.invoke(it)};assertEquals((6 downTo 1).toList(),view.selection)
+                view.zones.reversed().forEach{view.onZoneTap!!.invoke(it)};assertEquals(view.zones.reversed().map{it.id},view.selection)
             }
             screenshot(scenario,"comic-thin-inset-six-panels")
             scenario.onActivity{a->findButton(a.window.decorView,"Lire (")!!.performClick();findButton(a.window.decorView,"Original")!!.performClick()}

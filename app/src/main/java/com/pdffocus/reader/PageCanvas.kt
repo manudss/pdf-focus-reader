@@ -128,6 +128,13 @@ class PageCanvas(context:Context):View(context) {
             paint.style=Paint.Style.STROKE;paint.strokeWidth=if(number>0||merged)3*density else if(chosenSolo)1.5f*density else density
             paint.pathEffect=if(number>0||merged||chosenSolo)null else DashPathEffect(floatArrayOf(5*density,3*density),0f)
             canvas.drawRect(rect,paint);paint.pathEffect=null
+            // A visible sign plus tint identifies content without relying on colour alone.
+            val mark=when{zone.complement->"◇";zone.panel->"▣";zone.kind==Kind.TEXT->"T";else->"▧"}
+            val tint=when{zone.panel->Color.rgb(50,109,93);zone.kind==Kind.TEXT->Color.rgb(75,101,144);else->Color.rgb(155,106,36)}
+            val bx=(rect.right-23*density).coerceAtLeast(rect.left);val by=rect.top
+            paint.style=Paint.Style.FILL;paint.color=Color.WHITE;canvas.drawRoundRect(RectF(bx,by,rect.right,by+22*density),3*density,3*density,paint)
+            paint.color=tint;paint.textSize=13*density;paint.typeface=Typeface.create("sans-serif",Typeface.BOLD);canvas.drawText(mark,bx+5*density,by+16*density,paint)
+            paint.color=if(merged)mergeColors[zone.id]?:Color.rgb(128,91,167)else Color.rgb(37,122,100)
             if(number>0||merged){
                 paint.style=Paint.Style.FILL;canvas.drawRoundRect(RectF(rect.left,rect.top,rect.left+27*density,rect.top+25*density),3*density,3*density,paint)
                 paint.color=Color.WHITE;paint.textSize=16*density;paint.typeface=Typeface.create("sans-serif",Typeface.BOLD)

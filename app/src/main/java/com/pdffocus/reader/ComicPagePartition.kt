@@ -47,7 +47,7 @@ object ComicPagePartition{
    partition(Box(0f,contentTop,1f,contentBottom),anchors)
    if(contentBottom<1f)output+=Box(0f,contentBottom,1f,1f)to false
   }else fallback(Box(0f,0f,1f,1f))
-  val zones=output.mapIndexed{i,(b,p)->Zone(i+1,b,Kind.IMAGE,manual=true,panel=p)}
+  val zones=output.mapIndexed{i,(b,p)->Zone(i+1,b,Kind.IMAGE,manual=true,panel=p,complement=!p)}
   val ordered=PageReadingOrder.propose(zones,PageMode.COMIC,direction)
   return Proposal(ordered.map{id->zones.single{it.id==id}},anchors.size>=2&&!overlapping,overlapping||anchors.size<2||output.any{!it.second&&it.first.height*height/(it.first.width*width)>1.6f})
  }
