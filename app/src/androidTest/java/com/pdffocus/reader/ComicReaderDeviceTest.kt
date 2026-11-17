@@ -48,12 +48,17 @@ class ComicReaderDeviceTest {
   p.finishPage(page);f.outputStream().use{p.writeTo(it)};p.close();return f
  }
  private fun exercise(rtl:Boolean){
-  val context=ins.targetContext;context.getSharedPreferences("MainActivity",0).edit().putBoolean("tutorialSeen",true).commit()
+  val context=ins.targetContext
+  // The debug applicationId differs from the Activity package, so getLocalClassName is qualified.
+  for(name in listOf("MainActivity",MainActivity::class.java.name))context.getSharedPreferences(name,0).edit().putBoolean("tutorialSeen",true).commit()
   val f=fictionalPdf();val doc=PdfDocument(f)
   ActivityScenario.launch<MainActivity>(Intent(context,MainActivity::class.java)).use{scenario->
    lateinit var reader:ContinuousReaderView
    scenario.onActivity{a->reader=ContinuousReaderView(a);a.setContentView(reader);reader.onRequest={t,r->reader.accept(t,r,doc.readingRegion(0,t.source,ceil(t.rect.width()).toInt().coerceAtLeast(1),ceil(t.rect.height()).toInt().coerceAtLeast(1),false))};reader.setDocument(listOf(Zone(1,Box(0f,0f,1f,.35f),Kind.IMAGE,panel=true),Zone(2,Box(0f,.35f,.5f,1f),Kind.IMAGE,panel=true),Zone(3,Box(.5f,.35f,1f,1f),Kind.IMAGE,panel=true)),1200,1800,comicDirection=if(rtl)-1 else 1)}
-   ins.waitForIdleSync();val d=context.resources.displayMetrics.density;val w=reader.width.toFloat();val y=150*d
+   var ready=false
+   for(attempt in 0 until 100){ins.waitForIdleSync();ins.runOnMainSync{ready=reader.width>0&&reader.height>0&&reader.isShown&&reader.hasWindowFocus()};if(ready)break;SystemClock.sleep(100)}
+   assertTrue("Reader must be laid out in the focused Activity window before injecting input",ready)
+   val d=context.resources.displayMetrics.density;val w=reader.width.toFloat();val y=150*d
    capture(reader,"comic-native-${if(rtl)"manga" else "bd"}-01-entire")
    ins.runOnMainSync{assertTrue(states(reader).isEmpty());assertTrue(tiles(reader).all{it.rect.left>=0&&it.rect.right<=w})}
    tap(reader,70*d,y);ins.runOnMainSync{assertTrue(states(reader).getValue(1).detail)}
