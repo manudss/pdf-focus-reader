@@ -212,7 +212,7 @@ class MainActivity:Activity() {
         compoundDrawablePadding=dp(6);contentDescription=label.replace("✓","sélectionné")
         setOnClickListener{action()}
     }
-    private fun row(vararg buttons:Button){val row=LinearLayout(this).apply{isBaselineAligned=false};buttons.forEachIndexed{i,b->row.addView(b,LinearLayout.LayoutParams(0,dp(48),1f).apply{if(i>0)marginStart=dp(6)})};controls.addView(row,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=dp(6)})}
+    private fun row(vararg buttons:Button){val row=LinearLayout(this).apply{isBaselineAligned=false};buttons.forEachIndexed{i,b->if(resources.configuration.screenWidthDp<=360){b.setCompoundDrawablesRelative(null,null,null,null);b.compoundDrawablePadding=0;b.setPadding(dp(3),0,dp(3),0)};row.addView(b,LinearLayout.LayoutParams(0,dp(48),1f).apply{if(i>0)marginStart=dp(6)})};controls.addView(row,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=dp(6)})}
     private fun showOrder(){
         val panel=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(20),dp(8),dp(20),dp(8))}
         val dialog=AlertDialog.Builder(this).setTitle("Votre parcours · ${order.size} blocs").setView(panel).create()

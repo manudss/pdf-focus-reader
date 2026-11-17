@@ -36,6 +36,8 @@ class PageModesUiTest{
   val dir=File("/tmp/pdf-comic-native").apply{mkdirs()};repeat(2){val b=Bitmap.createBitmap(w,h,Bitmap.Config.ARGB_8888);root.draw(Canvas(b));if(it==1)File(dir,"modes-${a.resources.configuration.screenWidthDp}.png").outputStream().use{b.compress(Bitmap.CompressFormat.PNG,100,it)};b.recycle()}
   val strip=field(a,"modeControls").get(a)as ViewGroup;val row=strip.getChildAt(0)as ViewGroup
   for(k in 0 until row.childCount){val button=row.getChildAt(k)as Button;assertTrue(button.width>=40*d);assertTrue(button.height>=44*d)}
+  val controls=field(a,"controls").get(a)as ViewGroup
+  fun noCut(v:View){if(v is Button){val layout=v.layout;if(layout!=null)for(line in 0 until layout.lineCount)assertEquals("Command must not be ellipsized: ${v.text}",0,layout.getEllipsisCount(line));assertTrue("Command text fits available width: ${v.text}",v.paint.measureText(v.text.toString())<=v.width-v.compoundPaddingLeft-v.compoundPaddingRight+1)};if(v is ViewGroup)for(k in 0 until v.childCount)noCut(v.getChildAt(k))};noCut(controls)
   controller.pause().stop().destroy()
  }
 }
