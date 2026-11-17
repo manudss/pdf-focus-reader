@@ -87,13 +87,10 @@ class MainActivity:Activity() {
         val names=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL}
         title=text("PDF Focus Test",18,true).apply{maxLines=1;ellipsize=android.text.TextUtils.TruncateAt.END};info=text("Lecture privée, sans compte et hors ligne",12)
         names.addView(title);names.addView(info);header.addView(names,LinearLayout.LayoutParams(0,-2,1f))
-        autoButton=Button(this).apply{
-            stateListAnimator=null;elevation=0f;translationZ=0f;backgroundTintList=null
-            text="Auto";textSize=13f;isAllCaps=false;minHeight=dp(40);minimumHeight=dp(40);minWidth=0;minimumWidth=0;setPadding(dp(14),0,dp(14),0)
-            typeface=Typeface.create("sans-serif-medium",Typeface.NORMAL)
+        autoButton=AutoToggleButton(this).apply{
             setOnClickListener{autoSelect=!autoSelect;getPreferences(0).edit().putBoolean("autoSelect",autoSelect).apply();styleAutoButton()}
         }
-        styleAutoButton();header.addView(autoButton,LinearLayout.LayoutParams(-2,dp(40)).apply{marginEnd=dp(8)})
+        styleAutoButton();header.addView(autoButton,LinearLayout.LayoutParams(dp(86),dp(38)).apply{marginEnd=dp(8);gravity=Gravity.CENTER_VERTICAL})
         menuButton=button("Menu",false){menu()};header.addView(menuButton,LinearLayout.LayoutParams(dp(72),dp(48)));root.addView(header)
         progress=ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal).apply{max=1000;progressTintList=android.content.res.ColorStateList.valueOf(green);progressBackgroundTintList=android.content.res.ColorStateList.valueOf(Color.rgb(226,231,226));visibility=View.GONE};root.addView(progress,LinearLayout.LayoutParams(-1,dp(3)))
         status=text("Ouvrez un PDF pour préparer votre parcours.",13).apply{setPadding(dp(16),dp(4),dp(16),dp(4));accessibilityLiveRegion=View.ACCESSIBILITY_LIVE_REGION_POLITE}
@@ -289,11 +286,7 @@ class MainActivity:Activity() {
         setEnabledRecursive(controls,!busy)
         refreshPageNav()
     }
-    private fun styleAutoButton(){
-        autoButton.background=shape(if(autoSelect)Color.rgb(226,239,231)else Color.WHITE,20,if(autoSelect)green else Color.rgb(226,231,226))
-        autoButton.setTextColor(if(autoSelect)green else Color.rgb(120,118,112))
-        autoButton.contentDescription=if(autoSelect)"Choix automatique activé" else "Choix automatique désactivé"
-    }
+    private fun styleAutoButton(){(autoButton as AutoToggleButton).on=autoSelect}
     private fun setEnabledRecursive(v:View,enabled:Boolean){v.isEnabled=v.isEnabled&&enabled;if(v is android.view.ViewGroup)for(i in 0 until v.childCount)setEnabledRecursive(v.getChildAt(i),enabled)}
     private fun sync(save:Boolean=true){
         canvas.zones=zones;canvas.selection=articleIds?:order
