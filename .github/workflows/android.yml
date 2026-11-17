@@ -101,7 +101,7 @@ jobs:
 
   sign-stable-candidate:
     needs: [build, device-tests]
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'ci/releases-after-merge'
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.head.ref == 'ci/releases-after-merge' || github.event.pull_request.head.ref == 'release/v1.0')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
