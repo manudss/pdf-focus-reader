@@ -49,4 +49,16 @@ class ContinuousLayoutTest {
   assertEquals(.284f,out.first{it.zoneId==2}.original.width,.000001f)
   val pieces=out.flatMap{it.pieces};for(i in pieces.indices)for(j in i+1 until pieces.size)assertEquals(0f,pieces[i].intersect(pieces[j]),.000001f)
  }
+ @Test fun quoteBelowWideTitleKeepsOwnScaleReference(){
+  // A short quote/fragment under a wide title must keep its own width: the title is ABOVE,
+  // not the column it tops. Borrowing the title's width would render its text tiny.
+  val title=z(1,Box(.05f,.12f,.76f,.32f));val quote=z(2,Box(.05f,.34f,.22f,.37f))
+  val out=ContinuousLayout.bands(listOf(title,quote))
+  assertTrue(out.first{it.zoneId==2}.original.width<.2f)
+ }
+ @Test fun headingStillBorrowsScaleFromColumnBelow(){
+  val title=z(1,Box(.1f,.1f,.25f,.14f));val body=z(2,Box(.1f,.15f,.48f,.4f))
+  val out=ContinuousLayout.bands(listOf(title,body))
+  assertEquals(.38f,out.first().original.width,.00001f)
+ }
 }

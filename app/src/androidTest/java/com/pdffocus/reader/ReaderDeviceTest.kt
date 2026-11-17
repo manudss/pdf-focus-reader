@@ -145,6 +145,27 @@ class ReaderDeviceTest {
             reader.clear();b.recycle()
         }
     }
+    @Test fun continuousReaderKeepsSharedScaleForColumnBottomFragment(){
+        // Fictional magazine layout: a column and a short overlapping paragraph at its bottom,
+        // both with the same source text size. The fragment must render at the body scale,
+        // not shrunk by a width rule (real bug: 4.7x smaller than the surrounding text).
+        val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext
+        i.runOnMainSync{
+            val reader=ContinuousReaderView(c)
+            reader.measure(View.MeasureSpec.makeMeasureSpec(700,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(1000,View.MeasureSpec.EXACTLY));reader.layout(0,0,700,1000)
+            fun lines(top:Float,bottom:Float,step:Float):List<Float>{val out=mutableListOf<Float>();var y=top+step;while(y<=bottom+.0001f){out+=y;y+=step};return out}
+            val body=Zone(1,Box(.41f,.50f,.59f,.70f),Kind.TEXT,lines(.50f,.695f,.0105f))
+            val fragment=Zone(2,Box(.41f,.675f,.59f,.72f),Kind.TEXT,lines(.675f,.718f,.0105f))
+            reader.onRequest={tile,revision->reader.skipRequest(tile,revision)}
+            reader.setDocument(listOf(body,fragment),700,1400)
+            val tiles=ContinuousReaderView::class.java.getDeclaredField("tiles").apply{isAccessible=true}.get(reader)as List<ContinuousReaderView.Tile>
+            val bodyTile=tiles.first{it.chunkKey==1};val fragTile=tiles.first{it.chunkKey==2}
+            val bodyScale=bodyTile.rect.height()/((bodyTile.source.bottom-bodyTile.source.top)*1400)
+            val fragScale=fragTile.rect.height()/((fragTile.source.bottom-fragTile.source.top)*1400)
+            assertEquals("A short column-bottom fragment keeps the body text size",bodyScale,fragScale,bodyScale*.05f)
+            reader.clear()
+        }
+    }
     @Test fun bundledOcrWorksWithoutNetworkAndFindsSyntheticText(){
         val c=InstrumentationRegistry.getInstrumentation().targetContext
         c.assets.open("tessdata_best/fra-words.txt").bufferedReader().use{assertTrue("Packaged repair lexicon must be readable",it.readLines().size>10000)}

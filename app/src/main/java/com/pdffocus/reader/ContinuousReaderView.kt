@@ -57,6 +57,7 @@ class ContinuousReaderView(context:Context):View(context){
     private data class Surface(val top:Float,val bottom:Float,val color:Int)
     private var surfaces=listOf<Surface>()
     private var bands=listOf<ReadBand>();private var pw=1;private var ph=1
+    private var lineHeights=mapOf<Int,Float>();private var lineCounts=mapOf<Int,Int>()
     @Volatile private var tiles=listOf<Tile>();private var totalHeight=0f;@Volatile private var offset=0f;private var magnification=1f
     private val cacheBytes=(Runtime.getRuntime().maxMemory()/6).coerceIn(32L*1024*1024,96L*1024*1024).toInt()
     private val bitmaps=object:android.util.LruCache<Int,Bitmap>(cacheBytes){override fun sizeOf(key:Int,value:Bitmap)=value.byteCount}
@@ -115,7 +116,7 @@ class ContinuousReaderView(context:Context):View(context){
         override fun onFling(a:MotionEvent?,b:MotionEvent,vx:Float,vy:Float):Boolean{scroller.fling(0,offset.roundToInt(),0,(-vy).roundToInt(),0,0,0,max(0f,totalHeight-height).roundToInt());postInvalidateOnAnimation();return true}
     })
     init{setBackgroundColor(Color.WHITE);isFocusable=true;contentDescription="Lecture continue. Glissez verticalement pour lire les blocs dans votre ordre."}
-    fun setDocument(zones:List<Zone>,pageWidth:Int,pageHeight:Int,position:Int=0,backgrounds:Map<Int,Int> = emptyMap()){clear();palettes=backgrounds;bands=ContinuousLayout.bands(zones);pw=pageWidth;ph=pageHeight;offset=position.toFloat();rebuild()}
+    fun setDocument(zones:List<Zone>,pageWidth:Int,pageHeight:Int,position:Int=0,backgrounds:Map<Int,Int> = emptyMap()){clear();palettes=backgrounds;bands=ContinuousLayout.bands(zones);pw=pageWidth;ph=pageHeight;offset=position.toFloat();lineHeights=zones.mapNotNull{z->ReadingScale.lineHeight(z.lineBottoms,z.box.height)?.let{z.id to it}}.toMap();lineCounts=zones.mapNotNull{z->if(z.lineBottoms.isEmpty())null else z.id to z.lineBottoms.size}.toMap();rebuild()}
     fun zoomBy(f:Float){if(ocrTexts!=null){val fraction=if(totalHeight>0)offset/totalHeight else 0f;fontSize=(fontSize*f).coerceIn(14f,38f);rebuild();move(fraction*totalHeight);return};val fraction=if(totalHeight>0)offset/totalHeight else 0f;magnification=(magnification*f).coerceIn(1f,2f);val limit=max(0f,(width*magnification-width)/2);horizontal=horizontal.coerceIn(-limit,limit);rebuild();move(fraction*totalHeight)}
     fun clear(){ocrPlan=null;reviews=emptyMap();exposed.clear();streamLoading=false;ocrTexts=null;textItems=emptyList();revision++;pending.clear();failed.clear();bitmaps.evictAll();tiles=emptyList();bands=emptyList();surfaces=emptyList();palettes=emptyMap();offset=0f;horizontal=0f;magnification=1f;totalHeight=0f;overpull=0f;scroller.forceFinished(true);invalidate()}
     /** Worker-side guard: discard queued work made obsolete by zoom, mode or a long swipe. */
@@ -130,6 +131,11 @@ class ContinuousReaderView(context:Context):View(context){
         revision++;pending.clear();failed.clear();bitmaps.evictAll();if(width<=0)return
         val surfaceOut=mutableListOf<Surface>();val out=mutableListOf<Tile>();val textOut=mutableListOf<TextItem>();val done=mutableSetOf<Int>();var y=0f;var last=-1
         val activeBands=ocrPlan?.let{plan->ContinuousLayout.bands(plan.map{Zone(it.key,it.box,it.kind)}).map{it.copy(ordinal=plan[it.ordinal].ordinal)}}?:bands
+        // Text-proportion scaling: one shared scale for every text band, so blocks with the
+        // same source text size render the same size and others keep the original proportions.
+        val textFills=activeBands.filter{it.kind==Kind.TEXT}.map{it.zoneId to (width-16*density)/(it.original.width*pw)}
+        val uniform=ReadingScale.uniform(textFills.mapNotNull{(id,f)->lineHeights[id]?.let{f to (lineCounts[id]?:1)}})
+        val bodyLineHeight=ReadingScale.median(textFills.mapNotNull{(id,_)->lineHeights[id]?.let{it to (lineCounts[id]?:1)}})
         for(b in activeBands){
             val recognized=ocrTexts?.get(b.zoneId)
             if(b.kind==Kind.TEXT&&!recognized.isNullOrBlank()){
@@ -142,8 +148,8 @@ class ContinuousReaderView(context:Context):View(context){
                 continue
             }
             if(b.ordinal!=last){if(last>=0&&last!=b.ordinal)y+=6*density;last=b.ordinal}
-            val scaleWidth=if(b.kind==Kind.TEXT&&b.original.width<.35f&&b.original.height<.06f)max(b.original.width,.8f)else b.original.width
-            var scale=(width-16*density)/(scaleWidth*pw)*if(b.kind==Kind.TEXT)magnification else 1f
+            val fill=(width-16*density)/(b.original.width*pw)
+            var scale=if(b.kind==Kind.TEXT)ReadingScale.textScale(fill,uniform?:fill,lineHeights[b.zoneId],bodyLineHeight)*magnification else fill
             if(b.kind==Kind.IMAGE)scale=min(scale,min((width-16*density)/(.5f*pw),max(300f,height*.9f)/(b.original.height*ph)))
             val bandHeight=(b.bottom-b.top)*ph*scale;surfaceOut+=Surface(y-6*density,y+bandHeight,palettes[b.zoneId]?:Color.WHITE);val fullWidth=b.original.width*pw*scale;val left=(width-fullWidth)/2
             // Two-dimensional tiles: a zoomed column no longer decodes an entire off-screen width.
