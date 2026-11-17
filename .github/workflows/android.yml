@@ -124,3 +124,33 @@ jobs:
           name: pdf-focus-stable-signed
           path: signed-release/
           retention-days: 14
+      - name: Enable KVM for final signed stable smoke test
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: |
+            mkdir -p stable-smoke
+            adb install signed-release/pdf-focus-reader-1.0.0-x86_64.apk
+            adb shell am start -W -n com.pdffocus.reader/.MainActivity
+            adb shell dumpsys activity activities > stable-smoke/activities.txt
+            grep -E 'com.pdffocus.reader/.*(MainActivity|TutorialActivity)' stable-smoke/activities.txt
+            adb shell screencap -p /sdcard/stable-tutorial.png
+            adb pull /sdcard/stable-tutorial.png stable-smoke/tutorial.png
+            adb shell am force-stop com.pdffocus.reader
+            adb shell run-as com.pdffocus.reader ls > stable-smoke/debug-access.txt 2>&1 && exit 1 || grep -q 'not debuggable' stable-smoke/debug-access.txt
+            adb shell am start -W -n com.pdffocus.reader/.MainActivity
+            adb logcat -d > stable-smoke/logcat.txt
+            ! grep -q 'FATAL EXCEPTION' stable-smoke/logcat.txt
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: stable-signed-smoke
+          path: stable-smoke/
+          retention-days: 14
