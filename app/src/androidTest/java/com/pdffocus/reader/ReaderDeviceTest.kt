@@ -649,9 +649,12 @@ class ReaderDeviceTest {
             var ready=false;val end=System.currentTimeMillis()+90000
             while(System.currentTimeMillis()<end){scenario.onActivity{a->ready=field(a,"pageReady")as Boolean&&findCanvas(a.window.decorView)!!.zones.isNotEmpty()};if(ready)break;Thread.sleep(100)}
             assertTrue("Detection must finish",ready)
+            screenshot(scenario,"auto-select-continuous")
             scenario.onActivity{a->
                 val zones=findCanvas(a.window.decorView)!!.zones
                 val order=(field(a,"order")as List<*>).map{it as Int}
+                // Dump the detected geometry before asserting, so a failure still ships the evidence.
+                File(File(c.getExternalFilesDir(null),"screenshots").apply{mkdirs()},"auto-select-continuous-zones.txt").writeText(zones.joinToString("\n")+"\nORDER\n"+order.joinToString(","))
                 val byId=zones.associateBy{it.id}
                 assertTrue("Proposal must not be empty",order.isNotEmpty())
                 assertTrue("Title must read first",byId[order.first()]!!.box.bottom<.19f)
@@ -659,9 +662,7 @@ class ReaderDeviceTest {
                 val lanes=order.map{lane(byId[it]!!)}
                 assertEquals("Columns must read contiguously, left first",lanes.sorted(),lanes)
                 for(l in lanes.toSet()){val tops=order.map{byId[it]!!}.filter{lane(it)==l}.map{it.box.top};assertEquals("Column $l must read top-down",tops.sorted(),tops)}
-                File(File(c.getExternalFilesDir(null),"screenshots").apply{mkdirs()},"auto-select-continuous-zones.txt").writeText(zones.joinToString("\n")+"\nORDER\n"+order.joinToString(","))
             }
-            screenshot(scenario,"auto-select-continuous")
         }
     }
     @Test fun autoSelectProposesOrderOnMultiPageWithSlider(){
