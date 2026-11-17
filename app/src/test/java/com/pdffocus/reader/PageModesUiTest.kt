@@ -18,7 +18,7 @@ class PageModesUiTest{
   val labels=mutableListOf<String>();fun walk(v:View){if(v is Button)labels+=v.text.toString();if(v is ViewGroup)for(k in 0 until v.childCount)walk(v.getChildAt(k))};walk(strip)
   assertEquals(listOf("Auto","BD","Manga","Journal","Livre","Manuel"),labels);assertEquals(View.VISIBLE,strip.visibility)
   field(a,"zones").set(a,listOf(Zone(1,Box(.1f,.1f,.9f,.8f),Kind.TEXT)));field(a,"order").set(a,listOf(1));field(a,"count").set(a,1)
-  call(a,"choosePageMode",PageMode.MANUAL);assertEquals(listOf(1),field(a,"order").get(a));assertEquals(PageMode.MANUAL,field(a,"pageMode").get(a))
+  field(a,"busy").set(a,true);call(a,"choosePageMode",PageMode.MANUAL);assertEquals(listOf(1),field(a,"order").get(a));assertEquals(PageMode.MANUAL,field(a,"pageMode").get(a))
   assertEquals(View.GONE,(field(a,"autoButton").get(a)as View).visibility);controller.pause().stop().destroy()
  }
  @Test fun nativeComicMarkersAndSixModeLayout(){render()}

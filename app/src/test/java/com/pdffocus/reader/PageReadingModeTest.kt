@@ -14,4 +14,5 @@ class PageReadingModeTest{
  @Test fun overlappingOrNestedLayoutsNeverLoseBlocks(){val z=six+panel(8,.12f,.13f,.25f,.25f);val order=PageReadingOrder.propose(z,PageMode.COMIC);assertEquals(z.map{it.id}.toSet(),order.toSet());assertEquals(z.size,order.size)}
  @Test fun slightVerticalSkewStillReadsTheSameRow(){val z=six.map{if(it.id==2)it.copy(box=it.box.copy(top=.105f))else it};assertEquals((1..6).toList(),PageReadingOrder.propose(z,PageMode.COMIC))}
  @Test fun fullHeightPanelBeforeStackToItsRight(){val z=listOf(panel(1,.05f,.1f,.4f,.9f),panel(2,.42f,.1f,.95f,.45f),panel(3,.42f,.47f,.95f,.9f));assertEquals(listOf(1,2,3),PageReadingOrder.propose(z,PageMode.COMIC))}
+ @Test fun touchingPartitionKeepsHorizontalRowsDespiteUnequalWidths(){val z=listOf(panel(1,0f,0f,.33f,.33f),panel(2,.33f,0f,1f,.33f),panel(3,0f,.33f,.66f,.66f),panel(4,.66f,.33f,1f,.66f),panel(5,0f,.66f,.5f,1f),panel(6,.5f,.66f,1f,1f));assertEquals((1..6).toList(),PageReadingOrder.propose(z,PageMode.COMIC));assertEquals(listOf(2,1,4,3,6,5),PageReadingOrder.propose(z,PageMode.MANGA))}
 }

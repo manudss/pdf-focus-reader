@@ -238,7 +238,7 @@ class MainActivity:Activity() {
     private fun choosePageMode(mode:PageMode){
         if(mode==pageMode)return
         if(reading||adding||merging||adjusting!=null)return
-        if(mode==PageMode.MANUAL){pageMode=mode;autoProposed=false;orderTouched=true;sync();return}
+        if(mode==PageMode.MANUAL){pageMode=mode;autoProposed=false;orderTouched=true;sync(pageReady||(!busy&&!detecting));return}
         if(count==0){pageMode=mode;updateControls();return}
         if(busy||detecting){pageMode=mode;loadPage(page,true);return}
         val bitmap=preview?:return;val token=generation;val cancelled=java.util.concurrent.atomic.AtomicBoolean(false)
@@ -419,7 +419,7 @@ class MainActivity:Activity() {
                     if(token!=generation||isDestroyed){image.recycle();return@post}
                     val old=preview;preview=image;canvas.image=image;old?.recycle();readingBitmap?.recycle();readingBitmap=null
                     info.text="Page ${index+1} sur $count";title.text=documentTitle
-                    if(savedSession!=null){pageMode=savedSession.mode;zones=TextCoverage.bridgeColumnGaps(savedSession.zones);order=savedSession.order.filter{id->zones.any{it.id==id}};frameIndex=savedSession.frame;scrollPosition=savedSession.scroll;pageReady=true;busy=false;sync()}
+                    if(savedSession!=null){if(pageMode==requestedMode)pageMode=savedSession.mode;zones=if(savedSession.mode==PageMode.BOOK)savedSession.zones else TextCoverage.bridgeColumnGaps(savedSession.zones);order=savedSession.order.filter{id->zones.any{it.id==id}};frameIndex=savedSession.frame;scrollPosition=savedSession.scroll;pageReady=true;busy=false;sync()}
                     else{
                         busy=true;detecting=true;status.text="Détection locale en cours. Vous pouvez changer de page.";updateControls()
                         val ocrImage=image.copy(Bitmap.Config.ARGB_8888,false)
@@ -429,7 +429,7 @@ class MainActivity:Activity() {
                                 val engine=ZoneDetector(applicationContext)
                                 synchronized(this@MainActivity){if(token!=generation)return@detection;detector=engine}
                                 val result=engine.detect(ocrImage,requestedMode){token!=generation}
-                                main.post{if(token==generation&&!isDestroyed){detector=null;detecting=false;recognizedWords=engine.words;zones=if(requestedMode==PageMode.BOOK)result else TextCoverage.bridgeColumnGaps(result);order=if((requestedMode!=PageMode.AUTO||autoSelect)&&requestedMode!=PageMode.MANUAL)PageReadingOrder.propose(zones,requestedMode)else emptyList();autoProposed=order.isNotEmpty();frameIndex=0;pageReady=true;busy=false;sync();if(autoProposed)canvas.animateSelectionOrder();if(zones.isEmpty())status.text="Aucun bloc trouvé. Utilisez + Bloc pour tracer une zone."}}
+                                main.post{if(token==generation&&!isDestroyed){detector=null;detecting=false;recognizedWords=engine.words;zones=if(requestedMode==PageMode.BOOK)result else TextCoverage.bridgeColumnGaps(result);order=if((requestedMode!=PageMode.AUTO||autoSelect)&&requestedMode!=PageMode.MANUAL&&pageMode!=PageMode.MANUAL)PageReadingOrder.propose(zones,requestedMode)else emptyList();autoProposed=order.isNotEmpty();frameIndex=0;pageReady=true;busy=false;sync();if(autoProposed)canvas.animateSelectionOrder();if(zones.isEmpty())status.text="Aucun bloc trouvé. Utilisez + Bloc pour tracer une zone."}}
                             }catch(_:Exception){main.post{if(token==generation&&!isDestroyed){detector=null;detecting=false;busy=false;pageReady=true;sync(false);status.text="Analyse indisponible. Tracez vos blocs avec + Bloc."}}}
                             finally{ocrImage.recycle()}
                         }

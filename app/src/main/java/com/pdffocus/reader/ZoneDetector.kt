@@ -57,7 +57,7 @@ class ZoneDetector(private val context:Context) {
                     val words=it.getUTF8Text(TessBaseAPI.PageIteratorLevel.RIL_PARA).orEmpty()
                     if(r.width()>8&&r.height()>8&&words.count{c->c.isLetterOrDigit()}>=3) {
                         val b=Box(r.left/w,r.top/h,r.right/w,r.bottom/h).pad(.003f)
-                        if(b.area>.00015f&&b.area<.65f)text+=Zone(text.size+1,b,Kind.TEXT)
+                        if(b.area>.00015f&&b.area<(if(mode==PageMode.BOOK).98f else .65f))text+=Zone(text.size+1,b,Kind.TEXT)
                     }
                 }while(it.next(TessBaseAPI.PageIteratorLevel.RIL_PARA)&&!cancelled())
             }finally{it.delete()}

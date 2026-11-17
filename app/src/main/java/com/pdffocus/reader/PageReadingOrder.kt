@@ -21,7 +21,7 @@ object PageReadingOrder{
    fun start(z:Zone)=if(horizontal)z.box.top else z.box.left
    fun end(z:Zone)=if(horizontal)z.box.bottom else z.box.right
    val sorted=zones.sortedBy{start(it)};var furthest=end(sorted.first())
-   for(i in 1 until sorted.size){val next=start(sorted[i]);if(next-furthest>.002f)return sorted.take(i) to sorted.drop(i);furthest=max(furthest,end(sorted[i]))};return null
+   for(i in 1 until sorted.size){val next=start(sorted[i]);if(next>=furthest-.000001f)return sorted.take(i) to sorted.drop(i);furthest=max(furthest,end(sorted[i]))};return null
   }
   val parts=split(true)?:split(false)
   if(parts!=null)return rows(parts.first)+rows(parts.second)
