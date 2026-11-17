@@ -1049,7 +1049,7 @@ class ReaderDeviceTest {
                 for((n,z)in zones.withIndex())for(line in 0..28)cc.drawText("Colonne ${n+1} : ligne $line",z.box.left*700+4,140f+line*22,ink)
                 field(a,"preview").set(a,image);field(a,"count").set(a,1);field(a,"pageReady").set(a,true);field(a,"zones").set(a,zones);field(a,"order").set(a,listOf(1,2,3))
                 findCanvas(a.window.decorView)!!.image=image;MainActivity::class.java.getDeclaredMethod("sync",Boolean::class.javaPrimitiveType).apply{isAccessible=true}.invoke(a,false)
-            };i.waitForIdleSync();screenshot(scenario,"two-finger-columns-before")
+            };Thread.sleep(400);i.waitForIdleSync();screenshot(scenario,"two-finger-columns-before")
             fun point(x:Float,y:Float):PointF{var out=PointF();scenario.onActivity{a->
                 val v=findCanvas(a.window.decorView)!!;val matrix=PageCanvas::class.java.getDeclaredField("matrix").apply{isAccessible=true}.get(v)as Matrix
                 val xy=floatArrayOf(x*700,y*1000);matrix.mapPoints(xy);val offset=IntArray(2);v.getLocationOnScreen(offset);out=PointF(xy[0]+offset[0],xy[1]+offset[1])
@@ -1064,7 +1064,9 @@ class ReaderDeviceTest {
             }
             inject(MotionEvent.ACTION_DOWN,left);Thread.sleep(80)
             inject(MotionEvent.ACTION_POINTER_DOWN or (1 shl 8),left,right)
-            repeat(8){k->Thread.sleep(90);val jitter=if(k%2==0)2f else -2f;inject(MotionEvent.ACTION_MOVE,PointF(left.x+jitter,left.y+1),PointF(right.x+jitter,right.y-1))}
+            var armed=false;val holdDeadline=android.os.SystemClock.uptimeMillis()+3000;var k=0
+            while(!armed&&android.os.SystemClock.uptimeMillis()<holdDeadline){Thread.sleep(90);val jitter=if(k++%2==0)2f else -2f;inject(MotionEvent.ACTION_MOVE,PointF(left.x+jitter,left.y+1),PointF(right.x+jitter,right.y-1));scenario.onActivity{a->val view=findCanvas(a.window.decorView)!!;armed=PageCanvas::class.java.getDeclaredField("twoSweeping").apply{isAccessible=true}.getBoolean(view)}}
+            assertTrue("Physical two-finger hold must activate before sweep",armed)
             for(k in 1..18){val dy=(end.y-left.y)*k/18;inject(MotionEvent.ACTION_MOVE,PointF(left.x,left.y+dy),PointF(right.x,right.y+dy));Thread.sleep(18)}
             i.waitForIdleSync();screenshot(scenario,"two-finger-columns-dragged")
             inject(MotionEvent.ACTION_POINTER_UP or (1 shl 8),PointF(left.x,end.y),PointF(right.x,end.y));Thread.sleep(60);inject(MotionEvent.ACTION_UP,PointF(left.x,end.y));Thread.sleep(350)
