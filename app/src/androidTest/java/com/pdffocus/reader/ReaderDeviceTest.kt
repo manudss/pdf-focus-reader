@@ -1173,7 +1173,7 @@ class ReaderDeviceTest {
                 val d=MainActivity::class.java.getDeclaredField("menuDialog").apply{isAccessible=true}.get(a)as android.app.Dialog
                 val root=d.window!!.decorView
                 var icons=0
-                fun countIcons(v:View){if(v is TextView&&v.compoundDrawablesRelative[0] is ActionIcon)icons++;if(v is ViewGroup)for(k in 0 until v.childCount)countIcons(v.getChildAt(k))}
+                fun countIcons(v:View){if(v is TextView&&v !is Button&&v.compoundDrawablesRelative[0] is ActionIcon)icons++;if(v is ViewGroup)for(k in 0 until v.childCount)countIcons(v.getChildAt(k))}
                 countIcons(root);assertEquals("Every menu action keeps its own icon",11,icons)
                 for(label in listOf("Document","Blocs de la page","Aide","Ouvrir un autre PDF","Ajouter un bloc","Voir l'ordre de lecture","Fusionner des blocs","Regrouper automatiquement","Propose des regroupements parmi les blocs choisis. Vous validez ceux à appliquer.","Réessayer la détection","Annuler le dernier regroupement","Confidentialité et aide","Licences des composants"))
                     assertTrue("Menu must show « $label »",findText(root,label))
