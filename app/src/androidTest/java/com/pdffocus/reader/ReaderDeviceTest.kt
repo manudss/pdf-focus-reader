@@ -8,12 +8,17 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.*
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
 
 @RunWith(AndroidJUnit4::class)
 class ReaderDeviceTest {
+    @Before fun keepWalkthroughOutOfUnrelatedTests(){
+        InstrumentationRegistry.getInstrumentation().targetContext.getSharedPreferences("MainActivity",0).edit().putBoolean("tutorialSeen",true).commit()
+    }
+
     @Test fun independentFrenchDictionaryLoadsAndRepairsOffline(){
         val context=InstrumentationRegistry.getInstrumentation().targetContext
         val spelling=FrenchSpelling(context)
@@ -1031,6 +1036,59 @@ class ReaderDeviceTest {
                     assertTrue("Menu must show « $label »",findText(root,label))
             }
         }
+    }
+    @Test fun tutorialPracticesFourGesturesOnIsolatedExample(){
+        val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext
+        val current=File(c.filesDir,"current.pdf");val session=File(c.filesDir,"session.json")
+        val previousPdf=if(current.exists())current.readBytes()else null
+        val previousSession=if(session.exists())session.readBytes()else null
+        val pdfSentinel="user-pdf-must-never-be-opened-by-tutorial".toByteArray()
+        val sessionSentinel="{\"key\":\"user\",\"page\":5,\"selection\":[7,2]}".toByteArray()
+        current.writeBytes(pdfSentinel);session.writeBytes(sessionSentinel)
+        val prefs=c.getSharedPreferences("MainActivity",0).all.toMap()
+        fun isolated(){assertArrayEquals(pdfSentinel,current.readBytes());assertArrayEquals(sessionSentinel,session.readBytes());assertEquals(prefs,c.getSharedPreferences("MainActivity",0).all)}
+        fun field(a:TutorialActivity,n:String)=TutorialActivity::class.java.getDeclaredField(n).apply{isAccessible=true}.get(a)
+        try{ActivityScenario.launch<TutorialActivity>(Intent(c,TutorialActivity::class.java)).use{scenario->
+            fun waitStep(expected:Int){val until=System.currentTimeMillis()+120000;var step=-1;while(System.currentTimeMillis()<until&&step!=expected){Thread.sleep(150);scenario.onActivity{a->step=field(a,"step")as Int}};assertEquals("Exercise step",expected,step)}
+            fun shot(name:String){scenario.onActivity{a->val v=a.window.decorView;val bitmap=Bitmap.createBitmap(v.width,v.height,Bitmap.Config.ARGB_8888);v.draw(Canvas(bitmap));File(File(c.getExternalFilesDir(null),"screenshots").apply{mkdirs()},name).outputStream().use{bitmap.compress(Bitmap.CompressFormat.PNG,100,it)};bitmap.recycle()}}
+            fun point(index:Int):Pair<Float,Float>{var p=0f to 0f;scenario.onActivity{a->val v=field(a,"canvas")as PageCanvas;val b=v.zones[index].box;val m=PageCanvas::class.java.getDeclaredField("matrix").apply{isAccessible=true}.get(v)as android.graphics.Matrix;val xy=floatArrayOf((b.left+b.right)/2*v.image!!.width,(b.top+b.bottom)/2*v.image!!.height);m.mapPoints(xy);p=xy[0] to xy[1]};return p}
+            var down=0L
+            fun send(reader:Boolean,action:Int,vararg points:Pair<Float,Float>){scenario.onActivity{a->val now=android.os.SystemClock.uptimeMillis();if(action==MotionEvent.ACTION_DOWN)down=now;val pp=points.indices.map{MotionEvent.PointerProperties().apply{id=it;toolType=MotionEvent.TOOL_TYPE_FINGER}}.toTypedArray();val pc=points.map{p->MotionEvent.PointerCoords().apply{x=p.first;y=p.second;pressure=1f;size=1f}}.toTypedArray();val e=MotionEvent.obtain(down,now,action,points.size,pp,pc,0,0,1f,1f,0,0,0,0);(field(a,if(reader)"reader" else "canvas")as View).dispatchTouchEvent(e);e.recycle()}}
+            waitStep(0);i.waitForIdleSync();shot("tutorial-1-select.png");isolated()
+            val p1=point(0);val p2=point(1)
+            send(false,MotionEvent.ACTION_DOWN,p1);Thread.sleep(android.view.ViewConfiguration.getLongPressTimeout()+180L)
+            for(n in 1..10){send(false,MotionEvent.ACTION_MOVE,(p1.first+(p2.first-p1.first)*n/10) to (p1.second+(p2.second-p1.second)*n/10));Thread.sleep(20)}
+            send(false,MotionEvent.ACTION_UP,p2)
+            waitStep(1);shot("tutorial-2-remove.png")
+            val q=point(0);val d=14*c.resources.displayMetrics.density
+            send(false,MotionEvent.ACTION_DOWN,(q.first-d) to q.second)
+            send(false,MotionEvent.ACTION_POINTER_DOWN or (1 shl 8),(q.first-d) to q.second,(q.first+d) to q.second)
+            Thread.sleep(android.view.ViewConfiguration.getLongPressTimeout()+180L)
+            send(false,MotionEvent.ACTION_MOVE,(q.first-d) to (q.second+2),(q.first+d) to (q.second+2))
+            send(false,MotionEvent.ACTION_POINTER_UP or (1 shl 8),(q.first-d) to (q.second+2),(q.first+d) to (q.second+2))
+            send(false,MotionEvent.ACTION_UP,(q.first-d) to (q.second+2))
+            waitStep(2);Thread.sleep(800);shot("tutorial-3-reading.png")
+            var cx=0f;var cy=0f;var span=0f
+            scenario.onActivity{a->val v=field(a,"reader")as View;assertEquals(View.VISIBLE,v.visibility);cx=v.width/2f;cy=v.height/2f;span=v.width*.44f}
+            send(true,MotionEvent.ACTION_DOWN,cx-span/2 to cy)
+            send(true,MotionEvent.ACTION_POINTER_DOWN or (1 shl 8),cx-span/2 to cy,cx+span/2 to cy)
+            for(n in 1..9){Thread.sleep(30);val half=span/2*(1+n*.07f);send(true,MotionEvent.ACTION_MOVE,cx-half to cy,cx+half to cy)}
+            send(true,MotionEvent.ACTION_POINTER_UP or (1 shl 8),cx-span*.8f to cy,cx+span*.8f to cy)
+            send(true,MotionEvent.ACTION_UP,cx-span*.8f to cy)
+            // Pinch rebuilds tiles asynchronously. Capture after accepted rasters render,
+            // but before the success message advances to the page exercise.
+            Thread.sleep(650);shot("tutorial-3-reading-zoomed.png");waitStep(3);shot("tutorial-4-pages.png")
+            var w=0f;var h=0f;scenario.onActivity{a->val v=field(a,"canvas")as View;w=v.width.toFloat();h=v.height.toFloat()}
+            send(false,MotionEvent.ACTION_DOWN,w*.9f to h*.5f)
+            for(n in 1..6){Thread.sleep(8);send(false,MotionEvent.ACTION_MOVE,w*(.9f-.8f*n/6) to h*.5f)}
+            send(false,MotionEvent.ACTION_UP,w*.1f to h*.5f)
+            Thread.sleep(250);shot("tutorial-4-page-changed.png");Thread.sleep(1800);isolated()
+        }
+        // Early exit and Activity recreation use the same isolated file/session path.
+        ActivityScenario.launch<TutorialActivity>(Intent(c,TutorialActivity::class.java)).use{scenario->
+            Thread.sleep(300);scenario.recreate();Thread.sleep(300);isolated()
+            scenario.onActivity{a->a.onBackPressed()};Thread.sleep(300);isolated()
+        }}finally{if(previousPdf==null)current.delete()else current.writeBytes(previousPdf);if(previousSession==null)session.delete()else session.writeBytes(previousSession)}
     }
     @Test fun groupedMenuProductCapture(){
         val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext

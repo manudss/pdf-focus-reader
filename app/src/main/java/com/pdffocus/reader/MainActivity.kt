@@ -151,7 +151,11 @@ class MainActivity:Activity() {
         reader.onReturnToPage={exitReader()}
         reader.onNextPage={if(page<count-1){exitReader();loadPage(page+1)}}
         updateControls();handleIntent(intent)
-        if(intent?.action !in listOf(Intent.ACTION_VIEW,Intent.ACTION_SEND)&&File(filesDir,"current.pdf").exists())resumeLast()
+        val resumed=intent?.action !in listOf(Intent.ACTION_VIEW,Intent.ACTION_SEND)&&File(filesDir,"current.pdf").exists()
+        if(resumed)resumeLast()
+        // First launch only (no document to resume): the interactive walkthrough, practiced on an
+        // isolated copy of the bundled example. Relaunchable from the menu. Skipped under Robolectric.
+        if(!resumed&&!Build.FINGERPRINT.startsWith("robolectric",true)&&!getPreferences(0).getBoolean("tutorialSeen",false))main.post{startTutorial()}
     }
     private fun refreshPageNav(){
         pageNav.visibility=if(!reading&&count>1)View.VISIBLE else View.GONE
@@ -675,6 +679,7 @@ class MainActivity:Activity() {
         entry("Réessayer la détection","Relance la recherche des blocs de la page.",enabled=hasPage&&!busy){AlertDialog.Builder(this).setMessage("Remplacer les blocs et le parcours de cette page ?").setPositiveButton("Remplacer"){_,_->loadPage(page,true)}.setNegativeButton("Annuler",null).show()}
         entry("Annuler le dernier regroupement",null){undoAutoGroups()}
         section("Aide")
+        entry("Revoir le didacticiel","Les quatre gestes à essayer sur le document d'exemple."){startTutorial()}
         entry("Confidentialité et aide",null){AlertDialog.Builder(this).setTitle("PDF Focus Test · prototype").setMessage("Le PDF, les zones et les parcours restent sur cet appareil. Aucune permission Internet, publicité ou compte. Une copie privée du dernier PDF est conservée pour reprendre la lecture.\n\nLa détection peut manquer ou fusionner des zones. + Bloc permet de cadrer à la main ; un double tap ouvre la correction. Maintenez et glissez pour choisir plusieurs blocs. Pincez pour zoomer et faites glisser la page agrandie.\n\nLe zoom ne recrée pas les détails d'un scan flou. Ce prototype n'a pas encore été testé sur votre téléphone.").setPositiveButton("Fermer",null).show()}
         entry("Licences des composants",null){showLicenses()}
         val scroll=ScrollView(this).apply{addView(list)}
@@ -687,6 +692,14 @@ class MainActivity:Activity() {
             setLayout(-1,(resources.displayMetrics.heightPixels*.85f).toInt())
         }
     }
+    /** Interactive walkthrough, practiced in a separate activity on an isolated copy of the
+     * bundled example (cache only): the user's document, sessions and preferences stay untouched. */
+    private fun startTutorial(){
+        if(busy||documentLoading||reading)return
+        getPreferences(0).edit().putBoolean("tutorialSeen",true).apply()
+        startActivity(android.content.Intent(this,TutorialActivity::class.java))
+    }
+
     private fun clearDocument(){if(busy){toast("Attendez la fin de l’analyse avant de supprimer.");return};AlertDialog.Builder(this).setTitle("Supprimer la copie locale ?").setMessage("Le fichier original n'est pas modifié. Le parcours enregistré sera effacé.").setPositiveButton("Supprimer"){_,_->++generation;main.removeCallbacks(saveProgress);reader.clear();reader.visibility=View.GONE;canvas.visibility=View.VISIBLE;pageReady=false;worker.execute{document?.close();document=null;File(filesDir,"current.pdf").delete()};count=0;store.clear();preview?.recycle();preview=null;readingBitmap?.recycle();readingBitmap=null;canvas.image=null;canvas.zones=emptyList();canvas.selection=emptyList();reading=false;busy=false;title.text="PDF Focus Test";info.text="Sans compte et hors ligne";status.text="Document local supprimé.";updateControls()}.setNegativeButton("Annuler",null).show()}
     private fun showLicenses(){val names=assets.list("licenses").orEmpty();AlertDialog.Builder(this).setTitle("Licences").setItems(names){_,which->val view=TextView(this).apply{text=assets.open("licenses/"+names[which]).bufferedReader().use{it.readText()};setPadding(dp(16),dp(12),dp(16),dp(12));textSize=12f};val scroll=ScrollView(this).apply{addView(view)};AlertDialog.Builder(this).setTitle(names[which]).setView(scroll).setPositiveButton("Fermer",null).show()}.setNegativeButton("Fermer",null).show()}
     private fun toast(message:String)=Toast.makeText(this,message,Toast.LENGTH_SHORT).show()
