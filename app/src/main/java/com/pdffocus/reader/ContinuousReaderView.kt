@@ -129,6 +129,13 @@ class ContinuousReaderView(context:Context):View(context){
     fun reprocess(){rebuild()}
     fun currentPosition()=offset.roundToInt()
     override fun onSizeChanged(w:Int,h:Int,oldw:Int,oldh:Int){val atEnd=oldh>0&&totalHeight>oldh&&offset>=totalHeight-oldh-2f;super.onSizeChanged(w,h,oldw,oldh);if(w>0&&h>0){rebuild();if(atEnd)move(totalHeight-h)}}
+    /** Called on the UI thread. The snapshot is detached from scrolling and later mode changes. */
+    fun articleImagePlan():ArticleImagePlan{
+        check(!streamLoading){"Attendez la fin de la préparation OCR pour partager tous les blocs."}
+        check(tiles.isNotEmpty()||textItems.isNotEmpty()){"Aucun bloc à partager."}
+        val right=surfaces.maxOfOrNull{it.bottom}?:0f
+        return ArticleImagePlan(width,max(right,streamTail),tiles.map{it.copy(rect=RectF(it.rect))},textItems.toList(),surfaces.map{ArticleImagePlan.BandSurface(it.top,it.bottom,it.color)},density)
+    }
     private fun rebuild(){
         revision++;pending.clear();failed.clear();bitmaps.evictAll();if(width<=0)return
         val surfaceOut=mutableListOf<Surface>();val out=mutableListOf<Tile>();val textOut=mutableListOf<TextItem>();val done=mutableSetOf<Int>();var y=0f;var last=-1
