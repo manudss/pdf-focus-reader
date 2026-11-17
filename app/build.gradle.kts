@@ -8,8 +8,8 @@ android {
         manifestPlaceholders["appIcon"] = if (providers.gradleProperty("releasePackage").orNull == "com.pdffocus.reader") "@drawable/ic_reader_app" else "@drawable/ic_test_app"
         minSdk = 26
         targetSdk = 35
-        versionCode = providers.gradleProperty("releaseCode").orNull?.toInt() ?: 13
-        versionName = providers.gradleProperty("releaseVersion").orNull ?: "0.10.12-test"
+        versionCode = providers.gradleProperty("releaseCode").orNull?.toInt() ?: 14
+        versionName = providers.gradleProperty("releaseVersion").orNull ?: "0.10.13-test"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     // Standard extraction-on-install packaging keeps the two local OCR runtimes downloadable.
