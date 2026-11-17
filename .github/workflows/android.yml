@@ -19,6 +19,8 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - name: Test automatic release version planning
+        run: python3 scripts/test-release-plan.py
       - name: Build, unit tests and lint
         run: chmod +x gradlew && ./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest
       - uses: actions/upload-artifact@v5
