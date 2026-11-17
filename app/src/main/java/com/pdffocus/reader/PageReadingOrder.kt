@@ -12,7 +12,7 @@ object PageReadingOrder{
   return if(images.size>zones.size/2||images.sumOf{it.box.area.toDouble()}/area>.6)PageProfile.ILLUSTRATED else PageProfile.JOURNAL
  }
  fun propose(zones:List<Zone>,mode:PageMode=PageMode.AUTO,direction:ReadingDirection=ReadingDirection.LEFT_TO_RIGHT):List<Int> =
-  if(mode==PageMode.MANUAL)emptyList()else if(mode==PageMode.COMIC||mode==PageMode.MANGA||mode==PageMode.AUTO&&profile(zones)==PageProfile.COMIC)rows(if(mode==PageMode.MANGA||direction==ReadingDirection.RIGHT_TO_LEFT)zones.map{it.copy(box=Box(1-it.box.right,it.box.top,1-it.box.left,it.box.bottom))}else zones).map{it.id}else if(mode==PageMode.BOOK)zones.sortedWith(compareBy<Zone>{it.box.top}.thenBy{it.box.left}).map{it.id}else AutoOrder.propose(zones)
+  if(mode==PageMode.MANUAL)emptyList()else if(mode==PageMode.AUTO&&zones.any{it.panel}&&zones.all{it.manual&&it.kind==Kind.IMAGE})rows(zones).map{it.id}else if(mode==PageMode.COMIC||mode==PageMode.MANGA||mode==PageMode.AUTO&&profile(zones)==PageProfile.COMIC)rows(if(mode==PageMode.MANGA||direction==ReadingDirection.RIGHT_TO_LEFT)zones.map{it.copy(box=Box(1-it.box.right,it.box.top,1-it.box.left,it.box.bottom))}else zones).map{it.id}else if(mode==PageMode.BOOK)zones.sortedWith(compareBy<Zone>{it.box.top}.thenBy{it.box.left}).map{it.id}else AutoOrder.propose(zones)
  /** Prefer full horizontal gutters, so unequal panel widths cannot reorder rows as columns.
   * Where one panel spans multiple rows, recurse into the left/right groups. */
  private fun rows(zones:List<Zone>):List<Zone>{

@@ -31,7 +31,7 @@ class PageModesUiTest{
   for((n,z)in panels.withIndex()){val b=z.box;p.color=Color.rgb(210+n*5,226-n*4,205+n*5);c.drawRect(b.left*700,b.top*1050,b.right*700,b.bottom*1050,p);p.color=Color.rgb(50,109,93);c.drawCircle((b.left+b.right)*350,(b.top+b.bottom)*525,45f,p)}
   val proposal=ComicPagePartition.propose(panels,700,1050);val zones=proposal.zones
   for((n,v)in mapOf("count" to 1,"pageReady" to true,"preview" to image,"zones" to zones,"order" to zones.map{it.id},"pageMode" to PageMode.COMIC))field(a,n).set(a,v)
-  val canvas=field(a,"canvas").get(a)as PageCanvas;canvas.image=image;canvas.zones=zones;canvas.selection=zones.map{it.id};call(a,"updateControls")
+  val canvas=field(a,"canvas").get(a)as PageCanvas;canvas.image=image;canvas.zones=zones;canvas.selection=zones.map{it.id};call(a,"sync",false)
   val root=a.window.decorView;val d=a.resources.displayMetrics.density;val w=(a.resources.configuration.screenWidthDp*d).toInt();val h=(a.resources.configuration.screenHeightDp*d).toInt();root.measure(View.MeasureSpec.makeMeasureSpec(w,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(h,View.MeasureSpec.EXACTLY));root.layout(0,0,w,h)
   val dir=File("/tmp/pdf-comic-native").apply{mkdirs()};repeat(2){val b=Bitmap.createBitmap(w,h,Bitmap.Config.ARGB_8888);root.draw(Canvas(b));if(it==1)File(dir,"modes-${a.resources.configuration.screenWidthDp}.png").outputStream().use{b.compress(Bitmap.CompressFormat.PNG,100,it)};b.recycle()}
   val strip=field(a,"modeControls").get(a)as ViewGroup;val row=strip.getChildAt(0)as ViewGroup
