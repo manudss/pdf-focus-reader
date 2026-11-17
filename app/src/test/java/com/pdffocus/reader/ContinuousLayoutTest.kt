@@ -11,9 +11,22 @@ class ContinuousLayoutTest {
   for(i in pieces.indices)for(j in i+1 until pieces.size)assertEquals(0f,pieces[i].intersect(pieces[j]),.000001f)
   assertFalse(bands.any{it.zoneId==9});assertEquals(7,bands.first().zoneId)
  }
- @Test fun offsetOverlapsPreserveAllUnseenPixels(){
+ @Test fun offsetOverlapsKeepFullWidthsEvenWhenSourcePixelsRepeat(){
   val a=Box(.1f,.1f,.4f,.5f);val b=Box(.3f,.3f,.6f,.7f);val bands=ContinuousLayout.bands(listOf(z(1,a),z(2,b)))
-  assertEquals(a.area+b.area-a.intersect(b),bands.flatMap{it.pieces}.sumOf{it.area.toDouble()}.toFloat(),.000001f)
+  assertEquals(a.area+b.area,bands.flatMap{it.pieces}.sumOf{it.area.toDouble()}.toFloat(),.000001f)
+ }
+ @Test fun tallNeighbourCannotClipEitherSideAtAnyVerticalPosition(){
+  val left=Zone(10,Box(.59f,.15f,.81f,.50f),Kind.TEXT)
+  val right=Zone(11,Box(.77f,.15f,.94f,.47f),Kind.TEXT)
+  for(zones in listOf(listOf(left,right),listOf(right,left))){
+   val out=ContinuousLayout.bands(zones)
+   for(z in zones){
+    val pieces=out.filter{it.zoneId==z.id}.flatMap{it.pieces}
+    assertFalse(pieces.isEmpty())
+    assertTrue(pieces.all{abs(it.left-z.box.left)<.000001f&&abs(it.right-z.box.right)<.000001f})
+    assertEquals(z.box.area,pieces.sumOf{it.area.toDouble()}.toFloat(),.000001f)
+   }
+  }
  }
  @Test fun touchingBlocksStayInRequestedOrder(){val out=ContinuousLayout.bands(listOf(z(2,Box(.5f,.1f,.8f,.8f)),z(1,Box(.1f,.1f,.5f,.8f))));assertEquals(listOf(2,1),out.map{it.zoneId})}
 

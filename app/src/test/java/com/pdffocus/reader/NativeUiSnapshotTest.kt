@@ -88,6 +88,19 @@ class NativeUiSnapshotTest {
         val tiles=requested.values.flatten();for(i in tiles.indices)for(j in i+1 until tiles.size)assertEquals(0f,tiles[i].intersect(tiles[j]),.000001f)
         assertTrue(reader.currentPosition()>7000);reader.clear();source.recycle()
     }
+    @Test fun sideOverlapKeepsEveryLetterOnBothSides(){
+        val reader=ContinuousReaderView(org.robolectric.RuntimeEnvironment.getApplication())
+        reader.measure(View.MeasureSpec.makeMeasureSpec(1080,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(1700,View.MeasureSpec.EXACTLY));reader.layout(0,0,1080,1700)
+        val source=Bitmap.createBitmap(930,1235,Bitmap.Config.ARGB_8888);source.eraseColor(Color.WHITE)
+        val c=Canvas(source);val p=Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.BLACK;textSize=12f}
+        for(n in 0..28){c.drawText("ALPHA ligne fictive OMEGA",550f,205f+n*13,p);c.drawText("DEBUT mots inventes FIN",716f,205f+n*13,p)}
+        val zones=listOf(Zone(10,Box(.59f,.15f,.81f,.50f),Kind.TEXT),Zone(11,Box(.77f,.15f,.94f,.47f),Kind.TEXT))
+        reader.onRequest={t,r->val b=Bitmap.createBitmap(kotlin.math.ceil(t.rect.width()).toInt(),kotlin.math.ceil(t.rect.height()).toInt(),Bitmap.Config.ARGB_8888);Canvas(b).drawBitmap(source,Rect((t.source.left*930).toInt(),(t.source.top*1235).toInt(),(t.source.right*930).toInt(),(t.source.bottom*1235).toInt()),Rect(0,0,b.width,b.height),Paint(Paint.FILTER_BITMAP_FLAG));reader.accept(t,r,b)}
+        reader.setDocument(zones,930,1235);reader.move(1900f);snapshot(reader,"side-overlap-priming");snapshot(reader,"side-overlap-full-width")
+        val out=ContinuousLayout.bands(zones)
+        for(z in zones)assertTrue(out.filter{it.zoneId==z.id}.flatMap{it.pieces}.all{kotlin.math.abs(it.left-z.box.left)<.000001f&&kotlin.math.abs(it.right-z.box.right)<.000001f})
+        reader.clear();source.recycle()
+    }
     private fun snapshot(v:View,name:String){val b=Bitmap.createBitmap(v.width,v.height,Bitmap.Config.ARGB_8888);v.draw(Canvas(b));val out=File("build/reports/ui-snapshots").apply{mkdirs()};File(out,"$name.png").outputStream().use{b.compress(Bitmap.CompressFormat.PNG,100,it)};b.recycle()}
     private fun findCanvas(v:View):PageCanvas?{if(v is PageCanvas)return v;if(v is ViewGroup)for(i in 0 until v.childCount)findCanvas(v.getChildAt(i))?.let{return it};return null}
 }

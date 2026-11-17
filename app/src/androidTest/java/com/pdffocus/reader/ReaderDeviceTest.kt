@@ -19,6 +19,23 @@ class ReaderDeviceTest {
         InstrumentationRegistry.getInstrumentation().targetContext.getSharedPreferences("MainActivity",0).edit().putBoolean("tutorialSeen",true).commit()
     }
 
+    @Test fun sideOverlappingColumnsKeepFullWidthInActualReader(){
+        val ins=InstrumentationRegistry.getInstrumentation()
+        ins.runOnMainSync{
+            val c=ins.targetContext;val source=Bitmap.createBitmap(930,1235,Bitmap.Config.ARGB_8888);source.eraseColor(Color.WHITE)
+            val canvas=Canvas(source);val paint=Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.BLACK;textSize=12f}
+            for(n in 0..28){canvas.drawText("ALPHA ligne fictive OMEGA",550f,205f+n*13,paint);canvas.drawText("DEBUT mots inventes FIN",716f,205f+n*13,paint)}
+            val a=Zone(10,Box(.59f,.15f,.81f,.50f),Kind.TEXT);val b=Zone(11,Box(.77f,.15f,.94f,.47f),Kind.TEXT)
+            for(zones in listOf(listOf(a,b),listOf(b,a))){
+                val reader=ContinuousReaderView(c);reader.measure(View.MeasureSpec.makeMeasureSpec(1080,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(1700,View.MeasureSpec.EXACTLY));reader.layout(0,0,1080,1700)
+                reader.onRequest={t,r->val bitmap=Bitmap.createBitmap(kotlin.math.ceil(t.rect.width()).toInt(),kotlin.math.ceil(t.rect.height()).toInt(),Bitmap.Config.ARGB_8888);Canvas(bitmap).drawBitmap(source,Rect((t.source.left*930).toInt(),(t.source.top*1235).toInt(),(t.source.right*930).toInt(),(t.source.bottom*1235).toInt()),Rect(0,0,bitmap.width,bitmap.height),Paint(Paint.FILTER_BITMAP_FLAG));reader.accept(t,r,bitmap)}
+                reader.setDocument(zones,930,1235);reader.move(1900f)
+                repeat(3){val bitmap=Bitmap.createBitmap(1080,1700,Bitmap.Config.ARGB_8888);reader.draw(Canvas(bitmap));File(File(c.getExternalFilesDir(null),"screenshots").apply{mkdirs()},"side-overlap-${zones.first().id}.png").outputStream().use{bitmap.compress(Bitmap.CompressFormat.PNG,100,it)};bitmap.recycle()}
+                for(z in zones){val pieces=ContinuousLayout.bands(zones).filter{it.zoneId==z.id}.flatMap{it.pieces};assertTrue(pieces.isNotEmpty());assertTrue(pieces.all{kotlin.math.abs(it.left-z.box.left)<.000001f&&kotlin.math.abs(it.right-z.box.right)<.000001f})}
+                reader.clear()
+            };source.recycle()
+        }
+    }
     @Test fun independentFrenchDictionaryLoadsAndRepairsOffline(){
         val context=InstrumentationRegistry.getInstrumentation().targetContext
         val spelling=FrenchSpelling(context)

@@ -19,17 +19,28 @@ original certificate nor the Test key is accepted as a fallback. No private
 signing material is stored in this repository.
 
 Initial stable release: 1.0.0, Android versionCode 100000. The candidate CI builds
-release-mode ARM64 and x86_64 APKs, runs JVM/lint checks, waits for all 36 device
+release-mode ARM64 and x86_64 APKs, runs JVM/lint checks, waits for all 37 device
 tests, signs with the stable secret and uploads signed artifacts without
-publishing. The initial release is published only after these checks and review.
+publishing. The initial release is NOT published manually. It is published automatically
+after the owner merges this PR and the main push checks pass.
 
 After this PR is merged by the owner, a merged PR into main starts the Android
 checks. Only a successful push build for the exact merge commit can publish.
-Direct pushes and failed builds do not publish. Automatic versions are 1.0.N,
-where N is that successful build workflow run number; code is 100000 + N.
-Gaps are expected. Retrying a source build uses the same tag. Each release is
+Direct pushes and failed builds do not publish. The first automatic release is 1.0.0; subsequent merges increment the largest
+existing stable patch by one, with Android code 100000 + patch. Draft versions
+are reserved too. Retrying a source SHA finds its original tag and leaves that
+Release untouched. The publication concurrency lock serializes version planning. Each release is
 drafted first and made visible only after every asset is uploaded.
 
 An existing Release is never overwritten. Incomplete uploads remain drafts
 for inspection, not silent replacement. The workflow must first be on main;
 an unmerged PR cannot exercise its automatic publication path.
+
+## Vertical-only block overlap fix
+
+Side overlaps never remove left/right strips. Full-width source rows may be
+removed at top/bottom when an earlier selected block covers their whole width.
+Partial side overlaps deliberately repeat some pixels instead of severing words.
+Regression tests cover both selection directions, full-width vertical joins,
+original text scaling and the interactive reader. Private user material is not
+part of source, CI inputs or artifacts.
