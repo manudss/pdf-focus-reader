@@ -52,9 +52,31 @@ class GroupingUiTest {
  @Test fun menuKeepsOnlyTheUndoEntry(){
   val a=prepare(listOf(1,2),twoColumns)
   call(a,"menu")
-  val dialog=ShadowAlertDialog.getLatestAlertDialog();assertNotNull(dialog)
-  val items=(0 until dialog!!.listView.adapter.count).map{dialog.listView.adapter.getItem(it).toString()}
-  assertFalse(items.any{it=="Proposer des regroupements"})
-  assertTrue(items.any{it=="Annuler le dernier regroupement"})
+  val dialog=get(a,"menuDialog")as android.app.Dialog;assertTrue(dialog.isShowing)
+  val labels=mutableListOf<String>()
+  fun collect(v:android.view.View){if(v is android.widget.TextView)labels+=v.text.toString();if(v is android.view.ViewGroup)for(i in 0 until v.childCount)collect(v.getChildAt(i))}
+  collect(dialog.window!!.decorView)
+  assertFalse(labels.any{it=="Proposer des regroupements"})
+  assertTrue(labels.any{it=="Annuler le dernier regroupement"})
+  assertTrue(labels.any{it=="Blocs de la page"})
+ }
+ @Test fun readyPageMenuActionsMatchBottomShortcuts(){
+  fun label(v:View,value:String):TextView?{if(v is TextView&&v.text.toString()==value)return v;if(v is ViewGroup)for(i in 0 until v.childCount)label(v.getChildAt(i),value)?.let{return it};return null}
+  val pairs=listOf("Ajouter un bloc" to "Ajouter","Voir l'ordre de lecture" to "Ordre","Fusionner des blocs" to "Fusionner","Regrouper automatiquement" to "Regrouper")
+  for((menuLabel,shortcut)in pairs)for(viaMenu in listOf(false,true)){
+   val a=prepare(listOf(1,2,3,4),twoColumns)
+   if(viaMenu){
+    call(a,"menu");val d=get(a,"menuDialog")as android.app.Dialog
+    val row=label(d.window!!.decorView,menuLabel)!!.parent as View
+    assertTrue("$menuLabel enabled on ready page",row.isEnabled);row.performClick()
+    assertFalse("Action closes menu",d.isShowing)
+   }else{val controls=get(a,"controls")as ViewGroup;val b=label(controls,shortcut)!!;assertTrue(b.isEnabled);b.performClick()}
+   when(shortcut){
+    "Ajouter"->{assertEquals(true,get(a,"adding"));assertTrue((get(a,"canvas")as PageCanvas).drawMode)}
+    "Ordre"->assertTrue(ShadowAlertDialog.getLatestAlertDialog().isShowing)
+    "Fusionner"->{assertEquals(true,get(a,"merging"));assertEquals(setOf(1),get(a,"mergeIds"));assertTrue((get(a,"canvas")as PageCanvas).mergeMode)}
+    "Regrouper"->{val d=get(a,"groupDialog")as android.app.Dialog;assertTrue(d.isShowing);assertEquals(2,checkBoxes(d.window!!.decorView).size);d.dismiss()}
+   }
+  }
  }
 }
