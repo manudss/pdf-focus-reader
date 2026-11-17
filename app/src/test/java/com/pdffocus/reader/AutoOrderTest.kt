@@ -89,6 +89,32 @@ class AutoOrderTest {
         assertEquals(listOf(1,2,3,4),proposal)
     }
 
+    @Test fun continuousColumnsWithGapsReadContiguously(){
+        // Fictional continuous prose: columns of uneven height, a mid-column paragraph gap
+        // that splits the centre column into stacked pieces, and a one-line fragment at the
+        // left column's right edge. No piece may be pulled into a neighbouring column.
+        val zones=listOf(
+            zone(1,.0573f,.1235f,.4078f,.1785f),                          // left-aligned title, 35% wide
+            zone(2,.0557f,.1770f,.3141f,.7621f),                          // left column, tall
+            zone(3,.3557f,.1998f,.6355f,.5993f),                          // centre column, upper piece
+            zone(4,.6557f,.1998f,.9355f,.9237f),                          // right column, full height
+            zone(5,.2764f,.3805f,.3355f,.4018f),                          // one-line fragment at the left column's edge
+            zone(6,.3557f,.5978f,.5911f,.7262f),zone(7,.3557f,.7217f,.6355f,.9203f),  // centre column, lower pieces
+            zone(8,.0557f,.7576f,.3355f,.9237f))                          // left column, lower piece
+        assertEquals(listOf(1,2,5,8,3,6,7,4),AutoOrder.propose(zones))
+    }
+
+    @Test fun columnSplitIntoShortPiecesStillReadsContiguously(){
+        // A column whose blocks are all short must still form its own column: attaching its
+        // pieces to the nearest anchored column would interleave the page.
+        val zones=listOf(
+            zone(1,.06f,.10f,.33f,.50f),                                  // left column, one tall block
+            zone(2,.37f,.10f,.64f,.28f),zone(3,.37f,.30f,.64f,.48f),      // centre column, four
+            zone(4,.37f,.50f,.64f,.68f),zone(5,.37f,.70f,.64f,.93f),      // stacked short pieces
+            zone(6,.68f,.10f,.95f,.93f))                                  // right column, full height
+        assertEquals(listOf(1,2,3,4,5,6),AutoOrder.propose(zones))
+    }
+
     @Test fun imageStaysWithItsColumn(){
         val zones=listOf(
             zone(1,.06f,.12f,.82f,.16f),
