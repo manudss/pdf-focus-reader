@@ -199,7 +199,9 @@ class ReaderDeviceTest {
             val fragTile=tiles.first{it.chunkKey==2}
             reader.setDocument(listOf(body,fragment),700,1400,(fragTile.rect.top-60).toInt().coerceAtLeast(0))
             val shot=Bitmap.createBitmap(700,1000,Bitmap.Config.ARGB_8888)
-            val shotCanvas=Canvas(shot);shotCanvas.drawColor(Color.WHITE);reader.draw(shotCanvas)
+            val shotCanvas=Canvas(shot);shotCanvas.drawColor(Color.WHITE)
+            // The first draw queues tile requests; the second displays their accepted rasters.
+            repeat(2){reader.draw(shotCanvas)}
             val dir=File(c.getExternalFilesDir(null),"screenshots").apply{mkdirs()}
             File(dir,"continuous-fragment-body-size.png").outputStream().use{shot.compress(Bitmap.CompressFormat.PNG,100,it)}
             // The rendered fragment rows must carry real glyph pixels (not a blank or stub tile).
@@ -211,7 +213,8 @@ class ReaderDeviceTest {
             val tiles2=ContinuousReaderView::class.java.getDeclaredField("tiles").apply{isAccessible=true}.get(reader)as List<ContinuousReaderView.Tile>
             val frag=tiles2.first{it.chunkKey==2};val bod=tiles2.first{it.chunkKey==1}
             val top=(frag.rect.top-ContinuousReaderView::class.java.getDeclaredField("offset").apply{isAccessible=true}.get(reader)as Float).toInt()
-            val band=Bitmap.createBitmap(shot,frag.rect.left.toInt().coerceAtLeast(0),top.coerceIn(0,shot.height-40),minOf(frag.rect.width(),shot.width.toFloat()).toInt().coerceAtLeast(20),40)
+            val bandTop=top.coerceIn(0,shot.height-1)
+            val band=Bitmap.createBitmap(shot,frag.rect.left.toInt().coerceAtLeast(0),bandTop,minOf(frag.rect.width(),shot.width.toFloat()).toInt().coerceAtLeast(20),minOf(frag.rect.height().toInt(),shot.height-bandTop).coerceAtLeast(1))
             assertTrue("Fragment band must show rendered text rows",glyphRows(band)>=2)
             val bodyScale=bod.rect.height()/((bod.source.bottom-bod.source.top)*1400)
             val fragScale=frag.rect.height()/((frag.source.bottom-frag.source.top)*1400)
