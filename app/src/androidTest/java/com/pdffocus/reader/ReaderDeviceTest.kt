@@ -1023,6 +1023,7 @@ class ReaderDeviceTest {
             assertTrue(File(dir,"$name.png").length()>1000)
         }
     }
+
     @Test fun groupedMenuListsBlockActionsWithDescriptions(){
         val c=InstrumentationRegistry.getInstrumentation().targetContext
         File(c.filesDir,"current.pdf").delete();SessionStore(c).clear()
@@ -1102,6 +1103,40 @@ class ReaderDeviceTest {
                 val shot=Bitmap.createBitmap(root.width,root.height,Bitmap.Config.ARGB_8888);root.draw(Canvas(shot))
                 File(File(c.getExternalFilesDir(null),"screenshots").apply{mkdirs()},"grouped-menu-product.png").outputStream().use{shot.compress(Bitmap.CompressFormat.PNG,100,it)};shot.recycle();d.dismiss()
             }
+
+        }
+    }
+    @Test fun autoTogglePillKnobFollowsState(){
+        ActivityScenario.launch<MainActivity>(Intent(InstrumentationRegistry.getInstrumentation().targetContext,MainActivity::class.java)).use{scenario->
+            scenario.onActivity{a->
+                val toggle=findButton(a.window.decorView,"Auto")!!
+                assertTrue("Toggle must be the pill view",toggle is AutoToggleButton)
+                val pill=toggle as AutoToggleButton
+                fun knobSide():Pair<Boolean,Boolean>{
+                    val b=Bitmap.createBitmap(toggle.width,toggle.height,Bitmap.Config.ARGB_8888)
+                    toggle.draw(Canvas(b))
+                    val green=Color.rgb(50,109,93);val grey=Color.rgb(120,118,112)
+                    fun close(c:Int,t:Int)=Math.abs(Color.red(c)-Color.red(t))<40&&Math.abs(Color.green(c)-Color.green(t))<40&&Math.abs(Color.blue(c)-Color.blue(t))<40
+                    val right=close(b.getPixel(b.width-b.height/2,b.height/2),green)
+                    val left=close(b.getPixel(b.height/2,b.height/2),grey)
+                    b.recycle();return right to left
+                }
+                pill.on=true
+                var sides=knobSide()
+                assertTrue("Green knob must sit on the right when Auto is on",sides.first)
+                assertFalse("Left side must not carry the grey knob when Auto is on",sides.second)
+                pill.on=false
+                sides=knobSide()
+                assertTrue("Grey knob must sit on the left when Auto is off",sides.second)
+                assertFalse("Right side must not carry the green knob when Auto is off",sides.first)
+                assertEquals("Choix automatique désactivé",pill.contentDescription)
+                pill.on=true
+                assertEquals("Choix automatique activé",pill.contentDescription)
+            }
+            screenshot(scenario,"auto-pill-on-product")
+            scenario.onActivity{a->(findButton(a.window.decorView,"Auto")as AutoToggleButton).on=false}
+            screenshot(scenario,"auto-pill-off-product")
+
         }
     }
 }
