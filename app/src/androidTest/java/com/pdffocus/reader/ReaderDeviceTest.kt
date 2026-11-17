@@ -178,7 +178,7 @@ class ReaderDeviceTest {
             var y=.50f*1400+13f
             var n=0
             val words=listOf("le","conseil","invente","une","histoire","complete","pour","ce","test","visuel","du","parcours")
-            while(y<.695f*1400){cv.drawText("${words[n%12]} ${words[(n+3)%12]} ${words[(n+5)%12]} ${words[(n+7)%12]} du corps",.41f*700,y,paint);y+=.0105f*1400;n++}
+            while(y<.670f*1400){cv.drawText("${words[n%12]} ${words[(n+3)%12]} ${words[(n+5)%12]} ${words[(n+7)%12]} du corps",.41f*700,y,paint);y+=.0105f*1400;n++}
             var fy=.675f*1400+13f
             while(fy<.718f*1400){cv.drawText("${words[n%12]} ${words[(n+4)%12]} du fragment",.41f*700,fy,paint);fy+=.0105f*1400;n++}
             fun lines(top:Float,bottom:Float,step:Float):List<Float>{val out=mutableListOf<Float>();var yy=top+step;while(yy<=bottom+.0001f){out+=yy;yy+=step};return out}
