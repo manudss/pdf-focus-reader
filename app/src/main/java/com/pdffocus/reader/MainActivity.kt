@@ -445,7 +445,7 @@ class MainActivity:Activity() {
         val p=preview?:return;readingSettings=false;currentOrdinal=frameIndex;reading=true;canvas.visibility=View.GONE;reader.visibility=View.VISIBLE
         reader.endTitle="Fin de la page ${page+1}";reader.hasNextPage=page<count-1
         val chosen=BlockSeams.align(p,ReadingLayout.ordered(zones,order).map{z->if(z.kind==Kind.TEXT&&!z.manual)z.copy(box=TextCoverage.safeTextBox(p,z.box))else z})
-        reader.setDocument(chosen.map{ReadingWhitespace.trim(p,it)},p.width,p.height,scrollPosition,chosen.associate{it.id to readingColor(it.box)});if(ocrReading)prepareOcr();updateControls()
+        reader.setDocument(chosen.map{ReadingWhitespace.trim(p,it)},p.width,p.height,scrollPosition,chosen.associate{it.id to readingColor(it.box)},when{pageMode==PageMode.MANGA->-1;pageMode==PageMode.COMIC||pageMode==PageMode.AUTO&&chosen.any{it.panel}->1;else->0});if(ocrReading)prepareOcr();updateControls()
     }
     private fun selectMode(mode:Int){
         ocrReading=mode==2;cleanReading=mode!=0
