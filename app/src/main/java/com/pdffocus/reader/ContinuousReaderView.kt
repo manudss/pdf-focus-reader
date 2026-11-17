@@ -130,6 +130,7 @@ class ContinuousReaderView(context:Context):View(context){
     private fun rebuild(){
         revision++;pending.clear();failed.clear();bitmaps.evictAll();if(width<=0)return
         val surfaceOut=mutableListOf<Surface>();val out=mutableListOf<Tile>();val textOut=mutableListOf<TextItem>();val done=mutableSetOf<Int>();var y=0f;var last=-1
+        var previousRaster:ReadBand?=null;var previousScale=0f
         val activeBands=ocrPlan?.let{plan->ContinuousLayout.bands(plan.map{Zone(it.key,it.box,it.kind)}).map{it.copy(ordinal=plan[it.ordinal].ordinal)}}?:bands
         // Text-proportion scaling: one shared scale for every text band, so blocks with the
         // same source text size render the same size and others keep the original proportions.
@@ -144,13 +145,22 @@ class ContinuousReaderView(context:Context):View(context){
                 textPaint.color=ReadingPalette.foreground(palettes[b.zoneId]?:Color.WHITE)
                 textPaint.textSize=fontSize*resources.displayMetrics.scaledDensity
                 val layout=StaticLayout.Builder.obtain(recognized,0,recognized.length,TextPaint(textPaint),max(1,width-32*density.toInt())).setAlignment(Layout.Alignment.ALIGN_NORMAL).setIncludePad(true).setLineSpacing(4*density,1.12f).build()
+                previousRaster=null
                 textOut+=TextItem(layout,y,b.ordinal,b.zoneId);surfaceOut+=Surface(y-6*density,y+layout.height,palettes[b.zoneId]?:Color.WHITE);y+=layout.height
                 continue
             }
-            if(b.ordinal!=last){if(last>=0&&last!=b.ordinal)y+=6*density;last=b.ordinal}
             val fill=(width-16*density)/(b.original.width*pw)
             var scale=if(b.kind==Kind.TEXT)ReadingScale.textScale(fill,uniform?:fill,lineHeights[b.zoneId],bodyLineHeight)*magnification else fill
             if(b.kind==Kind.IMAGE)scale=min(scale,min((width-16*density)/(.5f*pw),max(300f,height*.9f)/(b.original.height*ph)))
+            // Adjacent pieces of the same source column must remain pixel-contiguous,
+            // even when overlap subtraction assigned them to different selected blocks.
+            // A block spacer here used to split glyphs crossing the overlap boundary.
+            val previous=previousRaster
+            val continuousSource=previous!=null&&previous.kind==Kind.TEXT&&b.kind==Kind.TEXT&&
+                abs(previous.bottom-b.top)<.00001f&&abs(previous.original.left-b.original.left)<.00001f&&
+                abs(previous.original.right-b.original.right)<.00001f&&abs(previousScale-scale)<.0001f
+            if(b.ordinal!=last){if(last>=0&&!continuousSource)y+=6*density;last=b.ordinal}
+            previousRaster=b;previousScale=scale
             val bandHeight=(b.bottom-b.top)*ph*scale;surfaceOut+=Surface(y-6*density,y+bandHeight,palettes[b.zoneId]?:Color.WHITE);val fullWidth=b.original.width*pw*scale;val left=(width-fullWidth)/2
             // Two-dimensional tiles: a zoomed column no longer decodes an entire off-screen width.
             val tileHeight=512f
