@@ -71,7 +71,7 @@ class MainActivity:Activity() {
     private var adjusting:Int?=null
     private var editDialog:Dialog?=null
     private var adding=false;private var replaceId:Int?=null
-    private var documentTitle="PDF Focus Test"
+    private var documentTitle="Document PDF"
     private var autoSelect=true
     private var autoProposed=false
     private var orderTouched=false
@@ -86,7 +86,7 @@ class MainActivity:Activity() {
         root.setOnApplyWindowInsetsListener{v,insets->v.setPadding(insets.systemWindowInsetLeft,insets.systemWindowInsetTop,insets.systemWindowInsetRight,insets.systemWindowInsetBottom);insets}
         header=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL;setBackgroundColor(Color.WHITE);setPadding(dp(16),dp(4),dp(12),dp(2))}
         val names=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL}
-        title=text("PDF Focus Test",18,true).apply{maxLines=1;ellipsize=android.text.TextUtils.TruncateAt.END};info=text("Lecture privée, sans compte et hors ligne",12)
+        title=text(applicationInfo.loadLabel(packageManager).toString(),18,true).apply{maxLines=1;ellipsize=android.text.TextUtils.TruncateAt.END};info=text("Lecture privée, sans compte et hors ligne",12)
         names.addView(title);names.addView(info);header.addView(names,LinearLayout.LayoutParams(0,-2,1f))
         changePdfButton=button("",false){pickPdf()}.apply{
             contentDescription="Changer de PDF";minWidth=0;minimumWidth=0;setPadding(0,0,0,0)
@@ -224,7 +224,7 @@ class MainActivity:Activity() {
         controls.removeAllViews();controls.isEnabled=true;pages.removeAllViews();pages.visibility=if(reading||adjusting!=null||merging||articleIds!=null||adding)View.GONE else View.VISIBLE
         autoButton.visibility=if(count>0&&!reading&&articleIds==null&&!merging&&adjusting==null&&!adding)View.VISIBLE else View.GONE
         clearSelection.visibility=if(count>0&&!reading&&order.isNotEmpty()&&articleIds==null&&!merging&&adjusting==null&&!adding)View.VISIBLE else View.GONE
-        title.text=when{reading&&ocrReading->"Texte OCR";reading->"Lecture";articleIds!=null->"Article proposé";merging->"Fusionner des blocs";adjusting!=null->"Ajuster le cadre";count>0->"Préparer ma lecture";else->"PDF Focus Test"}
+        title.text=when{reading&&ocrReading->"Texte OCR";reading->"Lecture";articleIds!=null->"Article proposé";merging->"Fusionner des blocs";adjusting!=null->"Ajuster le cadre";count>0->"Préparer ma lecture";else->applicationInfo.loadLabel(packageManager).toString()}
         info.text=if(count>0)"Page ${page+1} sur $count" else "Lecture privée, hors ligne"
         title.typeface=Typeface.create(if(reading)"sans-serif-medium" else "serif",Typeface.NORMAL)
         title.textSize=if(reading)18f else 21f
@@ -691,7 +691,7 @@ class MainActivity:Activity() {
         entry("Annuler le dernier regroupement",null){undoAutoGroups()}
         section("Aide")
         entry("Revoir le didacticiel","Les quatre gestes à essayer sur le document d'exemple."){startTutorial()}
-        entry("Confidentialité et aide",null){AlertDialog.Builder(this).setTitle("PDF Focus Test · prototype").setMessage("Le PDF, les zones et les parcours restent sur cet appareil. Aucune permission Internet, publicité ou compte. Une copie privée du dernier PDF est conservée pour reprendre la lecture.\n\nLa détection peut manquer ou fusionner des zones. + Bloc permet de cadrer à la main ; un double tap ouvre la correction. Maintenez et glissez pour choisir plusieurs blocs. Pincez pour zoomer et faites glisser la page agrandie.\n\nLe zoom ne recrée pas les détails d'un scan flou. Ce prototype n'a pas encore été testé sur votre téléphone.").setPositiveButton("Fermer",null).show()}
+        entry("Confidentialité et aide",null){AlertDialog.Builder(this).setTitle(applicationInfo.loadLabel(packageManager).toString()).setMessage("Le PDF, les zones et les parcours restent sur cet appareil. Aucune permission Internet, publicité ou compte. Une copie privée du dernier PDF est conservée pour reprendre la lecture.\n\nLa détection peut manquer ou fusionner des zones. + Bloc permet de cadrer à la main ; un double tap ouvre la correction. Maintenez et glissez pour choisir plusieurs blocs. Pincez pour zoomer et faites glisser la page agrandie.\n\nLe zoom ne recrée pas les détails d'un scan flou. Le résultat dépend du document et des capacités de votre téléphone.").setPositiveButton("Fermer",null).show()}
         entry("Licences des composants",null){showLicenses()}
         val scroll=ScrollView(this).apply{addView(list)}
         sheet.addView(scroll,LinearLayout.LayoutParams(-1,0,1f))
@@ -711,7 +711,7 @@ class MainActivity:Activity() {
         startActivity(android.content.Intent(this,TutorialActivity::class.java))
     }
 
-    private fun clearDocument(){if(busy){toast("Attendez la fin de l’analyse avant de supprimer.");return};AlertDialog.Builder(this).setTitle("Supprimer la copie locale ?").setMessage("Le fichier original n'est pas modifié. Le parcours enregistré sera effacé.").setPositiveButton("Supprimer"){_,_->++generation;main.removeCallbacks(saveProgress);reader.clear();reader.visibility=View.GONE;canvas.visibility=View.VISIBLE;pageReady=false;worker.execute{document?.close();document=null;File(filesDir,"current.pdf").delete()};count=0;store.clear();preview?.recycle();preview=null;readingBitmap?.recycle();readingBitmap=null;canvas.image=null;canvas.zones=emptyList();canvas.selection=emptyList();reading=false;busy=false;title.text="PDF Focus Test";info.text="Sans compte et hors ligne";status.text="Document local supprimé.";updateControls()}.setNegativeButton("Annuler",null).show()}
+    private fun clearDocument(){if(busy){toast("Attendez la fin de l’analyse avant de supprimer.");return};AlertDialog.Builder(this).setTitle("Supprimer la copie locale ?").setMessage("Le fichier original n'est pas modifié. Le parcours enregistré sera effacé.").setPositiveButton("Supprimer"){_,_->++generation;main.removeCallbacks(saveProgress);reader.clear();reader.visibility=View.GONE;canvas.visibility=View.VISIBLE;pageReady=false;worker.execute{document?.close();document=null;File(filesDir,"current.pdf").delete()};count=0;store.clear();preview?.recycle();preview=null;readingBitmap?.recycle();readingBitmap=null;canvas.image=null;canvas.zones=emptyList();canvas.selection=emptyList();reading=false;busy=false;title.text=applicationInfo.loadLabel(packageManager).toString();info.text="Sans compte et hors ligne";status.text="Document local supprimé.";updateControls()}.setNegativeButton("Annuler",null).show()}
     private fun showLicenses(){val names=assets.list("licenses").orEmpty();AlertDialog.Builder(this).setTitle("Licences").setItems(names){_,which->val view=TextView(this).apply{text=assets.open("licenses/"+names[which]).bufferedReader().use{it.readText()};setPadding(dp(16),dp(12),dp(16),dp(12));textSize=12f};val scroll=ScrollView(this).apply{addView(view)};AlertDialog.Builder(this).setTitle(names[which]).setView(scroll).setPositiveButton("Fermer",null).show()}.setNegativeButton("Fermer",null).show()}
     private fun toast(message:String)=Toast.makeText(this,message,Toast.LENGTH_SHORT).show()
     /** Original tutorial bundled for explicit offline discovery; never replaces a resumed document. */
