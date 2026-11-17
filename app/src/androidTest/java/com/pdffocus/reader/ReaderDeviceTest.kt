@@ -155,7 +155,7 @@ class ReaderDeviceTest {
             reader.measure(View.MeasureSpec.makeMeasureSpec(700,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(1000,View.MeasureSpec.EXACTLY));reader.layout(0,0,700,1000)
             fun lines(top:Float,bottom:Float,step:Float):List<Float>{val out=mutableListOf<Float>();var y=top+step;while(y<=bottom+.0001f){out+=y;y+=step};return out}
             val body=Zone(1,Box(.41f,.50f,.59f,.70f),Kind.TEXT,lines(.50f,.695f,.0105f))
-            val fragment=Zone(2,Box(.41f,.675f,.59f,.72f),Kind.TEXT,lines(.675f,.718f,.0105f))
+            val fragment=Zone(2,Box(.41f,.675f,.59f,.75f),Kind.TEXT,lines(.675f,.748f,.0105f))
             reader.onRequest={tile,revision->reader.skipRequest(tile,revision)}
             reader.setDocument(listOf(body,fragment),700,1400)
             val tiles=ContinuousReaderView::class.java.getDeclaredField("tiles").apply{isAccessible=true}.get(reader)as List<ContinuousReaderView.Tile>
@@ -179,11 +179,11 @@ class ReaderDeviceTest {
             var n=0
             val words=listOf("le","conseil","invente","une","histoire","complete","pour","ce","test","visuel","du","parcours")
             while(y<.670f*1400){cv.drawText("${words[n%12]} ${words[(n+3)%12]} ${words[(n+5)%12]} ${words[(n+7)%12]} du corps",.41f*700,y,paint);y+=.0105f*1400;n++}
-            var fy=.675f*1400+13f
-            while(fy<.718f*1400){cv.drawText("${words[n%12]} ${words[(n+4)%12]} du fragment",.41f*700,fy,paint);fy+=.0105f*1400;n++}
+            var fy=.701f*1400+13f
+            while(fy<.748f*1400){cv.drawText("${words[n%12]} ${words[(n+4)%12]} du fragment",.41f*700,fy,paint);fy+=.0105f*1400;n++}
             fun lines(top:Float,bottom:Float,step:Float):List<Float>{val out=mutableListOf<Float>();var yy=top+step;while(yy<=bottom+.0001f){out+=yy;yy+=step};return out}
             val body=Zone(1,Box(.41f,.50f,.59f,.70f),Kind.TEXT,lines(.50f,.695f,.0105f))
-            val fragment=Zone(2,Box(.41f,.675f,.59f,.72f),Kind.TEXT,lines(.675f,.718f,.0105f))
+            val fragment=Zone(2,Box(.41f,.675f,.59f,.75f),Kind.TEXT,lines(.675f,.748f,.0105f))
             val reader=ContinuousReaderView(c)
             reader.measure(View.MeasureSpec.makeMeasureSpec(700,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(1000,View.MeasureSpec.EXACTLY));reader.layout(0,0,700,1000)
             reader.onRequest={tile,revision->
