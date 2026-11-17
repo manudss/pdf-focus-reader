@@ -65,7 +65,32 @@ class ContinuousReaderView(context:Context):View(context){
     @Volatile private var revision=0
     @Volatile private var horizontal=0f
     private var multiTouch=false
-    private val scaling=ScaleGestureDetector(context,object:ScaleGestureDetector.SimpleOnScaleGestureListener(){override fun onScale(d:ScaleGestureDetector):Boolean{zoomBy(d.scaleFactor);return true}})
+    // Pinch zoom: preview live by scaling the canvas around the gesture's focal point, then
+    // rebuild the tile grid, layouts and bitmap cache exactly once when the gesture ends.
+    @Volatile private var pinchLive=false
+    private var pinchScale=1f;private var pinchFx=0f;private var pinchFy=0f
+    private val scaling=ScaleGestureDetector(context,object:ScaleGestureDetector.SimpleOnScaleGestureListener(){
+        override fun onScaleBegin(d:ScaleGestureDetector):Boolean{pinchLive=true;pinchScale=1f;pinchFx=d.focusX;pinchFy=d.focusY;return true}
+        override fun onScale(d:ScaleGestureDetector):Boolean{
+            val cumulative=pinchScale*d.scaleFactor
+            pinchScale=if(ocrTexts!=null)cumulative.coerceIn(14f/fontSize,38f/fontSize) else cumulative.coerceIn(1f/magnification,2f/magnification)
+            invalidate();return true
+        }
+        override fun onScaleEnd(d:ScaleGestureDetector){commitPinch()}
+    })
+    private fun commitPinch(){
+        if(!pinchLive)return
+        val s=pinchScale;pinchLive=false;pinchScale=1f
+        if(s<0.999f||s>1.001f){
+            // The live preview holds the content point under the focus fixed; keep that same
+            // point under the focus after the rebuild instead of jumping to the scroll fraction.
+            val contentY=offset+pinchFy
+            val before=if(ocrTexts!=null)fontSize else magnification
+            zoomBy(s)
+            val after=if(ocrTexts!=null)fontSize else magnification
+            if(before>0)move(contentY*(after/before)-pinchFy)
+        }else invalidate()
+    }
     private val gestures=GestureDetector(context,object:GestureDetector.SimpleOnGestureListener(){
         override fun onDown(e:MotionEvent):Boolean{scroller.forceFinished(true);overpull=0f;return true}
         override fun onScroll(a:MotionEvent?,b:MotionEvent,dx:Float,dy:Float):Boolean{
@@ -141,7 +166,9 @@ class ContinuousReaderView(context:Context):View(context){
     }
     internal fun move(value:Float){offset=value.coerceIn(0f,max(0f,totalHeight-height));val ordinal=(tiles.filter{it.rect.bottom>=offset}.map{it.rect.top to it.ordinal}+textItems.filter{it.top+it.layout.height>=offset}.map{it.top to it.ordinal}).minByOrNull{it.first}?.second?:0;onProgress?.invoke(ordinal,offset.roundToInt());invalidate()}
     override fun onDraw(c:Canvas){
-        super.onDraw(c);c.save();c.clipRect(0,0,width,height);c.translate(-horizontal,-offset)
+        super.onDraw(c);c.save();c.clipRect(0,0,width,height)
+        if(pinchLive&&pinchScale!=1f)c.scale(pinchScale,pinchScale,pinchFx,pinchFy)
+        c.translate(-horizontal,-offset)
         paint.color=(surfaces.firstOrNull{it.bottom>=offset}?:surfaces.lastOrNull())?.color?:Color.WHITE;c.drawRect(horizontal,offset,horizontal+width,offset+height,paint)
         surfaces.lastOrNull()?.let{paint.color=it.color;c.drawRect(horizontal,max(offset,it.bottom),horizontal+width,offset+height,paint)}
         for(surface in surfaces)if(surface.bottom>=offset&&surface.top<=offset+height){paint.color=surface.color;c.drawRect(horizontal,surface.top,horizontal+width,surface.bottom,paint)}
@@ -212,8 +239,8 @@ class ContinuousReaderView(context:Context):View(context){
         if(e.actionMasked==MotionEvent.ACTION_DOWN)multiTouch=false
         if(e.pointerCount>1&&!multiTouch){multiTouch=true;overpull=0f;val cancel=MotionEvent.obtain(e);cancel.action=MotionEvent.ACTION_CANCEL;gestures.onTouchEvent(cancel);cancel.recycle()}
         scaling.onTouchEvent(e);if(!multiTouch&&!scaling.isInProgress)gestures.onTouchEvent(e)
-        if(e.actionMasked==MotionEvent.ACTION_UP){if(overpull>=overpullThreshold){overpull=0f;onNextPage?.invoke()}else if(overpull>0f){overpull=0f;invalidate()};performClick()}
-        if(e.actionMasked==MotionEvent.ACTION_CANCEL&&overpull>0f){overpull=0f;invalidate()}
+        if(e.actionMasked==MotionEvent.ACTION_UP){commitPinch();if(overpull>=overpullThreshold){overpull=0f;onNextPage?.invoke()}else if(overpull>0f){overpull=0f;invalidate()};performClick()}
+        if(e.actionMasked==MotionEvent.ACTION_CANCEL){commitPinch();if(overpull>0f){overpull=0f;invalidate()}}
         return true
     }
     override fun performClick():Boolean{super.performClick();return true}
