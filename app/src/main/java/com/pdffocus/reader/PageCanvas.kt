@@ -28,12 +28,29 @@ class PageCanvas(context:Context):View(context) {
     var onZoneTap:((Zone)->Unit)?=null
     var onZoneLongPress:((Zone)->Unit)?=null
     var onZoneSweep:((Zone)->Unit)?=null
+    /** Two-finger hold then drag: REMOVE the chosen blocks the pair crosses. Never adds. */
+    var onZoneSweepRemove:((Zone)->Unit)?=null
     /** -1 = previous page (swipe right), +1 = next page (swipe left). Only fires unzoomed. */
     var onPageSwipe:((Int)->Unit)?=null
     private var sweeping=false
     private var sweepLast:PointF?=null
     private val swept=mutableSetOf<Int>()
     private var multiTouch=false
+    private val handler=android.os.Handler(android.os.Looper.getMainLooper())
+    private val touchSlop=ViewConfiguration.get(context).scaledTouchSlop
+    private var twoHold=false
+    private var twoAnchor:PointF?=null
+    private var twoAnchorSpan=0f
+    private var twoSweeping=false
+    private var twoLast:PointF?=null
+    private val twoSwept=mutableSetOf<Int>()
+    private val twoHoldRunnable=Runnable{
+        if(twoHold&&!scale.isInProgress&&!reading&&editBox==null&&!drawMode){twoSweeping=true;twoLast=twoAnchor?.let{pagePoint(it.x,it.y)};twoSwept.clear();parent?.requestDisallowInterceptTouchEvent(true);performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)}
+        twoHold=false
+    }
+    private fun midpoint(e:MotionEvent)=if(e.pointerCount>=2)PointF((e.getX(0)+e.getX(1))/2,(e.getY(0)+e.getY(1))/2) else PointF(e.x,e.y)
+    private fun span(e:MotionEvent)=if(e.pointerCount>=2)hypot(e.getX(0)-e.getX(1),e.getY(0)-e.getY(1)) else 0f
+    private fun cancelTwoHold(){twoHold=false;handler.removeCallbacks(twoHoldRunnable)}
     var onRectangle:((Box)->Unit)?=null
     var onViewportReady:(()->Unit)?=null
     private val matrix=Matrix();private val inverse=Matrix();private val paint=Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
@@ -56,7 +73,7 @@ class PageCanvas(context:Context):View(context) {
         }
 
     })
-    init {setBackgroundColor(Color.rgb(245,243,240));contentDescription="Page PDF. Pincez pour zoomer ; touchez les blocs dans l'ordre. Maintenez puis glissez pour sélectionner. Double tap pour corriger.";isFocusable=true}
+    init {setBackgroundColor(Color.rgb(245,243,240));contentDescription="Page PDF. Pincez pour zoomer ; touchez les blocs dans l'ordre. Maintenez puis glissez pour sélectionner. Maintenez deux doigts puis glissez pour retirer. Double tap pour corriger.";isFocusable=true}
     fun resetZoom(){zoom=1f;panX=0f;panY=0f;invalidate()}
     fun zoomBy(f:Float){zoom=(zoom*f).coerceIn(1f,6f);invalidate()}
     override fun onSizeChanged(w:Int,h:Int,oldw:Int,oldh:Int){super.onSizeChanged(w,h,oldw,oldh);if(w>0&&h>0&&(w!=oldw||h!=oldh))post{onViewportReady?.invoke()}}
@@ -109,7 +126,8 @@ class PageCanvas(context:Context):View(context) {
         }
         paint.style=Paint.Style.FILL
     }
-    private fun point(e:MotionEvent):PointF? {val b=image?:return null;val xy=floatArrayOf(e.x,e.y);inverse.mapPoints(xy);return PointF((xy[0]/b.width).coerceIn(0f,1f),(xy[1]/b.height).coerceIn(0f,1f))}
+    private fun point(e:MotionEvent):PointF?=pagePoint(e.x,e.y)
+    private fun pagePoint(x:Float,y:Float):PointF?{val b=image?:return null;val xy=floatArrayOf(x,y);inverse.mapPoints(xy);return PointF((xy[0]/b.width).coerceIn(0f,1f),(xy[1]/b.height).coerceIn(0f,1f))}
     override fun onTouchEvent(e:MotionEvent):Boolean {
         if(editBox!=null&&!reading){
             scale.onTouchEvent(e)
@@ -134,6 +152,23 @@ class PageCanvas(context:Context):View(context) {
                 MotionEvent.ACTION_UP->{start?.let{val b=Box(min(it.x,p.x),min(it.y,p.y),max(it.x,p.x),max(it.y,p.y));if(b.width>.01f&&b.height>.01f)onRectangle?.invoke(b)};start=null;draft=null;invalidate();performClick()}
                 MotionEvent.ACTION_CANCEL->{start=null;draft=null;invalidate()}
             };return true
+        }
+        // Two-finger hold candidate: both fingers planted together, nearly still, no span change.
+        if(e.actionMasked==MotionEvent.ACTION_POINTER_DOWN&&e.pointerCount==2){
+            twoHold=!reading&&editBox==null&&!drawMode;twoAnchor=midpoint(e);twoAnchorSpan=span(e)
+            if(twoHold)handler.postDelayed(twoHoldRunnable,ViewConfiguration.getLongPressTimeout().toLong())
+        }
+        if(twoHold&&!twoSweeping){
+            val m=midpoint(e);val a=twoAnchor
+            val moved=a!=null&&e.actionMasked==MotionEvent.ACTION_MOVE&&hypot(m.x-a.x,m.y-a.y)>touchSlop*2f
+            val pinched=e.pointerCount>=2&&abs(span(e)-twoAnchorSpan)>touchSlop
+            if(moved||pinched||e.actionMasked==MotionEvent.ACTION_POINTER_UP||e.actionMasked==MotionEvent.ACTION_UP||e.actionMasked==MotionEvent.ACTION_CANCEL||e.pointerCount!=2)cancelTwoHold()
+        }
+        // Active two-finger removal sweep: zoom, pan and page fling stay suspended until a finger lifts.
+        if(twoSweeping){
+            if(e.actionMasked==MotionEvent.ACTION_MOVE){val m=midpoint(e);pagePoint(m.x,m.y)?.let{p->val previous=twoLast?:p;for(z in SweepSelection.crossed(zones,previous.x,previous.y,p.x,p.y))if(twoSwept.add(z.id)&&z.id in selection)onZoneSweepRemove?.invoke(z);twoLast=p}}
+            if(e.actionMasked==MotionEvent.ACTION_POINTER_UP||e.actionMasked==MotionEvent.ACTION_UP||e.actionMasked==MotionEvent.ACTION_CANCEL){twoSweeping=false;twoLast=null;twoSwept.clear();parent?.requestDisallowInterceptTouchEvent(false);performClick()}
+            return true
         }
         if(e.pointerCount>1){multiTouch=true;sweeping=false;sweepLast=null;swept.clear()}
         scale.onTouchEvent(e)
