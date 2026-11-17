@@ -987,7 +987,7 @@ class ReaderDeviceTest {
             val deadline=System.currentTimeMillis()+60000;var image:File?=null
             while(System.currentTimeMillis()<deadline&&image==null){Thread.sleep(100);scenario.onActivity{a->image=field(a,"articleShareFile").get(a)as? File}}
             assertNotNull("Complete image must be ready",image)
-            val bitmap=BitmapFactory.decodeFile(image!!.absolutePath);assertNotNull(bitmap);assertTrue("Whole article must exceed a viewport",bitmap.height>2200);assertTrue(bitmap.width>400)
+            val bitmap=BitmapFactory.decodeFile(image!!.absolutePath);assertNotNull(bitmap);var viewportHeight=0;scenario.onActivity{a->viewportHeight=findReader(a.window.decorView)!!.height};assertTrue("Whole article must exceed a viewport",bitmap.height>viewportHeight);assertTrue(bitmap.width>400)
             val out=File(c.getExternalFilesDir(null),"screenshots").apply{mkdirs()};File(out,"shared-whole-article.png").outputStream().use{bitmap.compress(Bitmap.CompressFormat.PNG,100,it)};bitmap.recycle()
             scenario.onActivity{a->val d=field(a,"articleShareDialog").get(a)as android.app.Dialog;val root=d.window!!.decorView;val shot=Bitmap.createBitmap(root.width,root.height,Bitmap.Config.ARGB_8888);root.draw(Canvas(shot));File(out,"share-article-preview.png").outputStream().use{shot.compress(Bitmap.CompressFormat.PNG,100,it)};shot.recycle();findButton(root,"Partager l'image")!!.performClick()}
             i.waitForIdleSync();assertNotNull("Only Android chooser should be requested",chosen)
