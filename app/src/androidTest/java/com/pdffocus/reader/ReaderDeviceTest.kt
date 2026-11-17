@@ -1050,4 +1050,44 @@ class ReaderDeviceTest {
             screenshot(scenario,"auto-pill-off-product")
         }
     }
+    @Test fun topBarFeedbackAndSelectionRevealArePresentationOnly(){
+        val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext
+        fun field(a:MainActivity,n:String)=MainActivity::class.java.getDeclaredField(n).apply{isAccessible=true}
+        ActivityScenario.launch<MainActivity>(Intent(c,MainActivity::class.java)).use{scenario->
+            scenario.onActivity{a->
+                field(a,"count").set(a,1);field(a,"detecting").set(a,true)
+                MainActivity::class.java.getDeclaredMethod("updateControls").apply{isAccessible=true}.invoke(a)
+                assertEquals(View.VISIBLE,(field(a,"detectionSpinner").get(a)as View).visibility)
+                val open=field(a,"changePdfButton").get(a)as Button
+                assertTrue(open.isEnabled);assertEquals("Changer de PDF",open.contentDescription)
+            }
+            screenshot(scenario,"topbar-detecting")
+            scenario.onActivity{a->
+                field(a,"detecting").set(a,false);MainActivity::class.java.getDeclaredMethod("updateControls").apply{isAccessible=true}.invoke(a)
+                assertEquals(View.GONE,(field(a,"detectionSpinner").get(a)as View).visibility)
+                val v=findCanvas(a.window.decorView)!!
+                val image=Bitmap.createBitmap(700,1000,Bitmap.Config.ARGB_8888);val cv=Canvas(image);cv.drawColor(Color.WHITE)
+                val paint=Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.BLACK;textSize=20f}
+                for(row in 0..25)cv.drawText("Un texte fictif pour suivre le parcours.",50f,100f+row*30,paint)
+                v.image=image
+                v.zones=listOf(Zone(9,Box(.05f,.06f,.93f,.30f),Kind.TEXT),Zone(3,Box(.05f,.33f,.93f,.58f),Kind.TEXT),Zone(7,Box(.05f,.61f,.93f,.86f),Kind.TEXT))
+                v.selection=listOf(9,3,7);v.animateSelectionOrder()
+                assertEquals(listOf(9,3,7),v.selection)
+                assertEquals(0,PageCanvas::class.java.getDeclaredField("revealedSelections").apply{isAccessible=true}.getInt(v))
+            }
+            Thread.sleep(150)
+            screenshot(scenario,"selection-reveal-first")
+            scenario.onActivity{a->
+                val v=findCanvas(a.window.decorView)!!
+                val count=PageCanvas::class.java.getDeclaredField("revealedSelections").apply{isAccessible=true}.getInt(v)
+                assertTrue("Reveal follows the existing order progressively",count in 1..3)
+                assertEquals(listOf(9,3,7),v.selection)
+                // Editing cancels the animation without an old delayed callback restoring it.
+                v.selection=emptyList()
+            }
+            Thread.sleep(550)
+            scenario.onActivity{a->val v=findCanvas(a.window.decorView)!!;assertTrue(v.selection.isEmpty());assertEquals(Int.MAX_VALUE,PageCanvas::class.java.getDeclaredField("revealedSelections").apply{isAccessible=true}.getInt(v))}
+            screenshot(scenario,"topbar-idle")
+        }
+    }
 }

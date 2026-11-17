@@ -8,7 +8,14 @@ import kotlin.math.*
 class PageCanvas(context:Context):View(context) {
     var image:Bitmap?=null;set(value){field=value;resetZoom();invalidate()}
     var zones:List<Zone> = emptyList();set(value){field=value;invalidate()}
-    var selection:List<Int> = emptyList();set(value){field=value;invalidate()}
+    var selection:List<Int> = emptyList();set(value){finishSelectionReveal();field=value;invalidate()}
+    private var revealedSelections=Int.MAX_VALUE
+    private val revealHandler=android.os.Handler(android.os.Looper.getMainLooper())
+    private val revealNext=object:Runnable{override fun run(){revealedSelections++;invalidate();if(revealedSelections<selection.size)revealHandler.postDelayed(this,140)}}
+    /** Presentation only: the complete selection and its persisted order never change. */
+    fun animateSelectionOrder(){revealHandler.removeCallbacks(revealNext);revealedSelections=0;invalidate();if(selection.isNotEmpty())revealHandler.postDelayed(revealNext,100)}
+    fun finishSelectionReveal(){revealHandler.removeCallbacks(revealNext);revealedSelections=Int.MAX_VALUE;invalidate()}
+    override fun onDetachedFromWindow(){finishSelectionReveal();super.onDetachedFromWindow()}
     var reading=false;set(value){field=value;resetZoom()}
     var drawMode=false;set(value){field=value;draft=null;invalidate()}
     var mergeMode=false;set(value){field=value;invalidate()}
@@ -99,7 +106,7 @@ class PageCanvas(context:Context):View(context) {
         paint.style=Paint.Style.FILL;paint.color=Color.WHITE;canvas.drawBitmap(b,matrix,paint)
         if(!reading)for(zone in zones){
             if(zone.id==adjustingZone)continue
-            val number=if(mergeMode)0 else selection.indexOf(zone.id)+1
+            val number=if(mergeMode)0 else (selection.indexOf(zone.id)+1).let{if(it>revealedSelections)0 else it}
             val merged=mergeMode&&zone.id in mergeIds
             val chosenSolo=mergeMode&&!merged&&zone.id in chosenIds
             val rect=RectF(zone.box.left*b.width,zone.box.top*b.height,zone.box.right*b.width,zone.box.bottom*b.height);matrix.mapRect(rect)
@@ -129,6 +136,7 @@ class PageCanvas(context:Context):View(context) {
     private fun point(e:MotionEvent):PointF?=pagePoint(e.x,e.y)
     private fun pagePoint(x:Float,y:Float):PointF?{val b=image?:return null;val xy=floatArrayOf(x,y);inverse.mapPoints(xy);return PointF((xy[0]/b.width).coerceIn(0f,1f),(xy[1]/b.height).coerceIn(0f,1f))}
     override fun onTouchEvent(e:MotionEvent):Boolean {
+        if(e.actionMasked==MotionEvent.ACTION_DOWN)finishSelectionReveal()
         if(editBox!=null&&!reading){
             scale.onTouchEvent(e)
             if(e.pointerCount>1||scale.isInProgress){editStart=null;editHandle=null;editMove=false;return true}

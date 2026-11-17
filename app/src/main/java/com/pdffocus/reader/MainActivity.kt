@@ -87,6 +87,19 @@ class MainActivity:Activity() {
         val names=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL}
         title=text("PDF Focus Test",18,true).apply{maxLines=1;ellipsize=android.text.TextUtils.TruncateAt.END};info=text("Lecture privée, sans compte et hors ligne",12)
         names.addView(title);names.addView(info);header.addView(names,LinearLayout.LayoutParams(0,-2,1f))
+        changePdfButton=button("",false){pickPdf()}.apply{
+            contentDescription="Changer de PDF";minWidth=0;minimumWidth=0;setPadding(0,0,0,0)
+            compoundDrawablePadding=0
+            val folder=object:android.graphics.drawable.Drawable(){
+                private val p=Paint(Paint.ANTI_ALIAS_FLAG)
+                override fun draw(c:Canvas){val r=bounds;val w=r.width().toFloat();val h=r.height().toFloat();c.save();c.translate(r.left.toFloat(),r.top.toFloat());p.color=green;p.style=Paint.Style.STROKE;p.strokeWidth=dp(2).toFloat();val path=Path().apply{moveTo(w*.08f,h*.28f);lineTo(w*.42f,h*.28f);lineTo(w*.52f,h*.14f);lineTo(w*.83f,h*.14f);lineTo(w*.92f,h*.34f);lineTo(w*.92f,h*.86f);lineTo(w*.08f,h*.86f);close()};c.drawPath(path,p);c.drawLine(w*.08f,h*.34f,w*.92f,h*.34f,p);c.restore()}
+                override fun setAlpha(alpha:Int){p.alpha=alpha};override fun setColorFilter(filter:ColorFilter?){p.colorFilter=filter};@Deprecated("Drawable opacity") override fun getOpacity()=PixelFormat.TRANSLUCENT
+            }.apply{setBounds(0,0,dp(24),dp(24))}
+            setCompoundDrawables(folder,null,null,null);setPadding(dp(8),0,dp(8),0)
+        }
+        header.addView(changePdfButton,LinearLayout.LayoutParams(dp(42),dp(48)).apply{marginEnd=dp(4)})
+        detectionSpinner=ProgressBar(this).apply{isIndeterminate=true;indeterminateTintList=android.content.res.ColorStateList.valueOf(green);contentDescription="Recherche des blocs en cours";visibility=View.GONE}
+        header.addView(detectionSpinner,LinearLayout.LayoutParams(dp(24),dp(24)).apply{marginEnd=dp(8);gravity=Gravity.CENTER_VERTICAL})
         autoButton=AutoToggleButton(this).apply{
             setOnClickListener{autoSelect=!autoSelect;getPreferences(0).edit().putBoolean("autoSelect",autoSelect).apply();styleAutoButton()}
         }
@@ -201,6 +214,8 @@ class MainActivity:Activity() {
         action("Recentrer"){canvas.resetZoom()};action("Fermer"){};dialog.show()
     }
     private fun updateControls(){
+        detectionSpinner.visibility=if(detecting&&!reading)View.VISIBLE else View.GONE
+        changePdfButton.isEnabled=!documentLoading
         controls.removeAllViews();controls.isEnabled=true;pages.removeAllViews();pages.visibility=if(reading||adjusting!=null||merging||articleIds!=null||adding)View.GONE else View.VISIBLE
         autoButton.visibility=if(count>0&&!reading&&articleIds==null&&!merging&&adjusting==null&&!adding)View.VISIBLE else View.GONE
         clearSelection.visibility=if(count>0&&!reading&&order.isNotEmpty()&&articleIds==null&&!merging&&adjusting==null&&!adding)View.VISIBLE else View.GONE
@@ -286,6 +301,8 @@ class MainActivity:Activity() {
         setEnabledRecursive(controls,!busy)
         refreshPageNav()
     }
+    private lateinit var detectionSpinner:ProgressBar
+    private lateinit var changePdfButton:Button
     private fun styleAutoButton(){(autoButton as AutoToggleButton).on=autoSelect}
     private fun setEnabledRecursive(v:View,enabled:Boolean){v.isEnabled=v.isEnabled&&enabled;if(v is android.view.ViewGroup)for(i in 0 until v.childCount)setEnabledRecursive(v.getChildAt(i),enabled)}
     private fun sync(save:Boolean=true){
@@ -340,6 +357,7 @@ class MainActivity:Activity() {
         articleIds=null;articleReason="";readingColors.clear()
         if(index !in 0 until count)return
         if(pageReady)saveSession()
+        canvas.finishSelectionReveal()
         pendingNew=null;merging=false;mergeIds=emptySet();canvas.mergeMode=false;canvas.mergeIds=emptySet();adjusting=null;canvas.adjustingZone=null;canvas.editBox=null;detector?.cancel();ocrRun++;chunkPlan=emptyList();rawChunks.clear();improvedChunks.clear();secondChunks.clear();ocrNotice="";detecting=false;pageReady=false;recognizedWords=null;ocrLoading=false;autoProposed=false;orderTouched=false
         val savedSession=if(force)null else store.get(index)
         reader.clear();reader.visibility=View.GONE;canvas.visibility=View.VISIBLE;scrollPosition=0
@@ -363,7 +381,7 @@ class MainActivity:Activity() {
                                 val engine=ZoneDetector(applicationContext)
                                 synchronized(this@MainActivity){if(token!=generation)return@detection;detector=engine}
                                 val result=engine.detect(ocrImage){token!=generation}
-                                main.post{if(token==generation&&!isDestroyed){detector=null;detecting=false;recognizedWords=engine.words;zones=TextCoverage.bridgeColumnGaps(result);order=if(autoSelect)AutoOrder.propose(zones)else emptyList();autoProposed=autoSelect&&order.isNotEmpty();frameIndex=0;pageReady=true;busy=false;sync();if(zones.isEmpty())status.text="Aucun bloc trouvé. Utilisez + Bloc pour tracer une zone."}}
+                                main.post{if(token==generation&&!isDestroyed){detector=null;detecting=false;recognizedWords=engine.words;zones=TextCoverage.bridgeColumnGaps(result);order=if(autoSelect)AutoOrder.propose(zones)else emptyList();autoProposed=autoSelect&&order.isNotEmpty();frameIndex=0;pageReady=true;busy=false;sync();if(autoProposed)canvas.animateSelectionOrder();if(zones.isEmpty())status.text="Aucun bloc trouvé. Utilisez + Bloc pour tracer une zone."}}
                             }catch(_:Exception){main.post{if(token==generation&&!isDestroyed){detector=null;detecting=false;busy=false;pageReady=true;sync(false);status.text="Analyse indisponible. Tracez vos blocs avec + Bloc."}}}
                             finally{ocrImage.recycle()}
                         }
@@ -645,5 +663,5 @@ class MainActivity:Activity() {
     private fun demo(){openDocument("PDF Focus - Découverte"){target->assets.open("examples/decouverte.pdf").use{input->target.outputStream().use{output->input.copyTo(output)}}}}
     @Deprecated("Activity back callback")
     override fun onBackPressed(){if(articleIds!=null)finishArticle(false)else if(merging)finishMerge(false)else if(adjusting!=null)finishAdjustment(false)else if(reading)exitReader()else if(adding){adding=false;replaceId=null;canvas.drawMode=false;sync()}else super.onBackPressed()}
-    override fun onDestroy(){pageSummary?.dismiss();editDialog?.dismiss();main.removeCallbacks(saveProgress);if(pageReady)saveSession();reader.clear();++generation;detector?.cancel();detectionWorker.shutdown();super.onDestroy();worker.execute{document?.close();document=null};worker.shutdown()}
+    override fun onDestroy(){canvas.finishSelectionReveal();pageSummary?.dismiss();editDialog?.dismiss();main.removeCallbacks(saveProgress);if(pageReady)saveSession();reader.clear();++generation;detector?.cancel();detectionWorker.shutdown();super.onDestroy();worker.execute{document?.close();document=null};worker.shutdown()}
 }
