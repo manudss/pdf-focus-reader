@@ -29,6 +29,7 @@ class MainActivity:Activity() {
     private var repair:OcrEnhancer?=null
     private var ocrNotice=""
     private var pageSummary:Dialog?=null
+    private var menuDialog:Dialog?=null
     private var readingSettings=false
     private var currentOrdinal=0
 
@@ -160,7 +161,11 @@ class MainActivity:Activity() {
         reader.onReturnToPage={exitReader()}
         reader.onNextPage={if(page<count-1){exitReader();loadPage(page+1)}}
         updateControls();handleIntent(intent)
-        if(intent?.action !in listOf(Intent.ACTION_VIEW,Intent.ACTION_SEND)&&File(filesDir,"current.pdf").exists())resumeLast()
+        val resumed=intent?.action !in listOf(Intent.ACTION_VIEW,Intent.ACTION_SEND)&&File(filesDir,"current.pdf").exists()
+        if(resumed)resumeLast()
+        // First launch only (no document to resume): the interactive walkthrough, practiced on an
+        // isolated copy of the bundled example. Relaunchable from the menu. Skipped under Robolectric.
+        if(!resumed&&!Build.FINGERPRINT.startsWith("robolectric",true)&&!getPreferences(0).getBoolean("tutorialSeen",false))main.post{startTutorial()}
     }
     private fun refreshPageNav(){
         pageNav.visibility=if(!reading&&count>1)View.VISIBLE else View.GONE
@@ -654,8 +659,58 @@ class MainActivity:Activity() {
         panel.addView(grid,LinearLayout.LayoutParams(-1,0,1f));panel.addView(text("Glissez pour parcourir les $count pages.",12));dialog.setContentView(panel);dialog.setOnDismissListener{adapter.close();grid.adapter=null;pageSummary=null};dialog.show();dialog.window?.apply{setBackgroundDrawableResource(android.R.color.transparent);setLayout(-1,-1)};grid.setSelection((page/3)*3)
     }
     private fun goToPage(){if(documentLoading)return;val input=EditText(this).apply{inputType=android.text.InputType.TYPE_CLASS_NUMBER;hint="1 à $count"};AlertDialog.Builder(this).setTitle("Aller à la page").setView(input).setPositiveButton("Ouvrir"){_,_->val p=input.text.toString().toIntOrNull();if(p!=null&&p in 1..count)loadPage(p-1)else toast("Numéro de page invalide")}.setNegativeButton("Annuler",null).show()}
-    private fun menu(){val items=arrayOf("Ouvrir un autre PDF","Réessayer la détection","Confidentialité et aide","Supprimer le document local","Licences des composants","Annuler le dernier regroupement")
-        AlertDialog.Builder(this).setItems(items){_,which->when(which){0->pickPdf();1->if(count>0&&!busy)AlertDialog.Builder(this).setMessage("Remplacer les blocs et le parcours de cette page ?").setPositiveButton("Remplacer"){_,_->loadPage(page,true)}.setNegativeButton("Annuler",null).show();2->AlertDialog.Builder(this).setTitle("PDF Focus Test · prototype").setMessage("Le PDF, les zones et les parcours restent sur cet appareil. Aucune permission Internet, publicité ou compte. Une copie privée du dernier PDF est conservée pour reprendre la lecture.\n\nLa détection peut manquer ou fusionner des zones. + Bloc permet de cadrer à la main ; un double tap ouvre la correction. Maintenez et glissez pour choisir plusieurs blocs. Pincez pour zoomer et faites glisser la page agrandie.\n\nLe zoom ne recrée pas les détails d'un scan flou. Ce prototype n'a pas encore été testé sur votre téléphone.").setPositiveButton("Fermer",null).show();3->clearDocument();4->showLicenses();5->undoAutoGroups()}}.show()}
+    private fun menu(){
+        val dialog=Dialog(this);menuDialog=dialog
+        dialog.setOnDismissListener{menuDialog=null}
+        val sheet=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(16),dp(10),dp(16),dp(16))}
+        val handle=View(this).apply{background=shape(Color.rgb(214,211,204),3)};sheet.addView(handle,LinearLayout.LayoutParams(dp(44),dp(5)).apply{gravity=Gravity.CENTER_HORIZONTAL;bottomMargin=dp(8)})
+        val titleRow=LinearLayout(this).apply{gravity=Gravity.CENTER_VERTICAL}
+        titleRow.addView(text("Menu",22,true),LinearLayout.LayoutParams(0,-2,1f))
+        titleRow.addView(button("Fermer"){dialog.dismiss()}.apply{background=null},LinearLayout.LayoutParams(dp(90),dp(48)))
+        sheet.addView(titleRow)
+        val list=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL}
+        fun section(name:String){list.addView(text(name,12,true).apply{setTextColor(Color.rgb(120,118,112));setPadding(dp(4),dp(10),0,dp(4))})}
+        fun entry(label:String,desc:String?,danger:Boolean=false,enabled:Boolean=true,action:()->Unit){
+            val row=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;background=shape(Color.WHITE,10,Color.rgb(226,231,226));setPadding(dp(14),dp(8),dp(14),dp(8));isEnabled=enabled
+                setOnClickListener{if(enabled){dialog.dismiss();action()}}}
+            val inkColor=if(danger)Color.rgb(214,74,60)else ink
+            row.addView(text(label,16,true).apply{setTextColor(if(enabled)inkColor else Color.rgb(176,173,166));setPadding(0,0,0,0)})
+            if(desc!=null)row.addView(text(desc,12).apply{setTextColor(if(enabled)Color.rgb(120,118,112)else Color.rgb(196,193,186));setPadding(0,0,0,0)})
+            list.addView(row,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=dp(6)})
+        }
+        section("Document")
+        entry("Ouvrir un autre PDF",null){pickPdf()}
+        entry("Supprimer le document local",null,danger=true){clearDocument()}
+        section("Blocs de la page")
+        val hasPage=count>0
+        entry("Ajouter un bloc","Tracez vous-même un bloc sur la page.",enabled=hasPage&&!busy){adding=true;canvas.drawMode=true;updateControls()}
+        entry("Voir l'ordre de lecture","Vérifiez et corrigez votre parcours.",enabled=hasPage){showOrder()}
+        entry("Fusionner des blocs","Réunissez à la main plusieurs blocs en un seul.",enabled=zones.isNotEmpty()){(order.firstOrNull()?.let{id->zones.find{it.id==id}}?:zones.firstOrNull())?.let{beginMerge(it)}}
+        entry("Regrouper automatiquement","Propose des regroupements parmi les blocs choisis. Vous validez ceux à appliquer.",enabled=zones.isNotEmpty()){showAutoGroups()}
+        entry("Réessayer la détection","Relance la recherche des blocs de la page.",enabled=hasPage&&!busy){AlertDialog.Builder(this).setMessage("Remplacer les blocs et le parcours de cette page ?").setPositiveButton("Remplacer"){_,_->loadPage(page,true)}.setNegativeButton("Annuler",null).show()}
+        entry("Annuler le dernier regroupement",null){undoAutoGroups()}
+        section("Aide")
+        entry("Revoir le didacticiel","Les quatre gestes à essayer sur le document d'exemple."){startTutorial()}
+        entry("Confidentialité et aide",null){AlertDialog.Builder(this).setTitle("PDF Focus Test · prototype").setMessage("Le PDF, les zones et les parcours restent sur cet appareil. Aucune permission Internet, publicité ou compte. Une copie privée du dernier PDF est conservée pour reprendre la lecture.\n\nLa détection peut manquer ou fusionner des zones. + Bloc permet de cadrer à la main ; un double tap ouvre la correction. Maintenez et glissez pour choisir plusieurs blocs. Pincez pour zoomer et faites glisser la page agrandie.\n\nLe zoom ne recrée pas les détails d'un scan flou. Ce prototype n'a pas encore été testé sur votre téléphone.").setPositiveButton("Fermer",null).show()}
+        entry("Licences des composants",null){showLicenses()}
+        val scroll=ScrollView(this).apply{addView(list)}
+        sheet.addView(scroll,LinearLayout.LayoutParams(-1,0,1f))
+        dialog.setContentView(sheet)
+        dialog.show()
+        dialog.window?.apply{
+            setBackgroundDrawable(shape(Color.rgb(250,249,246),18))
+            setGravity(Gravity.BOTTOM)
+            setLayout(-1,(resources.displayMetrics.heightPixels*.85f).toInt())
+        }
+    }
+    /** Interactive walkthrough, practiced in a separate activity on an isolated copy of the
+     * bundled example (cache only): the user's document, sessions and preferences stay untouched. */
+    private fun startTutorial(){
+        if(busy||documentLoading||reading)return
+        getPreferences(0).edit().putBoolean("tutorialSeen",true).apply()
+        startActivity(android.content.Intent(this,TutorialActivity::class.java))
+    }
+
     private fun clearDocument(){if(busy){toast("Attendez la fin de l’analyse avant de supprimer.");return};AlertDialog.Builder(this).setTitle("Supprimer la copie locale ?").setMessage("Le fichier original n'est pas modifié. Le parcours enregistré sera effacé.").setPositiveButton("Supprimer"){_,_->++generation;main.removeCallbacks(saveProgress);reader.clear();reader.visibility=View.GONE;canvas.visibility=View.VISIBLE;pageReady=false;worker.execute{document?.close();document=null;File(filesDir,"current.pdf").delete()};count=0;store.clear();preview?.recycle();preview=null;readingBitmap?.recycle();readingBitmap=null;canvas.image=null;canvas.zones=emptyList();canvas.selection=emptyList();reading=false;busy=false;title.text="PDF Focus Test";info.text="Sans compte et hors ligne";status.text="Document local supprimé.";updateControls()}.setNegativeButton("Annuler",null).show()}
     private fun showLicenses(){val names=assets.list("licenses").orEmpty();AlertDialog.Builder(this).setTitle("Licences").setItems(names){_,which->val view=TextView(this).apply{text=assets.open("licenses/"+names[which]).bufferedReader().use{it.readText()};setPadding(dp(16),dp(12),dp(16),dp(12));textSize=12f};val scroll=ScrollView(this).apply{addView(view)};AlertDialog.Builder(this).setTitle(names[which]).setView(scroll).setPositiveButton("Fermer",null).show()}.setNegativeButton("Fermer",null).show()}
     private fun toast(message:String)=Toast.makeText(this,message,Toast.LENGTH_SHORT).show()

@@ -81,6 +81,7 @@ class PageCanvas(context:Context):View(context) {
 
     })
     init {setBackgroundColor(Color.rgb(245,243,240));contentDescription="Page PDF. Pincez pour zoomer ; touchez les blocs dans l'ordre. Maintenez puis glissez pour sélectionner. Maintenez deux doigts puis glissez pour retirer. Double tap pour corriger.";isFocusable=true}
+    fun isZoomed()=zoom>1f
     fun resetZoom(){zoom=1f;panX=0f;panY=0f;invalidate()}
     fun zoomBy(f:Float){zoom=(zoom*f).coerceIn(1f,6f);invalidate()}
     override fun onSizeChanged(w:Int,h:Int,oldw:Int,oldh:Int){super.onSizeChanged(w,h,oldw,oldh);if(w>0&&h>0&&(w!=oldw||h!=oldh))post{onViewportReady?.invoke()}}
