@@ -1182,6 +1182,9 @@ class ReaderDeviceTest {
                 val d=MainActivity::class.java.getDeclaredField("menuDialog").apply{isAccessible=true}.get(a)as android.app.Dialog
                 val root=d.window!!.decorView
                 assertTrue(findText(root,"Document"));assertTrue(findText(root,"Blocs de la page"));assertTrue(findText(root,"Aide"))
+                assertTrue("Assembled menu retains tutorial replay",findText(root,"Revoir le didacticiel"))
+                assertTrue("Assembled activity retains Auto pill",findButton(a.window.decorView,"Auto") is AutoToggleButton)
+                assertNotNull(MainActivity::class.java.getDeclaredField("changePdfButton").apply{isAccessible=true}.get(a))
                 val shot=Bitmap.createBitmap(root.width,root.height,Bitmap.Config.ARGB_8888);root.draw(Canvas(shot))
                 File(File(c.getExternalFilesDir(null),"screenshots").apply{mkdirs()},"grouped-menu-product.png").outputStream().use{shot.compress(Bitmap.CompressFormat.PNG,100,it)};shot.recycle();d.dismiss()
             }
