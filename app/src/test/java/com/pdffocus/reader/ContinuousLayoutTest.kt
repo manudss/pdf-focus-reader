@@ -62,9 +62,9 @@ class ContinuousLayoutTest {
   assertEquals(.38f,out.first().original.width,.00001f)
  }
     @Test fun overlappingBlockBoundaryPreservesSourceOnceButSplitsCrossingGlyph(){
-        // Characterization, not a claim of visual continuity. A glyph spans y=.695..705,
+        // Source-layout characterization. A glyph spans y=.695..705,
         // crossing the first block's bottom. The source union keeps it exactly once,
-        // but as two bands with different ordinals. The reader inserts a block gap.
+        // but as two bands with different ordinals. The reader must join them without a gap.
         val zones=listOf(Zone(1,Box(.41f,.50f,.59f,.70f),Kind.TEXT),Zone(2,Box(.41f,.675f,.59f,.75f),Kind.TEXT))
         val bands=ContinuousLayout.bands(zones)
         for(y in listOf(.695f,.6999f,.7001f,.705f)){
@@ -74,6 +74,6 @@ class ContinuousLayoutTest {
         val above=bands.single{b->b.pieces.any{p->.6999f>=p.top&&.6999f<p.bottom}}
         val below=bands.single{b->b.pieces.any{p->.7001f>=p.top&&.7001f<p.bottom}}
         assertEquals(.70f,above.bottom,.00001f);assertEquals(.70f,below.top,.00001f)
-        assertNotEquals("Crossing glyph is split between block ordinals (known visual gap)",above.ordinal,below.ordinal)
+        assertNotEquals("Source pieces have distinct block ordinals and require a contiguous raster join",above.ordinal,below.ordinal)
     }
 }
