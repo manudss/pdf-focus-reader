@@ -76,4 +76,22 @@ class ComicTrimTest {
   val panel=listOf(z(1,Box(0f,0f,1f,1f),true))
   assertEquals(panel,ComicTrim.withoutBlankBands(panel,p,w,h))
  }
+
+ @Test fun aShortTitleOrCaptionInALargeBandIsNotBlank(){
+  // 130x6 px of text in a 600x440 band: about 0.3 percent of the area, but 22 percent of the width
+  val p=page(-1){q->fill(q,40,40,170,46,0xff000000.toInt())}
+  val band=Box(0f,0f,1f,.55f)
+  assertTrue(ComicTrim.inkShare(p,w,h,band)<ComicTrim.CONTENT)
+  assertTrue(!ComicTrim.blank(p,w,h,band))
+  val foot=page(-1){q->fill(q,40,740,190,748,0xff000000.toInt())}
+  assertTrue(!ComicTrim.blank(foot,w,h,Box(0f,.88f,1f,1f)))
+ }
+ @Test fun twoThinLinesOfCaptionAtTheEdgeKeepTheirBand(){
+  val p=page(0xfff2e2b8.toInt()){q->fill(q,60,20,260,25,0xff202020.toInt());fill(q,60,32,230,37,0xff202020.toInt())}
+  assertTrue(!ComicTrim.blank(p,w,h,Box(0f,0f,1f,.25f)))
+ }
+ @Test fun aLonePageNumberStillCountsAsBlank(){
+  val p=page(-1){q->fill(q,296,765,305,780,0)}
+  assertTrue(ComicTrim.blank(p,w,h,Box(0f,.9f,1f,1f)))
+ }
 }
