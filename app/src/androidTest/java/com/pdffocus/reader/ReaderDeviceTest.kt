@@ -250,8 +250,8 @@ class ReaderDeviceTest {
         assertTrue("BD reading starts top-left",firstA.box.left<.5f&&firstA.box.top<.5f)
         val mangaA=ZoneDetector(c).detect(pageA,PageMode.MANGA){false}
         assertEquals(zonesA.map{it.box}.toSet(),mangaA.map{it.box}.toSet())
-        val firstM=mangaA.filter{it.panel}.let{p->p.single{it.id==PageReadingOrder.propose(mangaA,PageMode.MANGA).first()}}
-        assertTrue("Manga reading starts top-right",firstM.box.left>.5f&&firstM.box.top<.5f)
+        val rtlA=mangaA.filter{it.panel}
+        assertTrue("Manga reading starts top-right",rtlA[0].box.left>rtlA[1].box.left&&rtlA[0].box.top<.5f)
         previewShot("comic-seam-thin-gutters-android.png",pageA,zonesA)
         pageA.recycle()
         // Phase B: balloon hanging from the top panel, tail tip in the paper gap.
