@@ -48,7 +48,7 @@ class ComicTrimTest {
  }
 
  @Test fun blankBandsAreBlankButTitlesAndDrawingsAreNot(){
-  val p=page(0xfff2e2b8.toInt()){q->fill(q,300,700,306,712,0xff000000.toInt());fill(q,100,100,500,120,0xff000000.toInt());fill(q,100,300,500,500,0xff3a78b0.toInt())}
+  val p=page(0xfff2e2b8.toInt()){q->fill(q,300,770,306,782,0xff000000.toInt());fill(q,100,100,500,120,0xff000000.toInt());fill(q,100,300,500,500,0xff3a78b0.toInt())}
   assertTrue(ComicTrim.blank(p,w,h,Box(0f,.9f,1f,1f)))
   assertTrue(ComicTrim.blank(p,w,h,Box(0f,.85f,1f,1f)))
   assertTrue(!ComicTrim.blank(p,w,h,Box(0f,.1f,1f,.2f)))
@@ -90,7 +90,17 @@ class ComicTrimTest {
   val p=page(0xfff2e2b8.toInt()){q->fill(q,60,20,260,25,0xff202020.toInt());fill(q,60,32,230,37,0xff202020.toInt())}
   assertTrue(!ComicTrim.blank(p,w,h,Box(0f,0f,1f,.25f)))
  }
- @Test fun aLonePageNumberStillCountsAsBlank(){
+ @Test fun aNarrowMarkOutsideTheFooterKeepsItsBand(){
+  val oneWord=page(-1){q->fill(q,270,30,330,48,0)}
+  assertTrue(!ComicTrim.blank(oneWord,w,h,Box(0f,0f,1f,.2f)))
+  val chapterDigit=page(-1){q->fill(q,290,60,310,100,0)}
+  assertTrue(!ComicTrim.blank(chapterDigit,w,h,Box(0f,0f,1f,.2f)))
+  val sideNote=page(-1){q->fill(q,20,300,40,330,0)}
+  assertTrue(!ComicTrim.blank(sideNote,w,h,Box(0f,.1f,.15f,.9f)))
+  val midBottomBand=page(-1){q->fill(q,296,640,305,655,0)}
+  assertTrue(!ComicTrim.blank(midBottomBand,w,h,Box(0f,.75f,1f,.9f)))
+ }
+ @Test fun aLoneFolioInTheFooterStripStillCountsAsBlank(){
   val p=page(-1){q->fill(q,296,765,305,780,0)}
   assertTrue(ComicTrim.blank(p,w,h,Box(0f,.9f,1f,1f)))
  }
