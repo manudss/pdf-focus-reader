@@ -37,4 +37,16 @@ class ComicMixedPanelsTest {
   assertEquals(listOf(frame),ComicGutters.reconcile(emptyList(),listOf(frame)))
   assertTrue(ComicGutters.panels(IntArray(200*300){-1},200,300,true){true}.isEmpty())
  }
+ @Test fun reverseTextOnDarkTitleBandDoesNotBecomeAnExtraCase(){
+  val w=600;val h=840;val p=IntArray(w*h){-1}
+  fun rect(l:Int,t:Int,r:Int,b:Int,c:Int){for(y in t until b)for(x in l until r)p[y*w+x]=c}
+  rect(0,0,600,85,0xff214d3c.toInt())
+  for(x in 40..400 step 14)rect(x,25,x+5,40,-1)
+  for(row in 0..1)for(col in 0..2){val l=40+col*180;val t=110+row*330;val r=l+165;val b=t+300
+   rect(l,t,r,b,0xff202020.toInt());rect(l+2,t+2,r-2,b-2,0xffe8cf90.toInt());rect(l+40,t+70,l+100,t+220,0xff406655.toInt())
+  }
+  assertEquals(6,ComicPanels.find(p,w,h).size)
+  assertEquals(7,ComicGutters.find(p,w,h).size)
+  assertEquals(6,ComicGutters.panels(p,w,h,true).size)
+ }
 }
