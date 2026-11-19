@@ -159,11 +159,12 @@ object SeamPanels {
             val lo=minSide;val hi=sweep-1-minSide
             val INF=1e18f
             var dp=FloatArray(sweep){INF}
+            var nd=FloatArray(sweep){INF} // swapped with dp each step: no per-step allocation
             val par=IntArray(steps*sweep){-1}
             fun cell(pos:Int,step:Int)=if(axis==0)cost[(t+pos)*w+(l+step)] else cost[(t+step)*w+(l+pos)]
             for(pos in lo..hi)dp[pos]=cell(pos,0)
             for(step in 1 until steps){
-                val nd=FloatArray(sweep){INF}
+                java.util.Arrays.fill(nd,INF)
                 for(pos in lo..hi){
                     var best=INF;var bp=-1
                     for(dpos in -1..1){val pp=pos+dpos;if(pp<lo||pp>hi)continue
@@ -172,7 +173,7 @@ object SeamPanels {
                     if(bp<0)continue
                     val c=cell(pos,step);if(c>=INF/2)continue
                     nd[pos]=best+c;par[step*sweep+pos]=bp}
-                dp=nd}
+                val tmp=dp;dp=nd;nd=tmp}
             var endPos=-1;var bestTot=INF
             for(pos in lo..hi)if(dp[pos]<bestTot){bestTot=dp[pos];endPos=pos}
             if(endPos<0||bestTot>=INF/2)return null
