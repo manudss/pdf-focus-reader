@@ -1,108 +1,61 @@
 package com.pdffocus.reader
 import org.junit.Assert.*
 import org.junit.Test
-/** Fictional synthetic pages only. */
+/** Fictional pixels only; not a proxy for the user's original PDFs. */
 class ComicTrimTest {
- private val w=600;private val h=800
- private fun page(paper:Int,draw:(IntArray)->Unit):IntArray{val p=IntArray(w*h){paper};draw(p);return p}
+ private val w=600;private val h=800;private val whole=Box(0f,0f,1f,1f)
+ private fun page(paper:Int=-1,draw:(IntArray)->Unit={}):IntArray=IntArray(w*h){paper}.also(draw)
  private fun fill(p:IntArray,l:Int,t:Int,r:Int,b:Int,c:Int){for(y in t until b)for(x in l until r)p[y*w+x]=c}
- private val whole=Box(0f,0f,1f,1f)
- @Test fun whiteMarginAroundADrawingIsTrimmedButNotItsInsideBackground(){
-  val p=page(-1){q->fill(q,150,200,450,600,0xff3a78b0.toInt());fill(q,250,300,350,400,-1)}
-  val t=ComicTrim.trim(p,w,h,whole)
-  assertEquals(.25f,t.left,.03f);assertEquals(.25f,t.top,.03f);assertEquals(.75f,t.right,.03f);assertEquals(.75f,t.bottom,.03f)
- }
- @Test fun tintedPaperMarginIsTrimmedWithItsOwnBackground(){
-  val paper=0xfff2e2b8.toInt()
-  val p=page(paper){q->fill(q,100,100,500,700,0xff803020.toInt())}
-  val t=ComicTrim.trim(p,w,h,whole)
-  assertEquals(100f/w,t.left,.03f);assertEquals(700f/h,t.bottom,.03f)
- }
- @Test fun lightContentIsNotMistakenForMargin(){
-  val p=page(-1){q->fill(q,120,120,480,680,0xffd8d0c0.toInt())}
-  val t=ComicTrim.trim(p,w,h,whole)
-  assertTrue(t.left<=.2f+.03f&&t.top<=.15f+.03f&&t.right>=.8f-.03f&&t.bottom>=.85f-.03f)
- }
- @Test fun textTouchingTheEdgeKeepsItsEdge(){
-  val p=page(-1){q->fill(q,200,300,400,500,0xff203040.toInt());fill(q,0,10,300,40,0xff000000.toInt())}
-  val t=ComicTrim.trim(p,w,h,whole)
-  assertEquals(0f,t.left,.01f);assertTrue(t.top<=.02f)
- }
- @Test fun aTitleAboveTheDrawingIsKept(){
-  val p=page(-1){q->fill(q,150,150,450,200,0xff000000.toInt());fill(q,150,260,450,700,0xff3a78b0.toInt())}
-  val t=ComicTrim.trim(p,w,h,whole)
-  assertTrue(t.top<=150f/h)
- }
- @Test fun blankOrTinyContentKeepsTheDetectedBox(){
-  val blank=IntArray(w*h){-1}
-  assertEquals(whole,ComicTrim.trim(blank,w,h,whole))
-  val dot=page(-1){q->fill(q,300,400,310,410,0)}
-  assertEquals(whole,ComicTrim.trim(dot,w,h,whole))
- }
- @Test fun aSubBoxIsTrimmedInsidePageCoordinates(){
-  val p=page(-1){q->fill(q,300,100,500,300,0xff3a78b0.toInt())}
-  val box=Box(.4f,.05f,.95f,.45f)
-  val t=ComicTrim.trim(p,w,h,box)
-  assertTrue(t.left>=box.left&&t.right<=box.right&&t.top>=box.top&&t.bottom<=box.bottom)
-  assertEquals(300f/w,t.left,.03f);assertEquals(500f/w,t.right,.03f)
- }
-
- @Test fun blankBandsAreBlankButTitlesAndDrawingsAreNot(){
-  val p=page(0xfff2e2b8.toInt()){q->fill(q,300,770,306,782,0xff000000.toInt());fill(q,100,100,500,120,0xff000000.toInt());fill(q,100,300,500,500,0xff3a78b0.toInt())}
-  assertTrue(ComicTrim.blank(p,w,h,Box(0f,.9f,1f,1f)))
-  assertTrue(ComicTrim.blank(p,w,h,Box(0f,.85f,1f,1f)))
-  assertTrue(!ComicTrim.blank(p,w,h,Box(0f,.1f,1f,.2f)))
-  assertTrue(!ComicTrim.blank(p,w,h,Box(0f,.3f,1f,.7f)))
- }
-
  private fun z(id:Int,b:Box,panel:Boolean)=Zone(id,b,Kind.IMAGE,manual=true,panel=panel,complement=!panel)
- @Test fun blankTopAndBottomBandsAreDroppedAndPanelsAreKept(){
-  val p=page(-1){q->fill(q,60,160,540,420,0xff3a78b0.toInt());fill(q,60,440,540,700,0xff803020.toInt());fill(q,300,770,306,782,0)}
-  val zones=listOf(z(1,Box(0f,0f,1f,.18f),false),z(2,Box(.1f,.18f,.9f,.52f),true),z(3,Box(.1f,.52f,.9f,.88f),true),z(4,Box(0f,.88f,1f,1f),false))
-  val out=ComicTrim.withoutBlankBands(zones,p,w,h)
-  assertEquals(listOf(2,3),out.map{it.id});assertEquals(zones[1],out[0])
+ @Test fun whiteMarginsTrimButWhiteInsideDrawingStays(){
+  val p=page{fill(it,150,200,450,600,0xff3a78b0.toInt());fill(it,250,300,350,400,-1)}
+  val t=ComicTrim.trim(p,w,h,whole)
+  assertEquals(.25f,t.left,.02f);assertEquals(.25f,t.top,.02f);assertEquals(.75f,t.right,.02f);assertEquals(.75f,t.bottom,.02f)
  }
- @Test fun aBandWithATitleIsKeptAndAnAllBlankPageIsLeftAlone(){
-  val p=page(-1){q->fill(q,100,30,500,70,0xff000000.toInt());fill(q,60,160,540,700,0xff3a78b0.toInt())}
-  val zones=listOf(z(1,Box(0f,0f,1f,.18f),false),z(2,Box(.1f,.18f,.9f,.9f),true))
-  assertEquals(listOf(1,2),ComicTrim.withoutBlankBands(zones,p,w,h).map{it.id})
-  val blank=IntArray(w*h){-1};val only=listOf(z(1,Box(0f,0f,1f,.5f),false),z(2,Box(0f,.5f,1f,1f),false))
-  assertEquals(only,ComicTrim.withoutBlankBands(only,blank,w,h))
+ @Test fun tintedPaperAndLightContent(){
+  for(paper in listOf(-1,0xfff2e2b8.toInt())){
+   val p=page(paper){fill(it,120,120,480,680,0xffd8d0c0.toInt())}
+   val t=ComicTrim.trim(p,w,h,whole)
+   assertEquals(.2f,t.left,.02f);assertEquals(.15f,t.top,.02f);assertEquals(.8f,t.right,.02f);assertEquals(.85f,t.bottom,.02f)
+  }
  }
- @Test fun aWholePageBlockIsTrimmedAndAPanelOnlyOnItsSides(){
-  val p=page(-1){q->fill(q,80,100,520,700,0xff3a78b0.toInt())}
-  val out=ComicTrim.withoutBlankBands(listOf(z(1,Box(0f,0f,1f,1f),false)),p,w,h)
-  assertEquals(1,out.size);assertEquals(80f/w,out[0].box.left,.03f);assertEquals(700f/h,out[0].box.bottom,.03f)
-  val panel=ComicTrim.withoutBlankBands(listOf(z(1,Box(0f,0f,1f,1f),true)),p,w,h)
-  // a panel keeps its top and bottom whatever the margins; only the paper at its left and right goes
-  assertEquals(0f,panel[0].box.top,0f);assertEquals(1f,panel[0].box.bottom,0f);assertEquals(80f/w,panel[0].box.left,.03f);assertEquals(520f/w,panel[0].box.right,.03f)
+ @Test fun textAtEdgeAndTitleAboveDrawingStay(){
+  val p=page{fill(it,200,300,400,600,0xff203040.toInt());fill(it,0,10,300,40,0xff000000.toInt())}
+  val t=ComicTrim.trim(p,w,h,whole);assertEquals(0f,t.left,0f);assertTrue(t.top<=10f/h)
  }
-
- @Test fun aShortTitleOrCaptionInALargeBandIsNotBlank(){
-  // 130x6 px of text in a 600x440 band: about 0.3 percent of the area, but 22 percent of the width
-  val p=page(-1){q->fill(q,40,40,170,46,0xff000000.toInt())}
-  val band=Box(0f,0f,1f,.55f)
-  assertTrue(ComicTrim.inkShare(p,w,h,band)<ComicTrim.CONTENT)
-  assertTrue(!ComicTrim.blank(p,w,h,band))
-  val foot=page(-1){q->fill(q,40,740,190,748,0xff000000.toInt())}
-  assertTrue(!ComicTrim.blank(foot,w,h,Box(0f,.88f,1f,1f)))
+ @Test fun tinyMarkDoesNotVanishBetweenSamplesOrByDensity(){
+  val p=page{fill(it,200,300,400,600,0xff203040.toInt());it[13*w+11]=0xff101010.toInt()}
+  val t=ComicTrim.trim(p,w,h,whole);assertTrue(t.top<=13f/h);assertTrue(t.left<=11f/w)
+  assertTrue(!ComicTrim.blank(p,w,h,Box(0f,0f,1f,.1f)))
  }
- @Test fun twoThinLinesOfCaptionAtTheEdgeKeepTheirBand(){
-  val p=page(0xfff2e2b8.toInt()){q->fill(q,60,20,260,25,0xff202020.toInt());fill(q,60,32,230,37,0xff202020.toInt())}
-  assertTrue(!ComicTrim.blank(p,w,h,Box(0f,0f,1f,.25f)))
+ @Test fun faintContentWithSmallColourDifferenceIsKept(){
+  val p=page{fill(it,80,30,120,45,0xfff8f8f8.toInt());fill(it,200,300,400,600,0xff203040.toInt())}
+  val t=ComicTrim.trim(p,w,h,whole);assertTrue(t.top<=30f/h);assertTrue(t.left<=80f/w)
  }
- @Test fun aNarrowMarkOutsideTheFooterKeepsItsBand(){
-  val oneWord=page(-1){q->fill(q,270,30,330,48,0)}
-  assertTrue(!ComicTrim.blank(oneWord,w,h,Box(0f,0f,1f,.2f)))
-  val chapterDigit=page(-1){q->fill(q,290,60,310,100,0)}
-  assertTrue(!ComicTrim.blank(chapterDigit,w,h,Box(0f,0f,1f,.2f)))
-  val sideNote=page(-1){q->fill(q,20,300,40,330,0)}
-  assertTrue(!ComicTrim.blank(sideNote,w,h,Box(0f,.1f,.15f,.9f)))
-  val midBottomBand=page(-1){q->fill(q,296,640,305,655,0)}
-  assertTrue(!ComicTrim.blank(midBottomBand,w,h,Box(0f,.75f,1f,.9f)))
+ @Test fun everyAmbiguousMarkIncludingFooterFolioIsKept(){
+  val boxes=listOf(intArrayOf(270,30,330,48),intArrayOf(290,60,310,100),intArrayOf(20,300,40,330),intArrayOf(296,765,305,780))
+  for(b in boxes){val p=page{fill(it,b[0],b[1],b[2],b[3],0xff000000.toInt())};assertTrue(!ComicTrim.blank(p,w,h,whole));assertEquals(1,ComicTrim.withoutBlankBands(listOf(z(1,whole,false)),p,w,h).size)}
  }
- @Test fun aLoneFolioInTheFooterStripStillCountsAsBlank(){
-  val p=page(-1){q->fill(q,296,765,305,780,0)}
-  assertTrue(ComicTrim.blank(p,w,h,Box(0f,.9f,1f,1f)))
+ @Test fun uniformColouredBandIsContentNotItsOwnBackground(){
+  val p=page{fill(it,0,200,600,400,0xffc9d8e0.toInt())}
+  assertTrue(!ComicTrim.blank(p,w,h,Box(0f,.25f,1f,.5f)))
+ }
+ @Test fun trulyBlankBandsGoAndPanelsStay(){
+  val p=page{fill(it,60,160,540,700,0xff3a78b0.toInt())}
+  val zones=listOf(z(1,Box(0f,0f,1f,.18f),false),z(2,Box(0f,.18f,1f,.88f),true),z(3,Box(0f,.88f,1f,1f),false))
+  val out=ComicTrim.withoutBlankBands(zones,p,w,h);assertEquals(listOf(2),out.map{it.id});assertEquals(zones[1].box.top,out[0].box.top,0f);assertEquals(zones[1].box.bottom,out[0].box.bottom,0f);assertEquals(.1f,out[0].box.left,.02f)
+ }
+ @Test fun emptyPageOrMixedDarkBorderIsLeftAlone(){
+  val zones=listOf(z(1,whole,false));assertEquals(zones,ComicTrim.withoutBlankBands(zones,page(),w,h))
+  val dark=page(0xff202020.toInt()){fill(it,200,300,400,600,-1)}
+  assertEquals(whole,ComicTrim.trim(dark,w,h,whole));assertTrue(!ComicTrim.blank(dark,w,h,whole))
+ }
+ @Test fun subBoxCoordinatesStayWithinOriginal(){
+  val p=page{fill(it,300,100,500,300,0xff3a78b0.toInt())};val b=Box(.4f,.05f,.95f,.45f);val t=ComicTrim.trim(p,w,h,b)
+  assertTrue(t.left>=b.left&&t.top>=b.top&&t.right<=b.right&&t.bottom<=b.bottom);assertEquals(.5f,t.left,.02f)
+ }
+ @Test fun shortTitleAndTwoLineCaptionKeepTheirBands(){
+  val p=page{fill(it,40,40,170,46,0xff000000.toInt());fill(it,60,740,260,745,0xff202020.toInt());fill(it,60,752,230,757,0xff202020.toInt())}
+  assertTrue(!ComicTrim.blank(p,w,h,Box(0f,0f,1f,.55f)));assertTrue(!ComicTrim.blank(p,w,h,Box(0f,.9f,1f,1f)))
  }
 }
