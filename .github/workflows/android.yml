@@ -157,6 +157,18 @@ jobs:
         with:
           name: pdf-focus-test-signed
           path: signed-test
+      - uses: actions/download-artifact@v5
+        with:
+          name: android-device-test-results
+          path: device-results
+      - name: Package emulator evidence (fictional test document only)
+        run: |
+          set -euo pipefail
+          find device-results -name '*.png' | sort | tee evidence-list.txt
+          test -s evidence-list.txt
+          grep -q 'OK (' device-results/device-tests.txt
+          (cd device-results && zip -qr ../emulator-evidence.zip device-tests.txt app/build/device-screenshots)
+          ls -l emulator-evidence.zip
       - name: Verify package, version, certificate and checksum before publishing
         run: |
           set -euo pipefail
@@ -178,5 +190,5 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          gh release create v0.10.15-test --repo "$GITHUB_REPOSITORY" --target "$HEAD_SHA" --prerelease --title "PDF Focus Test 0.10.15" --notes "Test prerelease (package com.pdffocus.reader.test, in-place update over Test 0.10.14). Continuous comic reading and zoom from the Test 0.10.13 build, plus frameless comic panel detection in Comic and Manga modes, built from commit $HEAD_SHA. Experimental: no diagonal panels, no old coloured scans. Stable app untouched." signed-test/pdf-focus-test-0.10.15-arm64.apk signed-test/SHA256SUMS.txt
+          gh release create v0.10.15-test --repo "$GITHUB_REPOSITORY" --target "$HEAD_SHA" --prerelease --title "PDF Focus Test 0.10.15" --notes "Test prerelease (package com.pdffocus.reader.test, in-place update over Test 0.10.14). Continuous comic reading and zoom from the Test 0.10.13 build, plus frameless comic panel detection in Comic and Manga modes, built from commit $HEAD_SHA. Experimental: no diagonal panels, no old coloured scans. Stable app untouched." signed-test/pdf-focus-test-0.10.15-arm64.apk signed-test/SHA256SUMS.txt emulator-evidence.zip
           gh release view v0.10.15-test --repo "$GITHUB_REPOSITORY" --json url,isPrerelease,isDraft,assets | tee -a "$GITHUB_STEP_SUMMARY"
