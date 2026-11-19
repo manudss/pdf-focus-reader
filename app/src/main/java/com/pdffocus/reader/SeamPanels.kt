@@ -233,7 +233,8 @@ object SeamPanels {
                 for(axis in 0..1){
                     val minSide=if(axis==0)minSweepY else minSweepX
                     val c=bestSeam(id,t,l,b,r,axis,minSide)?:continue
-                    if(best==null||c.score>best.score)best=c
+                    val cur=best // K1-safe: no smart cast on a loop-mutated var
+                    if(cur==null||c.score>cur.score)best=c
                 }
                 val cand=best?:break
                 // Split-fragment guard: refuse a seam that detaches a readable fragment of a
