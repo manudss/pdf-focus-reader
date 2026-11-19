@@ -128,7 +128,7 @@ class ReaderDeviceTest {
         cv.drawText("Une première page de livre.",45f,90f,paint);for(k in 0..4)cv.drawText("Un premier paragraphe pour lire.",45f,140f+k*40,paint)
         for(k in 0..4)cv.drawText("Un second paragraphe, plus bas.",45f,580f+k*40,paint)
         val book=ZoneDetector(c).detect(frameless,PageMode.BOOK){false};assertTrue(book.size>=2);assertTrue(book.all{it.kind==Kind.TEXT&&!it.panel});assertEquals(book.sortedBy{it.box.top}.map{it.id},PageReadingOrder.propose(book,PageMode.BOOK))
-        val fallback=ZoneDetector(c).detect(frameless,PageMode.COMIC){false};assertEquals(1f,fallback.sumOf{it.box.area.toDouble()}.toFloat(),.00001f);frameless.recycle()
+        val fallback=ZoneDetector(c).detect(frameless,PageMode.COMIC){false};assertComicContentCovered(fallback,frameless);frameless.recycle()
         File(c.filesDir,"current.pdf").delete();SessionStore(c).clear()
         ActivityScenario.launch<MainActivity>(Intent(c,MainActivity::class.java)).use{scenario->
             fun field(a:MainActivity,n:String)=MainActivity::class.java.getDeclaredField(n).apply{isAccessible=true}
