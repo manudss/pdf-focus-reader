@@ -84,6 +84,10 @@ class ComicReaderDeviceTest {
    send(reader,listOf(100*d to 410*d,101*d to 330*d,100*d to 240*d,100*d to 240*d))
    ins.runOnMainSync{assertTrue(reader.currentPosition()>before);assertEquals(scale,states(reader).getValue(1).scale,.001f)}
    capture(reader,"comic-native-${if(rtl)"manga" else "bd"}-06-vertical")
+   // The "bloc n sur m" indicator reads these ordinals: first case at the top, last case at the bottom, never backwards.
+   val seen=mutableListOf<Int>()
+   ins.runOnMainSync{reader.onProgress={o,_->seen.add(o)};reader.move(0f);reader.move(1e6f)}
+   ins.runOnMainSync{assertEquals(listOf(0,2),listOf(seen.first(),seen.last()));assertEquals(seen.sorted(),seen)}
    ins.runOnMainSync{reader.clear()}
   };doc.close();f.delete()
  }
