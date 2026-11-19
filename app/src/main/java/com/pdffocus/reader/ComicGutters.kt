@@ -10,9 +10,19 @@ object ComicGutters {
  fun panels(pixels:IntArray,width:Int,height:Int,gutters:Boolean,cancelled:()->Boolean={false}):List<Box>{
   val framed=ComicPanels.find(pixels,width,height,cancelled)
   if(!gutters||cancelled())return framed
-  val emptyGutters=find(pixels,width,height,cancelled)
+  val emptyGutters=find(pixels,width,height,cancelled).filterNot{flatDarkInterior(pixels,width,height,it)}
   if(cancelled())return emptyList()
   return reconcile(framed,emptyGutters)
+ }
+ /** A flat dark masthead with reverse text is not a drawing. Same conservative exclusion as closed frames.
+  * Ambiguous very dark artwork stays in a complement, never deleted by this classification. */
+ private fun flatDarkInterior(pixels:IntArray,w:Int,h:Int,box:Box):Boolean{
+  if(box.width<.8f||box.width*w/(box.height*h)<3f)return false
+  val l=((box.left+box.width*.1f)*w).toInt().coerceIn(0,w-1);val r=((box.right-box.width*.1f)*w).toInt().coerceIn(l+1,w)
+  val t=((box.top+box.height*.1f)*h).toInt().coerceIn(0,h-1);val b=((box.bottom-box.height*.1f)*h).toInt().coerceIn(t+1,h)
+  var dark=0;var n=0
+  for(y in t until b step 2)for(x in l until r step 2){val p=pixels[y*w+x];n++;if(((p ushr 16)and 255)*299+((p ushr 8)and 255)*587+(p and 255)*114<175000)dark++}
+  return n>0&&dark.toFloat()/n>.9f
  }
  /** Keep a closed frame unless separated gutter candidates account for almost all of it.
   * Non-overlapping gutter panels elsewhere are added. Never combine intersecting alternative proposals. */
