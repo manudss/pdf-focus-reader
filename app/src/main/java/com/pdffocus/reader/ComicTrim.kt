@@ -79,14 +79,18 @@ object ComicTrim {
  const val MARK_WIDTH=.08f
  const val FOOTER=.06f
 
- /** Drops complement bands (top, bottom or side margins that are not panels) holding only paper, and trims a
- * lone remaining block to its content. Panels are never dropped or resized, so no drawing is cut. If every
+ /** Drops complement bands holding nothing to read and trims margins. Panels are never dropped; their rows lose only
+ * left and right paper, so no drawing is cut and the row boundaries stay. If every
  * band would go, the zones are returned unchanged. */
  fun withoutBlankBands(zones:List<Zone>,pixels:IntArray?,width:Int,height:Int):List<Zone>{
   if(pixels==null||pixels.size!=width*height||zones.isEmpty())return zones
   val kept=zones.filter{!(it.complement&&!it.panel&&blank(pixels,width,height,it.box))}
   if(kept.isEmpty())return zones
-  if(kept.size==1&&!kept[0].panel){val t=trim(pixels,width,height,kept[0].box);return listOf(kept[0].copy(box=t))}
-  return kept
+  // Margins: a lone whole-page block and the kept text bands are trimmed on every side; a panel row is trimmed
+  // on its left and right only, so the cut between rows and the drawings themselves never move.
+  return kept.map{z->
+   if(z.panel){val t=trim(pixels,width,height,z.box);z.copy(box=z.box.copy(left=t.left,right=t.right))}
+   else{val t=trim(pixels,width,height,z.box);z.copy(box=t)}
+  }
  }
 }
