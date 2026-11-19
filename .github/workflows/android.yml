@@ -76,7 +76,7 @@ jobs:
 
   sign-test:
     needs: [build, device-tests]
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.head.ref == 'test/morning-improvements' || github.event.pull_request.head.ref == 'feat/guided-reader' || github.event.pull_request.head.ref == 'fix/reading-wide-title-columns' || github.event.pull_request.head.ref == 'feat/page-navigation' || github.event.pull_request.head.ref == 'feat/auto-select' || github.event.pull_request.head.ref == 'fix/reading-pinch-zoom' || github.event.pull_request.head.ref == 'feat/comic-reading-mode' || github.event.pull_request.head.ref == 'test/comic-continuous-detail' || github.event.pull_request.head.ref == 'test/comic-reading-gutters')
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.head.ref == 'test/morning-improvements' || github.event.pull_request.head.ref == 'feat/guided-reader' || github.event.pull_request.head.ref == 'fix/reading-wide-title-columns' || github.event.pull_request.head.ref == 'feat/page-navigation' || github.event.pull_request.head.ref == 'feat/auto-select' || github.event.pull_request.head.ref == 'fix/reading-pinch-zoom' || github.event.pull_request.head.ref == 'feat/comic-reading-mode' || github.event.pull_request.head.ref == 'test/comic-continuous-detail' || github.event.pull_request.head.ref == 'test/comic-reading-gutters' || github.event.pull_request.head.ref == 'feat/seam-panel-detection')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -147,7 +147,7 @@ jobs:
 
   publish-test-prerelease:
     needs: [sign-test]
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'test/comic-reading-gutters'
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'feat/seam-panel-detection'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -176,7 +176,7 @@ jobs:
           APK=$(ls signed-test/pdf-focus-test-*-arm64.apk)
           test "$(ls signed-test/pdf-focus-test-*-arm64.apk | wc -l)" = 1
           "$BT/aapt" dump badging "$APK" | head -1 | tee verify.txt
-          grep -q "package: name='com.pdffocus.reader.test' versionCode='16' versionName='0.10.15-test'" verify.txt
+          grep -q "package: name='com.pdffocus.reader.test' versionCode='17' versionName='0.10.16-test'" verify.txt
           "$BT/apksigner" verify --verbose --print-certs "$APK" | tee certs.txt
           grep -q 'certificate SHA-256 digest: bbdae9f61a83de058513b89ba9e57af2ac2e29831a5c25e7445a30c7e8f0ea16' certs.txt
           (cd signed-test && sha256sum -c SHA256SUMS.txt --ignore-missing 2>/dev/null || true)
@@ -190,5 +190,5 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          gh release create v0.10.15-test --repo "$GITHUB_REPOSITORY" --target "$HEAD_SHA" --prerelease --title "PDF Focus Test 0.10.15" --notes "Test prerelease (package com.pdffocus.reader.test, in-place update over Test 0.10.14). Continuous comic reading and zoom from the Test 0.10.13 build, plus frameless comic panel detection in Comic and Manga modes, built from commit $HEAD_SHA. Experimental: no diagonal panels, no old coloured scans. Stable app untouched." signed-test/pdf-focus-test-0.10.15-arm64.apk signed-test/SHA256SUMS.txt emulator-evidence.zip
-          gh release view v0.10.15-test --repo "$GITHUB_REPOSITORY" --json url,isPrerelease,isDraft,assets | tee -a "$GITHUB_STEP_SUMMARY"
+          gh release create v0.10.16-test --repo "$GITHUB_REPOSITORY" --target "$HEAD_SHA" --prerelease --title "PDF Focus Test 0.10.16" --notes "Test prerelease (package com.pdffocus.reader.test, in-place update over Test 0.10.15). Seam-cut panel detection for frameless comic pages in Comic and Manga modes: thin gutters and hanging speech balloons no longer fuse panels or fall back to the whole page. Built from commit $HEAD_SHA. Experimental: no diagonal panels, no old coloured scans. Stable app untouched." signed-test/pdf-focus-test-0.10.16-arm64.apk signed-test/SHA256SUMS.txt emulator-evidence.zip
+          gh release view v0.10.16-test --repo "$GITHUB_REPOSITORY" --json url,isPrerelease,isDraft,assets | tee -a "$GITHUB_STEP_SUMMARY"
