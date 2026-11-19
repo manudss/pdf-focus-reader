@@ -248,15 +248,15 @@ class ReaderDeviceTest {
         assertComicContentCovered(zonesA,pageA)
         val orderA=PageReadingOrder.propose(zonesA,PageMode.COMIC)
         val firstA=zonesA.single{it.id==orderA.first()}
-        assertTrue("BD reading starts top-left",firstA.box.left<.5f&&firstA.box.top<.5f)
+        assertTrue("BD reading starts top-left",(firstA.box.left+firstA.box.right)/2<.5f&&firstA.box.top<.5f)
         val mangaA=ZoneDetector(c).detect(pageA,PageMode.MANGA){false}
         assertEquals(zonesA.map{it.box}.toSet(),mangaA.map{it.box}.toSet())
         // Assert on the order the reader actually consumes (MainActivity: PageReadingOrder.propose),
         // with the full zone map in the message so a failure shows the real values.
         val consumed=PageReadingOrder.propose(mangaA,PageMode.MANGA)
-        val diag=mangaA.map{z->"#"+z.id+"[l="+"%.3f".format(z.box.left)+" t="+"%.3f".format(z.box.top)+" panel="+z.panel+"]"}
+        val diag=mangaA.map{z->"#"+z.id+"[l="+"%.6f".format(z.box.left)+" r="+"%.6f".format(z.box.right)+" t="+"%.6f".format(z.box.top)+" panel="+z.panel+"]"}
         val firstM=mangaA.firstOrNull{it.id==consumed.firstOrNull()}
-        assertTrue("Manga consumed order must start top-right: order=$consumed zones=$diag",firstM!=null&&firstM.box.left>.5f&&firstM.box.top<.5f)
+        assertTrue("Manga consumed order must start top-right: order=$consumed zones=$diag",firstM!=null&&(firstM.box.left+firstM.box.right)/2>.5f&&firstM.box.top<.5f)
         pageA.recycle()
         // Phase B: balloon hanging from the top panel, tail tip in the paper gap.
         val pageB=Bitmap.createBitmap(900,1260,Bitmap.Config.ARGB_8888).apply{eraseColor(Color.WHITE)}
