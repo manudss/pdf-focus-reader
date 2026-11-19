@@ -129,6 +129,31 @@ class ReaderDeviceTest {
         for(k in 0..4)cv.drawText("Un second paragraphe, plus bas.",45f,580f+k*40,paint)
         val book=ZoneDetector(c).detect(frameless,PageMode.BOOK){false};assertTrue(book.size>=2);assertTrue(book.all{it.kind==Kind.TEXT&&!it.panel});assertEquals(book.sortedBy{it.box.top}.map{it.id},PageReadingOrder.propose(book,PageMode.BOOK))
         val fallback=ZoneDetector(c).detect(frameless,PageMode.COMIC){false};assertComicContentCovered(fallback,frameless);frameless.recycle()
+        // Exercise the real Android entry point on a mixed page, not only the pure detector.
+        val mixed=Bitmap.createBitmap(600,840,Bitmap.Config.ARGB_8888).apply{eraseColor(Color.WHITE)}
+        val mc=Canvas(mixed);val mp=Paint()
+        fun mr(l:Int,t:Int,r:Int,b:Int,color:Int){mp.color=color;mc.drawRect(l.toFloat(),t.toFloat(),r.toFloat(),b.toFloat(),mp)}
+        for(row in 0..1)for(col in 0..2){val l=40+col*180;val t=100+row*330;val r=l+165;val b=t+300
+            mr(l,t,r,b,Color.rgb(232,207,144));mr(l+40,t+70,l+100,t+220,Color.rgb(64,102,85))
+            if(row==0){mr(l,t,r,t+2,Color.DKGRAY);mr(l,b-2,r,b,Color.DKGRAY);mr(l,t,l+2,b,Color.DKGRAY);mr(r-2,t,r,b,Color.DKGRAY)}
+        }
+        mp.color=Color.BLACK;mp.textSize=14f;mc.drawText("III",285f,40f,mp);mc.drawText("9",295f,815f,mp)
+        val mixedBd=ZoneDetector(c).detect(mixed,PageMode.COMIC){false}
+        val mixedManga=ZoneDetector(c).detect(mixed,PageMode.MANGA){false}
+        assertEquals("3 closed frames must not suppress 3 frameless panels",6,mixedBd.count{it.panel})
+        assertComicContentCovered(mixedBd,mixed);assertComicContentCovered(mixedManga,mixed)
+        assertEquals(mixedBd.map{it.box}.toSet(),mixedManga.map{it.box}.toSet())
+        assertTrue(mixedManga.filter{it.panel}[0].box.left>mixedManga.filter{it.panel}[1].box.left)
+        // Auto keeps its closed-frame classifier and benefits from margin trimming once the page is recognised.
+        val mixedAuto=ZoneDetector(c).detect(mixed,PageMode.AUTO){false}
+        assertEquals(3,mixedAuto.count{it.panel});assertComicContentCovered(mixedAuto,mixed)
+        i.runOnMainSync{
+            val preview=PageCanvas(c).apply{image=mixed;zones=mixedBd;selection=mixedBd.map{it.id}}
+            preview.measure(View.MeasureSpec.makeMeasureSpec(700,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(980,View.MeasureSpec.EXACTLY));preview.layout(0,0,700,980)
+            val shot=Bitmap.createBitmap(700,980,Bitmap.Config.ARGB_8888);preview.draw(Canvas(shot))
+            File(File(c.getExternalFilesDir(null),"screenshots").apply{mkdirs()},"comic-mixed-trimmed-android.png").outputStream().use{shot.compress(Bitmap.CompressFormat.PNG,100,it)};shot.recycle()
+        }
+        mixed.recycle()
         File(c.filesDir,"current.pdf").delete();SessionStore(c).clear()
         ActivityScenario.launch<MainActivity>(Intent(c,MainActivity::class.java)).use{scenario->
             fun field(a:MainActivity,n:String)=MainActivity::class.java.getDeclaredField(n).apply{isAccessible=true}
