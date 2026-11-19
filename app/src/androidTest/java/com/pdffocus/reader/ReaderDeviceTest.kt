@@ -141,6 +141,8 @@ class ReaderDeviceTest {
         val mixedBd=ZoneDetector(c).detect(mixed,PageMode.COMIC){false}
         val mixedManga=ZoneDetector(c).detect(mixed,PageMode.MANGA){false}
         assertEquals("3 closed frames must not suppress 3 frameless panels",6,mixedBd.count{it.panel})
+        assertTrue("Chapter digit remains an independent complement",mixedBd.any{it.complement&&it.box.top<.06f})
+        assertTrue("Folio remains an independent complement",mixedBd.any{it.complement&&it.box.bottom>.95f})
         assertComicContentCovered(mixedBd,mixed);assertComicContentCovered(mixedManga,mixed)
         assertEquals(mixedBd.map{it.box}.toSet(),mixedManga.map{it.box}.toSet())
         assertTrue(mixedManga.filter{it.panel}[0].box.left>mixedManga.filter{it.panel}[1].box.left)
