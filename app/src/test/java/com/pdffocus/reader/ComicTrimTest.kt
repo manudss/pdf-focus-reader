@@ -69,12 +69,13 @@ class ComicTrimTest {
   val blank=IntArray(w*h){-1};val only=listOf(z(1,Box(0f,0f,1f,.5f),false),z(2,Box(0f,.5f,1f,1f),false))
   assertEquals(only,ComicTrim.withoutBlankBands(only,blank,w,h))
  }
- @Test fun aWholePageBlockIsTrimmedToItsContentWithoutTouchingAPanel(){
+ @Test fun aWholePageBlockIsTrimmedAndAPanelOnlyOnItsSides(){
   val p=page(-1){q->fill(q,80,100,520,700,0xff3a78b0.toInt())}
   val out=ComicTrim.withoutBlankBands(listOf(z(1,Box(0f,0f,1f,1f),false)),p,w,h)
   assertEquals(1,out.size);assertEquals(80f/w,out[0].box.left,.03f);assertEquals(700f/h,out[0].box.bottom,.03f)
-  val panel=listOf(z(1,Box(0f,0f,1f,1f),true))
-  assertEquals(panel,ComicTrim.withoutBlankBands(panel,p,w,h))
+  val panel=ComicTrim.withoutBlankBands(listOf(z(1,Box(0f,0f,1f,1f),true)),p,w,h)
+  // a panel keeps its top and bottom whatever the margins; only the paper at its left and right goes
+  assertEquals(0f,panel[0].box.top,0f);assertEquals(1f,panel[0].box.bottom,0f);assertEquals(80f/w,panel[0].box.left,.03f);assertEquals(520f/w,panel[0].box.right,.03f)
  }
 
  @Test fun aShortTitleOrCaptionInALargeBandIsNotBlank(){
