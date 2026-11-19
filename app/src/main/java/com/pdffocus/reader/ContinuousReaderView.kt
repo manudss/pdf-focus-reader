@@ -278,7 +278,7 @@ class ContinuousReaderView(context:Context):View(context){
         footerTop=y+24*density
         comicFrames=frameOut;comicMaps=mapOut;surfaces=surfaceOut;textItems=textOut;tiles=out;totalHeight=footerTop+footerHeight();move(offset);invalidate()
     }
-    internal fun move(value:Float){offset=value.coerceIn(0f,max(0f,totalHeight-readingHeight));val ordinal=(tiles.filter{it.rect.bottom>=offset}.map{it.rect.top to it.ordinal}+textItems.filter{it.top+it.layout.height>=offset}.map{it.top to it.ordinal}).minByOrNull{it.first}?.second?:0;onProgress?.invoke(ordinal,offset.roundToInt());invalidate()}
+    internal fun move(value:Float){offset=value.coerceIn(0f,max(0f,totalHeight-readingHeight));val ordinal=(tiles.filter{it.rect.bottom>=offset}.map{it.rect.top to it.ordinal}+textItems.filter{it.top+it.layout.height>=offset}.map{it.top to it.ordinal}).minByOrNull{it.first}?.second?:0;val atEnd=offset>=max(0f,totalHeight-readingHeight)-1f&&offset>0f;val shown=if(atEnd)max(ordinal,max(tiles.maxOfOrNull{it.ordinal}?:0,textItems.maxOfOrNull{it.ordinal}?:0))else ordinal;onProgress?.invoke(shown,offset.roundToInt());invalidate()}
     override fun onDraw(c:Canvas){
         super.onDraw(c);c.save();c.clipRect(0,0,width,height)
         c.translate(0f,comicBar);if(comic)c.clipRect(0f,0f,width.toFloat(),readingHeight)
