@@ -10,7 +10,9 @@ object ComicGutters {
  fun panels(pixels:IntArray,width:Int,height:Int,gutters:Boolean,cancelled:()->Boolean={false}):List<Box>{
   val framed=ComicPanels.find(pixels,width,height,cancelled)
   if(!gutters||cancelled())return framed
-  val emptyGutters=find(pixels,width,height,cancelled).filterNot{flatDarkInterior(pixels,width,height,it)}
+  // Seam cuts replace the old empty-corridor search: they follow thin or slanted gutters,
+  // never slice balloons crossing a gutter and stay merged when no clean cut exists.
+  val emptyGutters=SeamPanels.find(pixels,width,height,cancelled=cancelled).filterNot{flatDarkInterior(pixels,width,height,it)}
   if(cancelled())return emptyList()
   return reconcile(framed,emptyGutters)
  }
@@ -40,6 +42,7 @@ object ComicGutters {
   if(out.indices.any{i->(i+1 until out.size).any{j->out[i].intersect(out[j])>.03f*min(out[i].area,out[j].area)}})return framed
   return out.sortedWith(compareBy<Box>{it.top}.thenBy{it.left})
  }
+ /** Legacy empty-corridor search, kept for comparison tests; [panels] now uses [SeamPanels]. */
  fun find(pixels:IntArray,width:Int,height:Int,cancelled:()->Boolean={false}):List<Box>{
   require(pixels.size==width*height)
   if(width<80||height<80)return emptyList()
