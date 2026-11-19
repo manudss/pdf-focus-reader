@@ -84,16 +84,21 @@ class ComicReaderDeviceTest {
    send(reader,listOf(100*d to 410*d,101*d to 330*d,100*d to 240*d,100*d to 240*d))
    ins.runOnMainSync{assertTrue(reader.currentPosition()>before);assertEquals(scale,states(reader).getValue(1).scale,.001f)}
    capture(reader,"comic-native-${if(rtl)"manga" else "bd"}-06-vertical")
-   // The "bloc n sur m" indicator reads these ordinals. At the top it is the first case, it never goes backwards,
-   // it advances at the bottom, and it always names the topmost case still visible in the viewport.
+   // "Bloc n sur m": 0 at the top, never backwards, every case reachable, and the last case shown once the end is reached.
    val seen=mutableListOf<Int>()
-   fun visibleOrdinal():Int{
-    val frames=field(reader,"comicFrames").get(reader) as List<*>;val top=reader.currentPosition().toFloat()
+   ins.runOnMainSync{
+    val frames=field(reader,"comicFrames").get(reader) as List<*>
     fun f(o:Any,n:String)=o.javaClass.getDeclaredField(n).apply{isAccessible=true}.get(o)
-    return frames.filterNotNull().filter{(f(it,"bottom") as Float)>=top}.minByOrNull{f(it,"top") as Float}!!.let{f(it,"ordinal") as Int}
+    val ordinals=frames.filterNotNull().map{f(it,"ordinal") as Int}.toSortedSet()
+    val diag="frames=${frames.filterNotNull().map{"#"+f(it,"ordinal")+"["+f(it,"top")+","+f(it,"bottom")+"]"}} total=${field(reader,"totalHeight").get(reader)} view=${reader.height}"
+    reader.onProgress={o,_->seen.add(o)}
+    reader.move(0f);assertEquals("top $diag",ordinals.first(),seen.last())
+    var y=0f;while(y<5000f){reader.move(y);y+=40f}
+    reader.move(1e6f)
+    assertEquals("end $diag seen=$seen",ordinals.last(),seen.last())
+    assertEquals("monotonic $seen",seen.sorted(),seen)
+    assertEquals("every case reachable $diag seen=${seen.toSortedSet()}",ordinals,seen.toSortedSet())
    }
-   ins.runOnMainSync{reader.onProgress={o,_->seen.add(o)};reader.move(0f);assertEquals(0,seen.last());assertEquals(visibleOrdinal(),seen.last())}
-   ins.runOnMainSync{reader.move(1e6f);assertTrue("Indicator must advance when scrolled to the end: $seen",seen.last()>seen.first());assertEquals(visibleOrdinal(),seen.last());assertEquals(seen.sorted(),seen)}
    ins.runOnMainSync{reader.clear()}
   };doc.close();f.delete()
  }
