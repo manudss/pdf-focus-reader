@@ -66,6 +66,7 @@ class MainActivity:Activity() {
     private var articleIds:List<Int>?=null
     private var articleReason=""
     private var merging=false
+    private var moving=0
     private var mergeIds=setOf<Int>()
     private var pendingNew:Zone?=null
     private var adjusting:Int?=null
@@ -122,7 +123,7 @@ class MainActivity:Activity() {
             text="✕";textSize=13f;minHeight=dp(36);minimumHeight=dp(36);minWidth=0;minimumWidth=0;setPadding(0,0,0,0)
             setTextColor(Color.rgb(120,118,112));background=shape(Color.WHITE,18,Color.rgb(226,231,226))
             contentDescription="Tout désélectionner";visibility=View.GONE
-            setOnClickListener{if(!busy&&!reading&&articleIds==null&&!merging&&adjusting==null&&!adding&&order.isNotEmpty()){order=emptyList();orderTouched=true;frameIndex=0;scrollPosition=0;sync()}}
+            setOnClickListener{if(!busy&&!reading&&articleIds==null&&!merging&&moving==0&&adjusting==null&&!adding&&order.isNotEmpty()){order=emptyList();orderTouched=true;frameIndex=0;scrollPosition=0;sync()}}
         }
         viewport.addView(clearSelection,android.widget.FrameLayout.LayoutParams(dp(36),dp(36),Gravity.TOP or Gravity.END).apply{topMargin=dp(6);marginEnd=dp(6)})
         reader=ContinuousReaderView(this).apply{visibility=View.GONE};viewport.addView(reader,android.widget.FrameLayout.LayoutParams(-1,-1))
@@ -146,10 +147,10 @@ class MainActivity:Activity() {
         controls=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(12),dp(8),dp(12),dp(10));background=shape(Color.WHITE,22);elevation=dp(5).toFloat()};root.addView(controls)
         setContentView(root)
         detectionWorker.execute{try{val local=loadRepair();main.post{if(!isDestroyed)repair=local}}catch(_:Exception){}}
-        canvas.onZoneTap={z->if(!busy&&!reading){if(articleIds!=null){articleIds=ReadingLayout.toggle(articleIds!!,z.id);canvas.selection=articleIds!!;updateControls()}else if(merging){mergeIds=if(z.id in mergeIds)mergeIds-z.id else mergeIds+z.id;canvas.mergeIds=mergeIds;updateControls()}else{order=ReadingLayout.toggle(order,z.id);orderTouched=true;frameIndex=0;scrollPosition=0;sync()}}}
-        canvas.onZoneSweep={z->if(!busy&&!reading&&adjusting==null&&!adding){if(articleIds!=null){if(z.id !in articleIds!!){articleIds=articleIds!!+z.id;canvas.selection=articleIds!!;updateControls()}}else if(merging){mergeIds=mergeIds+z.id;canvas.mergeIds=mergeIds;updateControls()}else if(z.id !in order){order=order+z.id;orderTouched=true;frameIndex=0;scrollPosition=0;sync()}}}
-        canvas.onZoneSweepRemove={z->if(!busy&&!reading&&adjusting==null&&!adding&&articleIds==null&&!merging){if(z.id in order){order=order-z.id;orderTouched=true;frameIndex=0;scrollPosition=0;sync()}}}
-        canvas.onZoneLongPress={z->if(!busy&&!reading&&!merging&&articleIds==null&&adjusting==null)editZone(z)}
+        canvas.onZoneTap={z->if(!busy&&!reading){if(articleIds!=null){articleIds=ReadingLayout.toggle(articleIds!!,z.id);canvas.selection=articleIds!!;updateControls()}else if(merging){mergeIds=if(z.id in mergeIds)mergeIds-z.id else mergeIds+z.id;canvas.mergeIds=mergeIds;updateControls()}else if(moving!=0){if(z.id in order&&z.id!=moving){order=BlockMove.after(order,moving,z.id);orderTouched=true;frameIndex=0;scrollPosition=0;finishMove(true)}else updateControls()}else{order=ReadingLayout.toggle(order,z.id);orderTouched=true;frameIndex=0;scrollPosition=0;sync()}}}
+        canvas.onZoneSweep={z->if(!busy&&!reading&&moving==0&&adjusting==null&&!adding){if(articleIds!=null){if(z.id !in articleIds!!){articleIds=articleIds!!+z.id;canvas.selection=articleIds!!;updateControls()}}else if(merging){mergeIds=mergeIds+z.id;canvas.mergeIds=mergeIds;updateControls()}else if(z.id !in order){order=order+z.id;orderTouched=true;frameIndex=0;scrollPosition=0;sync()}}}
+        canvas.onZoneSweepRemove={z->if(!busy&&!reading&&moving==0&&adjusting==null&&!adding&&articleIds==null&&!merging){if(z.id in order){order=order-z.id;orderTouched=true;frameIndex=0;scrollPosition=0;sync()}}}
+        canvas.onZoneLongPress={z->if(!busy&&!reading&&!merging&&moving==0&&articleIds==null&&adjusting==null)editZone(z)}
         canvas.onRectangle={b->
             if(!busy){
                 val id=replaceId?:((zones.maxOfOrNull{it.id}?:0)+1)
@@ -225,7 +226,7 @@ class MainActivity:Activity() {
     }
     private fun modeLabel(mode:PageMode)=when(mode){PageMode.AUTO->"Auto";PageMode.COMIC->"BD";PageMode.MANGA->"Manga";PageMode.JOURNAL->"Journal";PageMode.BOOK->"Livre";PageMode.MANUAL->"Manuel"}
     private fun updateModeControls(){
-        modeControls.removeAllViews();modeControls.visibility=if(reading||adding||merging||adjusting!=null||articleIds!=null)View.GONE else View.VISIBLE
+        modeControls.removeAllViews();modeControls.visibility=if(reading||adding||merging||moving!=0||adjusting!=null||articleIds!=null)View.GONE else View.VISIBLE
         val strip=LinearLayout(this).apply{gravity=Gravity.CENTER_VERTICAL}
         for(mode in listOf(PageMode.AUTO,PageMode.COMIC,PageMode.MANGA,PageMode.JOURNAL,PageMode.BOOK,PageMode.MANUAL)){
             val b=button(modeLabel(mode)){choosePageMode(mode)}.apply{
@@ -238,7 +239,7 @@ class MainActivity:Activity() {
     }
     private fun choosePageMode(mode:PageMode){
         if(mode==pageMode)return
-        if(reading||adding||merging||adjusting!=null)return
+        if(reading||adding||merging||moving!=0||adjusting!=null)return
         if(mode==PageMode.MANUAL){pageMode=mode;autoProposed=false;orderTouched=true;sync(pageReady||(!busy&&!detecting));return}
         if(count==0){pageMode=mode;updateControls();return}
         if(busy||detecting){pageMode=mode;loadPage(page,true);return}
@@ -264,10 +265,10 @@ class MainActivity:Activity() {
         updateModeControls()
         detectionSpinner.visibility=if(detecting&&!reading)View.VISIBLE else View.GONE
         changePdfButton.isEnabled=!documentLoading
-        controls.removeAllViews();controls.isEnabled=true;pages.removeAllViews();pages.visibility=if(reading||adjusting!=null||merging||articleIds!=null||adding)View.GONE else View.VISIBLE
-        autoButton.visibility=if(pageMode==PageMode.AUTO&&count>0&&!reading&&articleIds==null&&!merging&&adjusting==null&&!adding)View.VISIBLE else View.GONE
-        clearSelection.visibility=if(count>0&&!reading&&order.isNotEmpty()&&articleIds==null&&!merging&&adjusting==null&&!adding)View.VISIBLE else View.GONE
-        title.text=when{reading&&ocrReading->"Texte OCR";reading->"Lecture";articleIds!=null->"Article proposé";merging->"Fusionner des blocs";adjusting!=null->"Ajuster le cadre";count>0->"Préparer ma lecture";else->applicationInfo.loadLabel(packageManager).toString()}
+        controls.removeAllViews();controls.isEnabled=true;pages.removeAllViews();pages.visibility=if(reading||adjusting!=null||merging||moving!=0||articleIds!=null||adding)View.GONE else View.VISIBLE
+        autoButton.visibility=if(pageMode==PageMode.AUTO&&count>0&&!reading&&articleIds==null&&!merging&&moving==0&&adjusting==null&&!adding)View.VISIBLE else View.GONE
+        clearSelection.visibility=if(count>0&&!reading&&order.isNotEmpty()&&articleIds==null&&!merging&&moving==0&&adjusting==null&&!adding)View.VISIBLE else View.GONE
+        title.text=when{reading&&ocrReading->"Texte OCR";reading->"Lecture";articleIds!=null->"Article proposé";merging->"Fusionner des blocs";moving!=0->"Déplacer un bloc";adjusting!=null->"Ajuster le cadre";count>0->"Préparer ma lecture";else->applicationInfo.loadLabel(packageManager).toString()}
         info.text=if(count>0)"Page ${page+1} sur $count" else "Lecture privée, hors ligne"
         title.typeface=Typeface.create(if(reading)"sans-serif-medium" else "serif",Typeface.NORMAL)
         title.textSize=if(reading)18f else 21f
@@ -302,6 +303,12 @@ class MainActivity:Activity() {
             val place=BlockMerge.position(order,mergeIds)
             controls.addView(text(if(place!=null)"Le nouveau bloc prendra la place ${place+1}, celle du premier bloc fusionné." else "Aucun bloc choisi ne figure encore dans le parcours.",12))
             row(button("Annuler"){finishMerge(false)},button("Fusionner",true){confirmMerge()}.apply{isEnabled=mergeIds.size>=2})
+            return
+        }
+        if(moving!=0){
+            status.text="Déplacement · bloc ${order.indexOf(moving)+1} en pointillés · touchez le bloc après lequel il passera"
+            controls.addView(text("Le parcours passe en violet. Seul l'ordre de lecture change, les cadres restent en place.",12))
+            row(button("Annuler"){finishMove(false)})
             return
         }
         if(adjusting!=null){
@@ -406,7 +413,7 @@ class MainActivity:Activity() {
         if(index !in 0 until count)return
         if(pageReady)saveSession()
         canvas.finishSelectionReveal()
-        pendingNew=null;merging=false;mergeIds=emptySet();canvas.mergeMode=false;canvas.mergeIds=emptySet();adjusting=null;canvas.adjustingZone=null;canvas.editBox=null;detector?.cancel();ocrRun++;chunkPlan=emptyList();rawChunks.clear();improvedChunks.clear();secondChunks.clear();ocrNotice="";detecting=false;pageReady=false;recognizedWords=null;ocrLoading=false;autoProposed=false;orderTouched=false
+        pendingNew=null;merging=false;mergeIds=emptySet();canvas.mergeMode=false;canvas.mergeIds=emptySet();moving=0;canvas.moveMode=false;canvas.moveId=0;adjusting=null;canvas.adjustingZone=null;canvas.editBox=null;detector?.cancel();ocrRun++;chunkPlan=emptyList();rawChunks.clear();improvedChunks.clear();secondChunks.clear();ocrNotice="";detecting=false;pageReady=false;recognizedWords=null;ocrLoading=false;autoProposed=false;orderTouched=false
         val savedSession=if(force)null else store.get(index)
         val requestedMode=pageMode
         reader.clear();reader.visibility=View.GONE;canvas.visibility=View.VISIBLE;scrollPosition=0
@@ -577,6 +584,8 @@ class MainActivity:Activity() {
         zones=saved.zones;order=saved.order;groupUndo=null;chunkPlan=emptyList();rawChunks.clear();improvedChunks.clear();secondChunks.clear();scrollPosition=0;sync();toast("Regroupement annulé.")
     }
     private fun beginMerge(z:Zone){merging=true;mergeIds=setOf(z.id);canvas.mergeMode=true;canvas.mergeIds=mergeIds;updateControls()}
+    private fun beginMove(z:Zone){moving=z.id;canvas.moveMode=true;canvas.moveId=z.id;updateControls()}
+    private fun finishMove(apply:Boolean){val placed=apply;moving=0;canvas.moveMode=false;canvas.moveId=0;if(placed)toast("Bloc déplacé · ordre de lecture mis à jour");sync(apply)}
     private fun confirmMerge(){
         val chosen=zones.filter{it.id in mergeIds};if(chosen.size<2)return
         val automatic=BlockMerge.position(order,mergeIds);val position=automatic?:order.size
@@ -627,6 +636,7 @@ class MainActivity:Activity() {
         action("Séparer haut / bas","Placez la ligne, puis confirmez les deux blocs.","splith",3)
         action("Proposer cet article","Suggère les blocs de cette page, à vérifier avant ajout.","book",7)
         action("Fusionner avec d'autres blocs","Choisissez les blocs à réunir dans un seul cadre.","merge",4)
+        action("Déplacer à une autre position","Touchez ensuite le bloc après lequel il sera lu.","move",8)
         section("AFFICHAGE DU BLOC")
         action("Traiter comme ${if(z.kind==Kind.TEXT)"image" else "texte"}",if(z.kind==Kind.TEXT)"Conserve le bloc en image, même en mode OCR." else "Permet la reconnaissance du texte en mode OCR.",if(z.kind==Kind.TEXT)"image" else "text",1)
         action("Supprimer le bloc","Retire la zone et sa place dans le parcours.","trash",5,danger=true)
@@ -644,6 +654,7 @@ class MainActivity:Activity() {
                 5->{zones=zones.filterNot{it.id==z.id};order=order.filterNot{it==z.id}}
                 6->{beginAdjustment(z)}
                 7->{beginArticle(z);return}
+                8->{if(z.id in order){beginMove(z);return}else toast("Ce bloc ne fait pas partie du parcours de lecture")}
             };sync(adjusting==null&&!merging)
     }
 
