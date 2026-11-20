@@ -1467,21 +1467,23 @@ class ReaderDeviceTest {
             repeat(3){val bitmap=Bitmap.createBitmap(700,1000,Bitmap.Config.ARGB_8888);reader.draw(Canvas(bitmap));File(File(c.getExternalFilesDir(null),"screenshots").apply{mkdirs()},"same-column-overlap-dedupe.png").outputStream().use{bitmap.compress(Bitmap.CompressFormat.PNG,100,it)};bitmap.recycle()}
             val pieces=ContinuousLayout.bands(zones)
             // Every numbered line must live whole in exactly one piece: no split at the
-            // seam, no full repeat. Only the sliver .38..385 renders twice (block 10 keeps
-            // its own bottom edge): keep rather than cut.
+            // seam and no repeated fragment. The earlier piece is trimmed to the
+            // straddling line's top, so the pieces tile the column with zero overlap.
             val seq=(a.lineBottoms+b.lineBottoms).distinct().sorted()
             val allPieces=pieces.flatMap{it.pieces}
             for(i in 0 until seq.lastIndex){val t=seq[i];val bo=seq[i+1]
                 val owners=allPieces.count{it.top<=t+.001f&&it.bottom>=bo-.001f}
                 assertEquals("numbered line $t..$bo must live whole in exactly one piece",1,owners)}
-            var overlap=0f;for(i in allPieces.indices)for(j in i+1 until allPieces.size)overlap+=allPieces[i].intersect(allPieces[j])
-            assertTrue("only the straddling sliver repeats",overlap>0f&&overlap<=.006f)
+            for(i in allPieces.indices)for(j in i+1 until allPieces.size)assertEquals("No source row renders twice",0f,allPieces[i].intersect(allPieces[j]),.000001f)
             val later=pieces.filter{it.zoneId==11}.flatMap{it.pieces}
             assertEquals(1,later.size)
             assertEquals("Later block resumes at the straddling line's top, keeping it whole",.38f,later[0].top,.001f)
+            val earlier=pieces.filter{it.zoneId==10}.flatMap{it.pieces}
+            assertEquals("Earlier piece is trimmed to the straddling line's top",.38f,earlier[0].bottom,.001f)
             assertTrue("Full width is kept",kotlin.math.abs(later[0].left-b.box.left)<.000001f&&kotlin.math.abs(later[0].right-b.box.right)<.000001f)
             val tiles=ContinuousReaderView::class.java.getDeclaredField("tiles").apply{isAccessible=true}.get(reader)as List<ContinuousReaderView.Tile>
             assertEquals("Reader tile uses the trimmed source",.38f,tiles.first{it.chunkKey==11}.source.top,.001f)
+            assertEquals("Earlier tile is trimmed to the straddling line's top",.38f,tiles.first{it.chunkKey==10}.source.bottom,.001f)
             reader.clear();source.recycle()
         }
     }
