@@ -112,7 +112,7 @@ class MainActivity:Activity() {
         menuButton=button("Menu",false){menu()};header.addView(menuButton,LinearLayout.LayoutParams(dp(72),dp(48)));root.addView(header)
         progress=ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal).apply{max=1000;progressTintList=android.content.res.ColorStateList.valueOf(green);progressBackgroundTintList=android.content.res.ColorStateList.valueOf(Color.rgb(226,231,226));visibility=View.GONE};root.addView(progress,LinearLayout.LayoutParams(-1,dp(3)))
         status=text("Ouvrez un PDF pour préparer votre parcours.",13).apply{setPadding(dp(16),dp(4),dp(16),dp(4));accessibilityLiveRegion=View.ACCESSIBILITY_LIVE_REGION_POLITE}
-        status.setBackgroundColor(Color.WHITE);root.addView(status)
+        status.setBackgroundColor(Color.WHITE);root.addView(status,LinearLayout.LayoutParams(-1,-2))
         modeControls=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(12),0,dp(12),dp(4))};root.addView(modeControls)
         pages=LinearLayout(this).apply{gravity=Gravity.CENTER_VERTICAL;setPadding(dp(10),0,dp(10),dp(4))};root.addView(pages)
         val viewport=android.widget.FrameLayout(this);root.addView(viewport,LinearLayout.LayoutParams(-1,0,1f))
@@ -282,7 +282,7 @@ class MainActivity:Activity() {
         controls.setPadding(dp(if(reading)12 else 12),dp(if(reading)0 else 8),dp(12),dp(if(reading)6 else 10))
         controls.background=shape(Color.WHITE,if(reading)0 else 22)
         controls.elevation=dp(if(reading)1 else 5).toFloat()
-        status.maxLines=if(reading)1 else 2;status.ellipsize=android.text.TextUtils.TruncateAt.END
+        status.maxLines=if(reading)1 else 3;status.ellipsize=if(reading)android.text.TextUtils.TruncateAt.END else null
         if(count==0){
             row(button("Ouvrir un PDF",true){pickPdf()})
             row(button("Essayer un exemple fictif"){demo()})
