@@ -9,7 +9,9 @@ object ContinuousLayout {
      * last text line that an earlier piece already shows ENTIRELY (line top and bottom
      * inside that piece, which must also span this block's width within .2%). A line not
      * proven fully visible earlier stays repeated: partial lines, offset edges and
-     * neighbouring columns are never cut.
+     * neighbouring columns are never cut. A cut never lands inside a text line either:
+     * a line straddling the cut retreats whole to the later block, which may repeat a
+     * small sliver of the earlier rendering (keep rather than cut).
      * Partial side overlaps intentionally remain repeated: cutting them would sever words.
      * Nested fragments retain their container's width and the caller's order is unchanged.
      */
@@ -67,6 +69,15 @@ object ContinuousLayout {
                 // Every band line proved fully shown earlier: the whole band is a repeat,
                 // trailing blank rows included. A blocked cut stops at the last proven line.
                 if(!blocked&&cut>b.top)cut=bandBottom
+                // Never sever a line between tiles: when the cut lands strictly inside a
+                // text line, that line stays whole with this block and the cut retreats to
+                // the line's top. The earlier block then repeats a small sliver of it, which
+                // is the documented trade: keep rather than cut. Adjacent lines sharing an
+                // exact boundary are not severed by the .001 join epsilon.
+                if(cut>b.top){
+                    val crossed=seq.zipWithNext().firstOrNull{(lineTop,lineBottom)->lineTop<cut-.002f&&lineBottom>cut}
+                    if(crossed!=null)cut=crossed.first
+                }
                 if(cut>b.top)overlaps+=Box(s.box.left,bandTop,s.box.right,min(bandBottom,cut))
             }
             val cuts=(listOf(b.top,b.bottom)+overlaps.flatMap{listOf(it.top.coerceIn(b.top,b.bottom),it.bottom.coerceIn(b.top,b.bottom))}).distinct().sorted()
