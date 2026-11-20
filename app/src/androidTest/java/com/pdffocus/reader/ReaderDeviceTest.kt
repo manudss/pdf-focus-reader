@@ -77,6 +77,26 @@ class ReaderDeviceTest {
             }
         };f.delete()
     }
+    // The partition itself still tiles 100% (ComicPagePartitionTest). After paper removal the contract is
+    // content coverage, not paper coverage: every non-paper source pixel must remain in a zone; no overlap.
+    // These fixtures use white PDF paper. This checks the source pixels independently of ComicTrim's classifier.
+    private fun assertComicContentCovered(zones:List<Zone>,bitmap:Bitmap){
+        val area=zones.sumOf{it.box.area.toDouble()}.toFloat()
+        assertTrue("Nonempty zones within page: $area",area>0f&&area<=1.00001f)
+        zones.forEach{assertTrue(it.box.left>=0f&&it.box.top>=0f&&it.box.right<=1f&&it.box.bottom<=1f)}
+        for(a in zones.indices)for(b in a+1 until zones.size)assertEquals(0f,zones[a].box.intersect(zones[b].box),.000001f)
+        val w=bitmap.width;val h=bitmap.height;val row=IntArray(w);var ink=0;var missing=0
+        for(y in 0 until h){bitmap.getPixels(row,0,w,0,y,w,1)
+            for(x in 0 until w){val p=row[x]
+                if(((p ushr 16)and 255)<245||((p ushr 8)and 255)<245||(p and 255)<245){
+                    ink++;val xx=(x+.5f)/w;val yy=(y+.5f)/h
+                    if(zones.none{xx>=it.box.left&&xx<=it.box.right&&yy>=it.box.top&&yy<=it.box.bottom})missing++
+                }
+            }
+        }
+        assertTrue("Fixture must contain content",ink>0)
+        assertEquals("No title, caption, frame or drawing pixel may be removed ($ink content pixels)",0,missing)
+    }
     @Test fun changingPageModeRequiresPreviewAndCancellationKeepsOriginal(){
         val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext
         c.assets.open("examples/decouverte.pdf").use{input->File(c.filesDir,"current.pdf").outputStream().use{input.copyTo(it)}};SessionStore(c).clear()
@@ -89,7 +109,7 @@ class ReaderDeviceTest {
             fun prepared():android.app.Dialog{var out:android.app.Dialog?=null;val end=System.currentTimeMillis()+60000;while(System.currentTimeMillis()<end){Thread.sleep(100);var done=false;scenario.onActivity{a->out=f(a,"modePreviewDialog").get(a)as? android.app.Dialog;done=out?.let{findButton(it.window!!.decorView,"Appliquer")?.isEnabled}==true;assertEquals(beforeZones,f(a,"zones").get(a));assertEquals(beforeOrder,f(a,"order").get(a))};if(done)return out!!};error("Mode preview did not finish")}
             var dialog=prepared()
             scenario.onActivity{a->val root=dialog.window!!.decorView;val shot=Bitmap.createBitmap(root.width,root.height,Bitmap.Config.ARGB_8888);root.draw(Canvas(shot));File(File(a.getExternalFilesDir(null),"screenshots").apply{mkdirs()},"manga-mode-preview.png").outputStream().use{shot.compress(Bitmap.CompressFormat.PNG,100,it)};shot.recycle();findButton(root,"Annuler")!!.performClick();assertEquals(beforeOrder,f(a,"order").get(a));assertEquals(beforeZones,f(a,"zones").get(a));findButton(a.window.decorView,"Manga")!!.performClick()}
-            dialog=prepared();scenario.onActivity{a->findButton(dialog.window!!.decorView,"Appliquer")!!.performClick();assertEquals(PageMode.MANGA,f(a,"pageMode").get(a));val z=f(a,"zones").get(a)as List<Zone>;val order=f(a,"order").get(a)as List<Int>;assertEquals(z.size,order.size);assertEquals(1f,z.sumOf{it.box.area.toDouble()}.toFloat(),.00001f);val panels=order.map{id->z.single{it.id==id}}.filter{it.panel};assertTrue(panels[0].box.left>panels[1].box.left)}
+            dialog=prepared();scenario.onActivity{a->findButton(dialog.window!!.decorView,"Appliquer")!!.performClick();assertEquals(PageMode.MANGA,f(a,"pageMode").get(a));val z=f(a,"zones").get(a)as List<Zone>;val order=f(a,"order").get(a)as List<Int>;assertEquals(z.size,order.size);assertComicContentCovered(z,findCanvas(a.window.decorView)!!.image!!);val panels=order.map{id->z.single{it.id==id}}.filter{it.panel};assertTrue(panels[0].box.left>panels[1].box.left)}
             Thread.sleep(1000);i.waitForIdleSync();screenshot(scenario,"manga-mode-applied")
             scenario.recreate();ready();scenario.onActivity{a->assertEquals(PageMode.MANGA,f(a,"pageMode").get(a));findButton(a.window.decorView,"Manuel")!!.performClick();val keep=f(a,"order").get(a);assertEquals(PageMode.MANUAL,f(a,"pageMode").get(a));assertEquals(keep,f(a,"order").get(a))}
         }
@@ -98,7 +118,7 @@ class ReaderDeviceTest {
         val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext
         val source=File(c.cacheDir,"mode-source.pdf");c.assets.open("examples/decouverte.pdf").use{a->source.outputStream().use{a.copyTo(it)}}
         PdfDocument(source).use{pdf->val bitmap=pdf.preview(6)
-            fun verify(zones:List<Zone>){assertEquals(1f,zones.sumOf{it.box.area.toDouble()}.toFloat(),.00001f);for(a in zones.indices)for(b in a+1 until zones.size)assertEquals(0f,zones[a].box.intersect(zones[b].box),.000001f)}
+            fun verify(zones:List<Zone>){assertComicContentCovered(zones,bitmap)}
             val bd=ZoneDetector(c).detect(bitmap,PageMode.COMIC){false};val manga=ZoneDetector(c).detect(bitmap,PageMode.MANGA){false};verify(bd);verify(manga)
             assertEquals(6,bd.count{it.panel});assertEquals(bd.map{it.box}.toSet(),manga.map{it.box}.toSet())
             val ltr=bd.filter{it.panel};val rtl=manga.filter{it.panel};assertTrue(ltr[0].box.left<ltr[1].box.left);assertTrue(rtl[0].box.left>rtl[1].box.left)
@@ -108,7 +128,34 @@ class ReaderDeviceTest {
         cv.drawText("Une première page de livre.",45f,90f,paint);for(k in 0..4)cv.drawText("Un premier paragraphe pour lire.",45f,140f+k*40,paint)
         for(k in 0..4)cv.drawText("Un second paragraphe, plus bas.",45f,580f+k*40,paint)
         val book=ZoneDetector(c).detect(frameless,PageMode.BOOK){false};assertTrue(book.size>=2);assertTrue(book.all{it.kind==Kind.TEXT&&!it.panel});assertEquals(book.sortedBy{it.box.top}.map{it.id},PageReadingOrder.propose(book,PageMode.BOOK))
-        val fallback=ZoneDetector(c).detect(frameless,PageMode.COMIC){false};assertEquals(1f,fallback.sumOf{it.box.area.toDouble()}.toFloat(),.00001f);frameless.recycle()
+        val fallback=ZoneDetector(c).detect(frameless,PageMode.COMIC){false};assertComicContentCovered(fallback,frameless);frameless.recycle()
+        // Exercise the real Android entry point on a mixed page, not only the pure detector.
+        val mixed=Bitmap.createBitmap(600,840,Bitmap.Config.ARGB_8888).apply{eraseColor(Color.WHITE)}
+        val mc=Canvas(mixed);val mp=Paint()
+        fun mr(l:Int,t:Int,r:Int,b:Int,color:Int){mp.color=color;mc.drawRect(l.toFloat(),t.toFloat(),r.toFloat(),b.toFloat(),mp)}
+        for(row in 0..1)for(col in 0..2){val l=40+col*180;val t=100+row*330;val r=l+165;val b=t+300
+            mr(l,t,r,b,Color.rgb(232,207,144));mr(l+40,t+70,l+100,t+220,Color.rgb(64,102,85))
+            if(row==0){mr(l,t,r,t+2,Color.DKGRAY);mr(l,b-2,r,b,Color.DKGRAY);mr(l,t,l+2,b,Color.DKGRAY);mr(r-2,t,r,b,Color.DKGRAY)}
+        }
+        mp.color=Color.BLACK;mp.textSize=14f;mc.drawText("III",285f,40f,mp);mc.drawText("9",295f,815f,mp)
+        val mixedBd=ZoneDetector(c).detect(mixed,PageMode.COMIC){false}
+        val mixedManga=ZoneDetector(c).detect(mixed,PageMode.MANGA){false}
+        assertEquals("3 closed frames must not suppress 3 frameless panels",6,mixedBd.count{it.panel})
+        assertTrue("Chapter digit remains an independent complement",mixedBd.any{it.complement&&it.box.top<.06f})
+        assertTrue("Folio remains an independent complement",mixedBd.any{it.complement&&it.box.bottom>.95f})
+        assertComicContentCovered(mixedBd,mixed);assertComicContentCovered(mixedManga,mixed)
+        assertEquals(mixedBd.map{it.box}.toSet(),mixedManga.map{it.box}.toSet())
+        assertTrue(mixedManga.filter{it.panel}[0].box.left>mixedManga.filter{it.panel}[1].box.left)
+        // Auto keeps its closed-frame classifier and benefits from margin trimming once the page is recognised.
+        val mixedAuto=ZoneDetector(c).detect(mixed,PageMode.AUTO){false}
+        assertEquals(3,mixedAuto.count{it.panel});assertComicContentCovered(mixedAuto,mixed)
+        i.runOnMainSync{
+            val preview=PageCanvas(c).apply{image=mixed;zones=mixedBd;selection=mixedBd.map{it.id}}
+            preview.measure(View.MeasureSpec.makeMeasureSpec(700,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(980,View.MeasureSpec.EXACTLY));preview.layout(0,0,700,980)
+            val shot=Bitmap.createBitmap(700,980,Bitmap.Config.ARGB_8888);preview.draw(Canvas(shot))
+            File(File(c.getExternalFilesDir(null),"screenshots").apply{mkdirs()},"comic-mixed-trimmed-android.png").outputStream().use{shot.compress(Bitmap.CompressFormat.PNG,100,it)};shot.recycle()
+        }
+        mixed.recycle()
         File(c.filesDir,"current.pdf").delete();SessionStore(c).clear()
         ActivityScenario.launch<MainActivity>(Intent(c,MainActivity::class.java)).use{scenario->
             fun field(a:MainActivity,n:String)=MainActivity::class.java.getDeclaredField(n).apply{isAccessible=true}
@@ -128,7 +175,7 @@ class ReaderDeviceTest {
             while(System.currentTimeMillis()<finish){scenario.onActivity{a->ready=MainActivity::class.java.getDeclaredField("pageReady").apply{isAccessible=true}.getBoolean(a)&&findCanvas(a.window.decorView)!!.zones.count{it.panel}==6};if(ready)break;Thread.sleep(100)}
             assertTrue("The full detection path must propose six comic panels",ready)
             clearAutoProposal(scenario)
-            scenario.onActivity{a->val page=findCanvas(a.window.decorView)!!;assertTrue(page.zones.all{it.kind==Kind.IMAGE});assertEquals(6,page.zones.count{it.panel});assertEquals(1f,page.zones.sumOf{it.box.area.toDouble()}.toFloat(),.00001f);assertTrue(page.selection.isEmpty());page.zones.forEach{page.onZoneTap!!.invoke(it)};assertEquals(page.zones.map{it.id},page.selection)}
+            scenario.onActivity{a->val page=findCanvas(a.window.decorView)!!;assertTrue(page.zones.all{it.kind==Kind.IMAGE});assertEquals(6,page.zones.count{it.panel});assertComicContentCovered(page.zones,page.image!!);assertTrue(page.selection.isEmpty());page.zones.forEach{page.onZoneTap!!.invoke(it)};assertEquals(page.zones.map{it.id},page.selection)}
             screenshot(scenario,"comic-six-panels")
             scenario.onActivity{a->findButton(a.window.decorView,"Lire (")!!.performClick();findButton(a.window.decorView,"Original")!!.performClick()}
             Thread.sleep(700);screenshot(scenario,"comic-original-reader")
@@ -155,7 +202,7 @@ class ReaderDeviceTest {
             assertTrue("Synthetic comic detection must complete",ready)
             clearAutoProposal(scenario)
             scenario.onActivity{a->val view=findCanvas(a.window.decorView)!!
-                assertEquals("Six panels, not caption fragments",6,view.zones.count{it.panel});assertEquals(1f,view.zones.sumOf{it.box.area.toDouble()}.toFloat(),.00001f);assertTrue(view.zones.all{it.kind==Kind.IMAGE});assertTrue(view.selection.isEmpty())
+                assertEquals("Six panels, not caption fragments",6,view.zones.count{it.panel});assertComicContentCovered(view.zones,view.image!!);assertTrue(view.zones.all{it.kind==Kind.IMAGE});assertTrue(view.selection.isEmpty())
                 for(b in expected)assertTrue("Caption and drawing must be in the same whole panel",view.zones.any{it.box.intersect(b)/b.area>.98f})
                 view.zones.reversed().forEach{view.onZoneTap!!.invoke(it)};assertEquals(view.zones.reversed().map{it.id},view.selection)
             }

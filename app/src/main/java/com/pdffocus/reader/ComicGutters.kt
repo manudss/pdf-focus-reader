@@ -6,11 +6,39 @@ import kotlin.math.*
  * Known limits: strips with no gutter, diagonal or polygonal panels and panels that touch stay merged. */
 object ComicGutters {
  private const val W=420
- /** Closed frames first; gutters only when asked and when frames found nothing. */
+ /** Closed frames stay authoritative locally, but must not suppress frameless panels elsewhere on the page. */
  fun panels(pixels:IntArray,width:Int,height:Int,gutters:Boolean,cancelled:()->Boolean={false}):List<Box>{
   val framed=ComicPanels.find(pixels,width,height,cancelled)
-  if(framed.isNotEmpty()||!gutters||cancelled())return framed
-  return find(pixels,width,height,cancelled)
+  if(!gutters||cancelled())return framed
+  val emptyGutters=find(pixels,width,height,cancelled).filterNot{flatDarkInterior(pixels,width,height,it)}
+  if(cancelled())return emptyList()
+  return reconcile(framed,emptyGutters)
+ }
+ /** A flat dark masthead with reverse text is not a drawing. Same conservative exclusion as closed frames.
+  * Ambiguous very dark artwork stays in a complement, never deleted by this classification. */
+ private fun flatDarkInterior(pixels:IntArray,w:Int,h:Int,box:Box):Boolean{
+  if(box.width<.8f||box.width*w/(box.height*h)<3f)return false
+  val l=((box.left+box.width*.1f)*w).toInt().coerceIn(0,w-1);val r=((box.right-box.width*.1f)*w).toInt().coerceIn(l+1,w)
+  val t=((box.top+box.height*.1f)*h).toInt().coerceIn(0,h-1);val b=((box.bottom-box.height*.1f)*h).toInt().coerceIn(t+1,h)
+  var dark=0;var n=0
+  for(y in t until b step 2)for(x in l until r step 2){val p=pixels[y*w+x];n++;if(((p ushr 16)and 255)*299+((p ushr 8)and 255)*587+(p and 255)*114<175000)dark++}
+  return n>0&&dark.toFloat()/n>.9f
+ }
+ /** Keep a closed frame unless separated gutter candidates account for almost all of it.
+  * Non-overlapping gutter panels elsewhere are added. Never combine intersecting alternative proposals. */
+ internal fun reconcile(framed:List<Box>,gutters:List<Box>):List<Box>{
+  if(framed.isEmpty())return gutters
+  if(gutters.isEmpty())return framed
+  val out=ArrayList<Box>()
+  for(frame in framed){
+   val inner=gutters.filter{it.intersect(frame)>=it.area*.95f}
+   val cover=inner.sumOf{it.intersect(frame).toDouble()}/frame.area
+   if(inner.size>=2&&cover>=.8&&inner.indices.none{i->(i+1 until inner.size).any{j->inner[i].intersect(inner[j])>.000001f}})out.addAll(inner)
+   else out+=frame
+  }
+  for(g in gutters)if(out.none{it.intersect(g)>.03f*min(it.area,g.area)})out+=g
+  if(out.indices.any{i->(i+1 until out.size).any{j->out[i].intersect(out[j])>.03f*min(out[i].area,out[j].area)}})return framed
+  return out.sortedWith(compareBy<Box>{it.top}.thenBy{it.left})
  }
  fun find(pixels:IntArray,width:Int,height:Int,cancelled:()->Boolean={false}):List<Box>{
   require(pixels.size==width*height)
