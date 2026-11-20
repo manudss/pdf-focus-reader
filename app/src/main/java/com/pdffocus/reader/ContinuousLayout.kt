@@ -4,6 +4,12 @@ data class ReadBand(val zoneId:Int,val ordinal:Int,val kind:Kind,val original:Bo
 object ContinuousLayout {
     /** Vertical-only overlap removal. Every visible band keeps its full horizontal extent.
      * A previously selected block can remove rows only when it covers the whole width.
+     * Near-twin text blocks of the same column (both edges within .8%, width ratio above
+     * .97) also remove leading rows they repeat from the earlier block, but only up to the
+     * last text line that an earlier piece already shows ENTIRELY (line top and bottom
+     * inside that piece, which must also span this block's width within .2%). A line not
+     * proven fully visible earlier stays repeated: partial lines, offset edges and
+     * neighbouring columns are never cut.
      * Partial side overlaps intentionally remain repeated: cutting them would sever words.
      * Nested fragments retain their container's width and the caller's order is unchanged.
      */
@@ -27,7 +33,8 @@ object ContinuousLayout {
             }
             if(related.isEmpty())z else z.copy(box=Box(min(b.left,related.minOf{it.box.left}),b.top,max(b.right,related.maxOf{it.box.right}),b.bottom))
         }
-        val seen=mutableListOf<Box>();val result=mutableListOf<ReadBand>()
+        data class Placed(val zone:Zone,val box:Box,val pieces:List<Box>)
+        val seen=mutableListOf<Placed>();val result=mutableListOf<ReadBand>()
         coherent.forEachIndexed{ordinal,z->
             val b=z.box
             // Related short headings use their column's scale, not full-screen magnification.
@@ -38,17 +45,42 @@ object ContinuousLayout {
                 p.kind==Kind.TEXT&&p.box.top>b.top&&p.box.width>=b.width&&abs(p.box.left-b.left)<.075f&&(min(p.box.right,b.right)-max(p.box.left,b.left))>.4f*min(p.box.width,b.width)&&
                 max(0f,max(p.box.top,b.top)-min(p.box.bottom,b.bottom))<=.035f
             }.maxByOrNull{it.box.width}?.box?.let{Box(min(b.left,it.left),b.top,max(b.right,it.right),b.bottom)}?:b else b
-            val overlaps=seen.filter{it.intersect(b)>0&&it.left<=b.left+.000001f&&it.right>=b.right-.000001f}
+            val overlaps=mutableListOf<Box>()
+            seen.forEach{s->
+                if(s.box.intersect(b)<=0)return@forEach
+                if(s.box.left<=b.left+.000001f&&s.box.right>=b.right-.000001f){overlaps+=s.box;return@forEach}
+                // Same-column text blocks: drop the leading rows this block repeats from the
+                // earlier one. Rows are removed only up to the last line an earlier piece
+                // already shows entirely; anything else stays repeated, never cut.
+                if(z.kind!=Kind.TEXT||z.manual||s.zone.kind!=Kind.TEXT||s.zone.manual)return@forEach
+                if(abs(s.box.left-b.left)>.008f||abs(s.box.right-b.right)>.008f)return@forEach
+                if(min(s.box.width,b.width)<=max(s.box.width,b.width)*.97f)return@forEach
+                val bandTop=max(s.box.top,b.top);val bandBottom=min(s.box.bottom,b.bottom)
+                val seq=(z.lineBottoms+s.zone.lineBottoms).distinct().sorted()
+                var cut=b.top;var blocked=false
+                for(lb in seq.filter{it>bandTop&&it<=bandBottom+.001f}){
+                    val lineTop=seq.lastOrNull{it<lb-.0005f}
+                    if(lineTop==null){blocked=true;break}
+                    val shownEarlier=seen.flatMap{it.pieces}.any{it.top<=lineTop+.001f&&it.bottom>=lb-.001f&&it.left<=b.left+.002f&&it.right>=b.right-.002f}
+                    if(shownEarlier)cut=lb+.001f else{blocked=true;break}
+                }
+                // Every band line proved fully shown earlier: the whole band is a repeat,
+                // trailing blank rows included. A blocked cut stops at the last proven line.
+                if(!blocked&&cut>b.top)cut=bandBottom
+                if(cut>b.top)overlaps+=Box(s.box.left,bandTop,s.box.right,min(bandBottom,cut))
+            }
             val cuts=(listOf(b.top,b.bottom)+overlaps.flatMap{listOf(it.top.coerceIn(b.top,b.bottom),it.bottom.coerceIn(b.top,b.bottom))}).distinct().sorted()
+            val mine=mutableListOf<Box>()
             for(i in 0 until cuts.lastIndex){
                 val top=cuts[i];val bottom=cuts[i+1];if(bottom<=top)continue
                 // Never subtract x intervals. Even a small side overlap may contain the
                 // first letters of every line in the next column (or the ends in reverse order).
                 if(overlaps.none{it.top<bottom&&it.bottom>top}){
+                    mine+=Box(b.left,top,b.right,bottom)
                     result+=ReadBand(z.id,ordinal,z.kind,reference,top,bottom,listOf(Box(b.left,top,b.right,bottom)))
                 }
             }
-            seen+=b
+            seen+=Placed(z,b,mine)
         }
         return result
     }
