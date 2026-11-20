@@ -21,6 +21,8 @@ class PageCanvas(context:Context):View(context) {
     var mergeMode=false;set(value){field=value;invalidate()}
     var mergeIds:Set<Int> = emptySet();set(value){field=value;invalidate()}
     var mergeColors:Map<Int,Int> = emptyMap();set(value){field=value;invalidate()}
+    var moveMode=false;set(value){field=value;invalidate()}
+    var moveId=0;set(value){field=value;invalidate()}
     var chosenIds:Set<Int> = emptySet();set(value){field=value;invalidate()}
     var groupBoxes:List<GroupBox> = emptyList();set(value){field=value;invalidate()}
     data class GroupBox(val box:Box,val color:Int,val number:Int)
@@ -85,7 +87,7 @@ class PageCanvas(context:Context):View(context) {
         override fun onScroll(a:MotionEvent?,b:MotionEvent,dx:Float,dy:Float):Boolean {if(zoom>1f){panX-=dx;panY-=dy;invalidate()};return true}
         override fun onSingleTapConfirmed(e:MotionEvent):Boolean {if(!reading&&editBox==null){point(e)?.let{p->ReadingLayout.smallestHit(zones,p.x,p.y)?.let{onZoneTap?.invoke(it)}}};return true}
         override fun onLongPress(e:MotionEvent){if(!reading&&editBox==null&&!drawMode&&!multiTouch)point(e)?.let{p->ReadingLayout.smallestHit(zones,p.x,p.y)?.let{z->sweeping=true;sweepLast=p;swept.clear();swept+=z.id;parent?.requestDisallowInterceptTouchEvent(true);performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);onZoneSweep?.invoke(z)}}}
-        override fun onDoubleTap(e:MotionEvent):Boolean{if(!reading&&editBox==null&&!drawMode&&!mergeMode)point(e)?.let{p->ReadingLayout.smallestHit(zones,p.x,p.y)?.let{onZoneLongPress?.invoke(it)}};return true}
+        override fun onDoubleTap(e:MotionEvent):Boolean{if(!reading&&editBox==null&&!drawMode&&!mergeMode&&!moveMode)point(e)?.let{p->ReadingLayout.smallestHit(zones,p.x,p.y)?.let{onZoneLongPress?.invoke(it)}};return true}
         override fun onFling(a:MotionEvent?,b:MotionEvent,vx:Float,vy:Float):Boolean{
             // Page change only when unzoomed: while zoomed, the same gesture pans the page.
             if(!reading&&editBox==null&&zoom<=1f&&abs(vx)>abs(vy)*1.5f&&abs(vx)>1200f*density){onPageSwipe?.invoke(if(vx<0)1 else -1);return true}
@@ -123,10 +125,11 @@ class PageCanvas(context:Context):View(context) {
             val number=if(mergeMode)0 else (selection.indexOf(zone.id)+1).let{if(it>revealedSelections)0 else it}
             val merged=mergeMode&&zone.id in mergeIds
             val chosenSolo=mergeMode&&!merged&&zone.id in chosenIds
+            val movingBlock=moveMode&&zone.id==moveId
             val rect=RectF(zone.box.left*b.width,zone.box.top*b.height,zone.box.right*b.width,zone.box.bottom*b.height);matrix.mapRect(rect)
-            paint.color=if(merged)mergeColors[zone.id]?:Color.rgb(128,91,167)else if(number>0||chosenSolo)Color.rgb(37,122,100)else Color.rgb(90,98,98)
+            paint.color=if(merged)mergeColors[zone.id]?:Color.rgb(128,91,167)else if(moveMode&&number>0)Color.rgb(128,91,167)else if(number>0||chosenSolo)Color.rgb(37,122,100)else Color.rgb(90,98,98)
             paint.style=Paint.Style.STROKE;paint.strokeWidth=if(number>0||merged)3*density else if(chosenSolo)1.5f*density else density
-            paint.pathEffect=if(number>0||merged||chosenSolo)null else DashPathEffect(floatArrayOf(5*density,3*density),0f)
+            paint.pathEffect=if(movingBlock)DashPathEffect(floatArrayOf(8*density,4*density),0f)else if(number>0||merged||chosenSolo)null else DashPathEffect(floatArrayOf(5*density,3*density),0f)
             canvas.drawRect(rect,paint);paint.pathEffect=null
             // A visible sign plus tint identifies content without relying on colour alone.
             val mark=when{zone.complement->"◇";zone.panel->"▣";zone.kind==Kind.TEXT->"T";else->"▧"}
@@ -134,7 +137,7 @@ class PageCanvas(context:Context):View(context) {
             val bx=(rect.right-23*density).coerceAtLeast(rect.left);val by=rect.top
             paint.style=Paint.Style.FILL;paint.color=Color.WHITE;canvas.drawRoundRect(RectF(bx,by,rect.right,by+22*density),3*density,3*density,paint)
             paint.color=tint;paint.textSize=13*density;paint.typeface=Typeface.create("sans-serif",Typeface.BOLD);canvas.drawText(mark,bx+5*density,by+16*density,paint)
-            paint.color=if(merged)mergeColors[zone.id]?:Color.rgb(128,91,167)else Color.rgb(37,122,100)
+            paint.color=if(merged)mergeColors[zone.id]?:Color.rgb(128,91,167)else if(moveMode)Color.rgb(128,91,167)else Color.rgb(37,122,100)
             if(number>0||merged){
                 paint.style=Paint.Style.FILL;canvas.drawRoundRect(RectF(rect.left,rect.top,rect.left+27*density,rect.top+25*density),3*density,3*density,paint)
                 paint.color=Color.WHITE;paint.textSize=16*density;paint.typeface=Typeface.create("sans-serif",Typeface.BOLD)
