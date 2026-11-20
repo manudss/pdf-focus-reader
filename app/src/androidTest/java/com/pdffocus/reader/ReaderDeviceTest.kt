@@ -1277,11 +1277,20 @@ class ReaderDeviceTest {
     }
     @Test fun autoTogglePillKnobFollowsState(){
         ActivityScenario.launch<MainActivity>(Intent(InstrumentationRegistry.getInstrumentation().targetContext,MainActivity::class.java)).use{scenario->
+            // The pill must be measured and laid out before its pixels are sampled:
+            // ActivityScenario.onActivity can run before the first layout pass, which
+            // leaves width/height at 0 and crashes Bitmap.createBitmap. Poll until the
+            // view has a real size instead of sampling a not-yet-laid-out view.
+            val instr=InstrumentationRegistry.getInstrumentation()
+            var laidOut=false
+            for(attempt in 0..49){instr.waitForIdleSync();scenario.onActivity{a->val t=findButton(a.window.decorView,"Auto");if(t!=null&&t.width>0&&t.height>0)laidOut=true};if(laidOut)break;Thread.sleep(100)}
+            assertTrue("Auto pill must be laid out before sampling its pixels",laidOut)
             scenario.onActivity{a->
                 val toggle=findButton(a.window.decorView,"Auto")!!
                 assertTrue("Toggle must be the pill view",toggle is AutoToggleButton)
                 val pill=toggle as AutoToggleButton
                 fun knobSide():Pair<Boolean,Boolean>{
+                    assertTrue("Pill must have a size before pixel sampling",toggle.width>0&&toggle.height>0)
                     val b=Bitmap.createBitmap(toggle.width,toggle.height,Bitmap.Config.ARGB_8888)
                     toggle.draw(Canvas(b))
                     val green=Color.rgb(50,109,93);val grey=Color.rgb(120,118,112)
