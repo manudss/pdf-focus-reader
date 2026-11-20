@@ -1445,4 +1445,49 @@ class ReaderDeviceTest {
             }
         }
     }
+
+    @Test fun sameColumnRepeatedLinesRenderOnceInActualReader(){
+        // Fictional newspaper column: two near-twin text blocks whose detection-grown boxes
+        // overlap by two text lines (edges off by a few pixels). In the actual reader the
+        // repeated lines must appear once: the later block resumes after the earlier block's
+        // bottom, keeps its full width, and no source row is rendered twice.
+        val ins=InstrumentationRegistry.getInstrumentation()
+        ins.runOnMainSync{
+            val c=ins.targetContext;val source=Bitmap.createBitmap(700,1400,Bitmap.Config.ARGB_8888);source.eraseColor(Color.WHITE)
+            val canvas=Canvas(source);val paint=Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.BLACK;textSize=13f}
+            var n=1
+            var y=.20f*1400+13f
+            while(y<.60f*1400){canvas.drawText("ligne-%02d alpha bravo charlie delta echo".format(n),.1f*700,y,paint);y+=.02f*1400;n++}
+            val a=Zone(10,Box(.1f,.20f,.4f,.385f),Kind.TEXT,listOf(.30f,.32f,.34f,.36f,.38f))
+            val b=Zone(11,Box(.1f,.35f,.4006f,.60f),Kind.TEXT,listOf(.36f,.38f,.40f,.42f,.44f))
+            val zones=listOf(a,b)
+            val reader=ContinuousReaderView(c);reader.measure(View.MeasureSpec.makeMeasureSpec(700,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(1000,View.MeasureSpec.EXACTLY));reader.layout(0,0,700,1000)
+            reader.onRequest={t,r->val bitmap=Bitmap.createBitmap(kotlin.math.ceil(t.rect.width()).toInt(),kotlin.math.ceil(t.rect.height()).toInt(),Bitmap.Config.ARGB_8888);Canvas(bitmap).drawBitmap(source,Rect((t.source.left*700).toInt(),(t.source.top*1400).toInt(),(t.source.right*700).toInt(),(t.source.bottom*1400).toInt()),Rect(0,0,bitmap.width,bitmap.height),Paint(Paint.FILTER_BITMAP_FLAG));reader.accept(t,r,bitmap)}
+            reader.setDocument(zones,700,1400)
+            repeat(3){val bitmap=Bitmap.createBitmap(700,1000,Bitmap.Config.ARGB_8888);reader.draw(Canvas(bitmap));File(File(c.getExternalFilesDir(null),"screenshots").apply{mkdirs()},"same-column-overlap-dedupe.png").outputStream().use{bitmap.compress(Bitmap.CompressFormat.PNG,100,it)};bitmap.recycle()}
+            val pieces=ContinuousLayout.bands(zones)
+            // Every numbered line must live whole in exactly one piece: no split at the
+            // seam and no repeated fragment. The earlier piece is trimmed to the
+            // straddling line's top, so the pieces tile the column with zero overlap.
+            val seq=(a.lineBottoms+b.lineBottoms).distinct().sorted()
+            val allPieces=pieces.flatMap{it.pieces}
+            for(i in 0 until seq.lastIndex){val t=seq[i];val bo=seq[i+1]
+                val owners=allPieces.count{it.top<=t+.001f&&it.bottom>=bo-.001f}
+                assertEquals("numbered line $t..$bo must live whole in exactly one piece",1,owners)}
+            for(i in allPieces.indices)for(j in i+1 until allPieces.size)assertEquals("No source row renders twice",0f,allPieces[i].intersect(allPieces[j]),.000001f)
+            val later=pieces.filter{it.zoneId==11}.flatMap{it.pieces}
+            assertEquals(1,later.size)
+            assertEquals("Later block resumes at the straddling line's top, keeping it whole",.38f,later[0].top,.001f)
+            val earlier=pieces.filter{it.zoneId==10}.flatMap{it.pieces}
+            assertEquals("Earlier piece is trimmed to the straddling line's top",.38f,earlier[0].bottom,.001f)
+            assertTrue("Full width is kept",kotlin.math.abs(later[0].left-b.box.left)<.000001f&&kotlin.math.abs(later[0].right-b.box.right)<.000001f)
+            val tiles=ContinuousReaderView::class.java.getDeclaredField("tiles").apply{isAccessible=true}.get(reader)as List<ContinuousReaderView.Tile>
+            assertEquals("Reader tile uses the trimmed source",.38f,tiles.first{it.chunkKey==11}.source.top,.001f)
+            // Tiles slice each band into ~512px rows: check the band's extreme tiles.
+            val earlierTiles=tiles.filter{it.chunkKey==10}
+            assertEquals("Earlier tile band starts at the block's top",.20f,earlierTiles.minOf{it.source.top},.001f)
+            assertEquals("Earlier tile band is trimmed to the straddling line's top",.38f,earlierTiles.maxOf{it.source.bottom},.001f)
+            reader.clear();source.recycle()
+        }
+    }
 }
