@@ -1445,4 +1445,35 @@ class ReaderDeviceTest {
             }
         }
     }
+
+    @Test fun sameColumnRepeatedLinesRenderOnceInActualReader(){
+        // Fictional newspaper column: two near-twin text blocks whose detection-grown boxes
+        // overlap by two text lines (edges off by a few pixels). In the actual reader the
+        // repeated lines must appear once: the later block resumes after the earlier block's
+        // bottom, keeps its full width, and no source row is rendered twice.
+        val ins=InstrumentationRegistry.getInstrumentation()
+        ins.runOnMainSync{
+            val c=ins.targetContext;val source=Bitmap.createBitmap(700,1400,Bitmap.Config.ARGB_8888);source.eraseColor(Color.WHITE)
+            val canvas=Canvas(source);val paint=Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.BLACK;textSize=13f}
+            var n=0;val words=listOf("conseil","municipal","invente","une","deliberation","complete","pour","ce","test","fictif","du","journal")
+            var y=.20f*1400+13f
+            while(y<.60f*1400){canvas.drawText("${words[n%12]} ${words[(n+3)%12]} ${words[(n+5)%12]} ${words[(n+7)%12]} fictifs",.1f*700,y,paint);y+=.02f*1400;n++}
+            val a=Zone(10,Box(.1f,.20f,.4f,.385f),Kind.TEXT,listOf(.30f,.32f,.34f,.36f,.38f))
+            val b=Zone(11,Box(.1f,.35f,.4006f,.60f),Kind.TEXT,listOf(.36f,.38f,.40f,.42f,.44f))
+            val zones=listOf(a,b)
+            val reader=ContinuousReaderView(c);reader.measure(View.MeasureSpec.makeMeasureSpec(700,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(1000,View.MeasureSpec.EXACTLY));reader.layout(0,0,700,1000)
+            reader.onRequest={t,r->val bitmap=Bitmap.createBitmap(kotlin.math.ceil(t.rect.width()).toInt(),kotlin.math.ceil(t.rect.height()).toInt(),Bitmap.Config.ARGB_8888);Canvas(bitmap).drawBitmap(source,Rect((t.source.left*700).toInt(),(t.source.top*1400).toInt(),(t.source.right*700).toInt(),(t.source.bottom*1400).toInt()),Rect(0,0,bitmap.width,bitmap.height),Paint(Paint.FILTER_BITMAP_FLAG));reader.accept(t,r,bitmap)}
+            reader.setDocument(zones,700,1400)
+            repeat(3){val bitmap=Bitmap.createBitmap(700,1000,Bitmap.Config.ARGB_8888);reader.draw(Canvas(bitmap));File(File(c.getExternalFilesDir(null),"screenshots").apply{mkdirs()},"same-column-overlap-dedupe.png").outputStream().use{bitmap.compress(Bitmap.CompressFormat.PNG,100,it)};bitmap.recycle()}
+            val pieces=ContinuousLayout.bands(zones)
+            val repeated=pieces.flatMap{it.pieces};for(i in repeated.indices)for(j in i+1 until repeated.size)assertEquals("No source row renders twice",0f,repeated[i].intersect(repeated[j]),.000001f)
+            val later=pieces.filter{it.zoneId==11}.flatMap{it.pieces}
+            assertEquals(1,later.size)
+            assertEquals("Later block resumes after the earlier block bottom",.385f,later[0].top,.001f)
+            assertTrue("Full width is kept",kotlin.math.abs(later[0].left-b.box.left)<.000001f&&kotlin.math.abs(later[0].right-b.box.right)<.000001f)
+            val tiles=ContinuousReaderView::class.java.getDeclaredField("tiles").apply{isAccessible=true}.get(reader)as List<ContinuousReaderView.Tile>
+            assertEquals("Reader tile uses the trimmed source",.385f,tiles.first{it.chunkKey==11}.source.top,.001f)
+            reader.clear();source.recycle()
+        }
+    }
 }
