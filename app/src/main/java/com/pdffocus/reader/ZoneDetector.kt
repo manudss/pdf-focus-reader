@@ -19,7 +19,7 @@ class ZoneDetector(private val context:Context) {
         val cancelled={stopped||obsolete()}
         val scale=min(1f,900f/bitmap.width)
         val panelRaster=if(scale<1f)Bitmap.createScaledBitmap(bitmap,(bitmap.width*scale).roundToInt(),(bitmap.height*scale).roundToInt(),true)else bitmap
-        val panels=try{if(mode==PageMode.JOURNAL||mode==PageMode.BOOK)emptyList()else run{val pixels=IntArray(panelRaster.width*panelRaster.height);panelRaster.getPixels(pixels,0,panelRaster.width,0,0,panelRaster.width,panelRaster.height);ComicPanels.find(pixels,panelRaster.width,panelRaster.height,cancelled)}}finally{if(panelRaster!==bitmap)panelRaster.recycle()}
+        val panels=try{if(mode==PageMode.JOURNAL||mode==PageMode.BOOK)emptyList()else run{val pixels=IntArray(panelRaster.width*panelRaster.height);panelRaster.getPixels(pixels,0,panelRaster.width,0,0,panelRaster.width,panelRaster.height);ComicGutters.panels(pixels,panelRaster.width,panelRaster.height,mode==PageMode.COMIC||mode==PageMode.MANGA,cancelled)}}finally{if(panelRaster!==bitmap)panelRaster.recycle()}
         if(cancelled())return emptyList()
         if(panels.isNotEmpty()||mode==PageMode.COMIC||mode==PageMode.MANGA){
             words=emptyList()
