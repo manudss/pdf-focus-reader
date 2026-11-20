@@ -1455,9 +1455,9 @@ class ReaderDeviceTest {
         ins.runOnMainSync{
             val c=ins.targetContext;val source=Bitmap.createBitmap(700,1400,Bitmap.Config.ARGB_8888);source.eraseColor(Color.WHITE)
             val canvas=Canvas(source);val paint=Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.BLACK;textSize=13f}
-            var n=0;val words=listOf("conseil","municipal","invente","une","deliberation","complete","pour","ce","test","fictif","du","journal")
+            var n=1
             var y=.20f*1400+13f
-            while(y<.60f*1400){canvas.drawText("${words[n%12]} ${words[(n+3)%12]} ${words[(n+5)%12]} ${words[(n+7)%12]} fictifs",.1f*700,y,paint);y+=.02f*1400;n++}
+            while(y<.60f*1400){canvas.drawText("ligne-%02d alpha bravo charlie delta echo".format(n),.1f*700,y,paint);y+=.02f*1400;n++}
             val a=Zone(10,Box(.1f,.20f,.4f,.385f),Kind.TEXT,listOf(.30f,.32f,.34f,.36f,.38f))
             val b=Zone(11,Box(.1f,.35f,.4006f,.60f),Kind.TEXT,listOf(.36f,.38f,.40f,.42f,.44f))
             val zones=listOf(a,b)
@@ -1466,13 +1466,22 @@ class ReaderDeviceTest {
             reader.setDocument(zones,700,1400)
             repeat(3){val bitmap=Bitmap.createBitmap(700,1000,Bitmap.Config.ARGB_8888);reader.draw(Canvas(bitmap));File(File(c.getExternalFilesDir(null),"screenshots").apply{mkdirs()},"same-column-overlap-dedupe.png").outputStream().use{bitmap.compress(Bitmap.CompressFormat.PNG,100,it)};bitmap.recycle()}
             val pieces=ContinuousLayout.bands(zones)
-            val repeated=pieces.flatMap{it.pieces};for(i in repeated.indices)for(j in i+1 until repeated.size)assertEquals("No source row renders twice",0f,repeated[i].intersect(repeated[j]),.000001f)
+            // Every numbered line must live whole in exactly one piece: no split at the
+            // seam, no full repeat. Only the sliver .38..385 renders twice (block 10 keeps
+            // its own bottom edge): keep rather than cut.
+            val seq=(a.lineBottoms+b.lineBottoms).distinct().sorted()
+            val allPieces=pieces.flatMap{it.pieces}
+            for(i in 0 until seq.lastIndex){val t=seq[i];val bo=seq[i+1]
+                val owners=allPieces.count{it.top<=t+.001f&&it.bottom>=bo-.001f}
+                assertEquals("numbered line $t..$bo must live whole in exactly one piece",1,owners)}
+            var overlap=0f;for(i in allPieces.indices)for(j in i+1 until allPieces.size)overlap+=allPieces[i].intersect(allPieces[j])
+            assertTrue("only the straddling sliver repeats",overlap>0f&&overlap<=.006f)
             val later=pieces.filter{it.zoneId==11}.flatMap{it.pieces}
             assertEquals(1,later.size)
-            assertEquals("Later block resumes after the earlier block bottom",.385f,later[0].top,.001f)
+            assertEquals("Later block resumes at the straddling line's top, keeping it whole",.38f,later[0].top,.001f)
             assertTrue("Full width is kept",kotlin.math.abs(later[0].left-b.box.left)<.000001f&&kotlin.math.abs(later[0].right-b.box.right)<.000001f)
             val tiles=ContinuousReaderView::class.java.getDeclaredField("tiles").apply{isAccessible=true}.get(reader)as List<ContinuousReaderView.Tile>
-            assertEquals("Reader tile uses the trimmed source",.385f,tiles.first{it.chunkKey==11}.source.top,.001f)
+            assertEquals("Reader tile uses the trimmed source",.38f,tiles.first{it.chunkKey==11}.source.top,.001f)
             reader.clear();source.recycle()
         }
     }
