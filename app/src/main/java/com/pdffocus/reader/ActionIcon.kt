@@ -25,6 +25,7 @@ class ActionIcon(private val name:String,private val tint:Int):Drawable(){
    "book"->{line(3f,4f,9f,4f,12f,6f,15f,4f,21f,4f,21f,20f,15f,20f,12f,22f,9f,20f,3f,20f,3f,4f);line(12f,6f,12f,22f)}
    "document"->line(5f,3f,14f,3f,19f,8f,19f,21f,5f,21f,5f,3f,14f,3f,14f,8f,19f,8f)
    "merge"->{line(5f,3f,5f,8f,12f,14f,19f,8f,19f,3f);line(12f,14f,12f,21f);line(8f,17f,12f,21f,16f,17f)}
+   "move"->{line(8f,5f,4f,9f,8f,13f);line(4f,9f,15f,9f);line(16f,11f,20f,15f,16f,19f);line(20f,15f,9f,15f)}
    "group"->{line(4f,6f,11f,6f,11f,11f,4f,11f,4f,6f);line(13f,13f,20f,13f,20f,18f,13f,18f,13f,13f);p.pathEffect=DashPathEffect(floatArrayOf(2.5f,2f),0f);line(6f,3f,21f,3f,21f,21f,6f,21f,6f,3f);p.pathEffect=null}
    "order"->{line(6f,3f,6f,21f);line(3f,18f,6f,21f,9f,18f);line(13f,5f,21f,5f);line(13f,11f,19f,11f);line(13f,17f,17f,17f)}
    "splitv"->{line(3f,3f,21f,3f,21f,21f,3f,21f,3f,3f);line(12f,3f,12f,21f)}
