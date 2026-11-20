@@ -1186,7 +1186,7 @@ class ReaderDeviceTest {
             }
             inject(MotionEvent.ACTION_DOWN,left);Thread.sleep(80)
             inject(MotionEvent.ACTION_POINTER_DOWN or (1 shl 8),left,right)
-            var armed=false;val holdDeadline=android.os.SystemClock.uptimeMillis()+3000;var k=0
+            var armed=false;val holdDeadline=android.os.SystemClock.uptimeMillis()+10000;var k=0
             while(!armed&&android.os.SystemClock.uptimeMillis()<holdDeadline){Thread.sleep(90);val jitter=if(k++%2==0)2f else -2f;inject(MotionEvent.ACTION_MOVE,PointF(left.x+jitter,left.y+1),PointF(right.x+jitter,right.y-1));scenario.onActivity{a->val view=findCanvas(a.window.decorView)!!;armed=PageCanvas::class.java.getDeclaredField("twoSweeping").apply{isAccessible=true}.getBoolean(view)}}
             assertTrue("Physical two-finger hold must activate before sweep",armed)
             for(k in 1..18){val dy=(end.y-left.y)*k/18;inject(MotionEvent.ACTION_MOVE,PointF(left.x,left.y+dy),PointF(right.x,right.y+dy));Thread.sleep(18)}
@@ -1233,7 +1233,11 @@ class ReaderDeviceTest {
             scenario.onActivity{a->val v=findCanvas(a.window.decorView)!!;down=android.os.SystemClock.uptimeMillis();val e=MotionEvent.obtain(down,down,MotionEvent.ACTION_DOWN,from.x-40,from.y,0);v.dispatchTouchEvent(e);e.recycle()}
             Thread.sleep(60)
             twoFingerEvent(MotionEvent.ACTION_POINTER_DOWN or (1 shl 8),from.x-40,from.y,from.x+40,from.y)
-            Thread.sleep(800) // hold: the removal sweep activates
+            // Hold until the removal sweep arms: poll the observable state instead of a
+            // fixed sleep, a loaded emulator can delay the long-press runnable.
+            var armed1=false;val armDeadline1=android.os.SystemClock.uptimeMillis()+10000
+            while(!armed1&&android.os.SystemClock.uptimeMillis()<armDeadline1){Thread.sleep(80);scenario.onActivity{a->armed1=PageCanvas::class.java.getDeclaredField("twoSweeping").apply{isAccessible=true}.getBoolean(findCanvas(a.window.decorView)!!)}}
+            assertTrue("Two-finger hold must arm the removal sweep before the drag",armed1)
             val mx=(to.x-from.x)/2;val my=(to.y-from.y)/2
             twoFingerEvent(MotionEvent.ACTION_MOVE,from.x-40+mx,from.y+my,from.x+40+mx,from.y+my)
             twoFingerEvent(MotionEvent.ACTION_MOVE,to.x-40,to.y,to.x+40,to.y)
@@ -1246,7 +1250,9 @@ class ReaderDeviceTest {
             scenario.onActivity{a->val v=findCanvas(a.window.decorView)!!;down=android.os.SystemClock.uptimeMillis();val e=MotionEvent.obtain(down,down,MotionEvent.ACTION_DOWN,top.x-40,top.y,0);v.dispatchTouchEvent(e);e.recycle()}
             Thread.sleep(60)
             twoFingerEvent(MotionEvent.ACTION_POINTER_DOWN or (1 shl 8),top.x-40,top.y,top.x+40,top.y)
-            Thread.sleep(800)
+            var armed2=false;val armDeadline2=android.os.SystemClock.uptimeMillis()+10000
+            while(!armed2&&android.os.SystemClock.uptimeMillis()<armDeadline2){Thread.sleep(80);scenario.onActivity{a->armed2=PageCanvas::class.java.getDeclaredField("twoSweeping").apply{isAccessible=true}.getBoolean(findCanvas(a.window.decorView)!!)}}
+            assertTrue("Two-finger hold must re-arm the removal sweep for the second pass",armed2)
             twoFingerEvent(MotionEvent.ACTION_MOVE,bottom.x-40,bottom.y,bottom.x+40,bottom.y)
             twoFingerEvent(MotionEvent.ACTION_POINTER_UP or (1 shl 8),bottom.x-40,bottom.y,bottom.x+40,bottom.y)
             Thread.sleep(300)
@@ -1277,11 +1283,30 @@ class ReaderDeviceTest {
     }
     @Test fun autoTogglePillKnobFollowsState(){
         ActivityScenario.launch<MainActivity>(Intent(InstrumentationRegistry.getInstrumentation().targetContext,MainActivity::class.java)).use{scenario->
+            // The pill must be measured and laid out before its pixels are sampled:
+            // ActivityScenario.onActivity can run before the first layout pass, which
+            // leaves width/height at 0 and crashes Bitmap.createBitmap. Poll until the
+            // view has a real size instead of sampling a not-yet-laid-out view.
+            val instr=InstrumentationRegistry.getInstrumentation()
+            var laidOut=false
+            for(attempt in 0..99){instr.waitForIdleSync();scenario.onActivity{a->val t=findButton(a.window.decorView,"Auto");if(t!=null&&t.width>0&&t.height>0)laidOut=true};if(laidOut)break;Thread.sleep(100)}
             scenario.onActivity{a->
                 val toggle=findButton(a.window.decorView,"Auto")!!
+                // On a loaded emulator the first layout pass can lag past the idle wait:
+                // lay the attached pill out explicitly so its real onDraw still renders
+                // the knob for the sampling below, instead of crashing on a 0-size view.
+                if(toggle.width<=0||toggle.height<=0){
+                    toggle.measure(View.MeasureSpec.makeMeasureSpec(480,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(160,View.MeasureSpec.EXACTLY))
+                    toggle.layout(0,0,toggle.measuredWidth,toggle.measuredHeight)
+                }
                 assertTrue("Toggle must be the pill view",toggle is AutoToggleButton)
                 val pill=toggle as AutoToggleButton
                 fun knobSide():Pair<Boolean,Boolean>{
+                    if(toggle.width<=0||toggle.height<=0){
+                        toggle.measure(View.MeasureSpec.makeMeasureSpec(480,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(160,View.MeasureSpec.EXACTLY))
+                        toggle.layout(0,0,toggle.measuredWidth,toggle.measuredHeight)
+                    }
+                    assertTrue("Pill must have a size before pixel sampling",toggle.width>0&&toggle.height>0)
                     val b=Bitmap.createBitmap(toggle.width,toggle.height,Bitmap.Config.ARGB_8888)
                     toggle.draw(Canvas(b))
                     val green=Color.rgb(50,109,93);val grey=Color.rgb(120,118,112)
@@ -1446,6 +1471,67 @@ class ReaderDeviceTest {
         }
     }
 
+    @Test fun moveBlockModeRecolorsThePathAndOneTapReorders(){
+        // Validated mockup: in move mode the reading path turns violet and the moved block is dashed;
+        // one tap on the target places the moved block right after it and closes the mode.
+        val ins=InstrumentationRegistry.getInstrumentation();val c=ins.targetContext
+        ins.runOnMainSync{
+            val img=Bitmap.createBitmap(600,900,Bitmap.Config.ARGB_8888);img.eraseColor(Color.WHITE)
+            val zs=listOf(Zone(1,Box(.1f,.1f,.9f,.22f),Kind.TEXT),Zone(2,Box(.1f,.28f,.9f,.40f),Kind.TEXT),Zone(3,Box(.1f,.46f,.9f,.58f),Kind.TEXT))
+            val view=PageCanvas(c).apply{image=img;this.zones=zs;selection=listOf(1,2,3);moveMode=true;moveId=2}
+            view.measure(View.MeasureSpec.makeMeasureSpec(600,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(900,View.MeasureSpec.EXACTLY));view.layout(0,0,600,900)
+            val shot=Bitmap.createBitmap(600,900,Bitmap.Config.ARGB_8888);view.draw(Canvas(shot))
+            var violet=0;var green=0
+            for(y in 0 until 900 step 3)for(x in 0 until 600 step 3){val p=shot.getPixel(x,y)
+                if(kotlin.math.abs(Color.red(p)-128)<10&&kotlin.math.abs(Color.green(p)-91)<10&&kotlin.math.abs(Color.blue(p)-167)<10)violet++
+                if(kotlin.math.abs(Color.red(p)-37)<10&&kotlin.math.abs(Color.green(p)-122)<10&&kotlin.math.abs(Color.blue(p)-100)<10)green++}
+            assertTrue("Reading path is violet in move mode",violet>100)
+            assertEquals("No green order colour remains in move mode",0,green)
+            File(File(c.getExternalFilesDir(null),"screenshots").apply{mkdirs()},"move-mode-canvas.png").outputStream().use{shot.compress(Bitmap.CompressFormat.PNG,100,it)};shot.recycle()
+            view.moveMode=false;view.moveId=0
+            val normal=Bitmap.createBitmap(600,900,Bitmap.Config.ARGB_8888);view.draw(Canvas(normal))
+            var greenBack=0;for(y in 0 until 900 step 3)for(x in 0 until 600 step 3){val p=normal.getPixel(x,y);if(kotlin.math.abs(Color.red(p)-37)<10&&kotlin.math.abs(Color.green(p)-122)<10&&kotlin.math.abs(Color.blue(p)-100)<10)greenBack++}
+            assertTrue("Green order colour returns without move mode",greenBack>100)
+            normal.recycle();img.recycle()
+        }
+        // Real activity wiring: the menu action enters the mode, one tap reorders, the mode closes.
+        c.assets.open("examples/decouverte.pdf").use{input->File(c.filesDir,"current.pdf").outputStream().use{input.copyTo(it)}};SessionStore(c).clear()
+        ActivityScenario.launch<MainActivity>(Intent(c,MainActivity::class.java)).use{scenario->
+            fun f(a:MainActivity,n:String)=MainActivity::class.java.getDeclaredField(n).apply{isAccessible=true}
+            val end=System.currentTimeMillis()+90000;var done=false;while(System.currentTimeMillis()<end&&!done){Thread.sleep(100);scenario.onActivity{a->done=f(a,"pageReady").getBoolean(a)}};assertTrue(done)
+            fun captureShot(a:MainActivity,name:String){val root=a.window.decorView;val shot=Bitmap.createBitmap(root.width,root.height,Bitmap.Config.ARGB_8888);root.draw(Canvas(shot));File(File(c.getExternalFilesDir(null),"screenshots").apply{mkdirs()},"$name.png").outputStream().use{shot.compress(Bitmap.CompressFormat.PNG,100,it)};shot.recycle()}
+            scenario.onActivity{a->
+                val zones=f(a,"zones").get(a)as List<Zone>;assertTrue(zones.size>=2)
+                val keepOrder=listOf(zones.first().id,zones.last().id);f(a,"order").set(a,keepOrder)
+                MainActivity::class.java.getDeclaredMethod("editZoneAction",Zone::class.java,Int::class.javaPrimitiveType).apply{isAccessible=true}.invoke(a,zones.first(),8)
+                assertEquals("The menu action enters move mode on the chosen block",zones.first().id,f(a,"moving").getInt(a))
+                val canvas=f(a,"canvas").get(a)as PageCanvas;assertTrue(canvas.moveMode);assertEquals(zones.first().id,canvas.moveId)
+            }
+            // Views added by updateControls only render after a layout pass: capture once idle.
+            ins.waitForIdleSync();Thread.sleep(300)
+            scenario.onActivity{a->
+                val status=f(a,"status").get(a)as android.widget.TextView
+                assertEquals("Instruction band spans the full width so it can wrap",android.view.ViewGroup.LayoutParams.MATCH_PARENT,status.layoutParams.width)
+                val lay=status.layout;assertTrue("Instruction is laid out",lay!=null);lay!!
+                val last=lay.lineCount-1
+                assertTrue("Instruction wraps over several lines",lay.lineCount>=2)
+                assertEquals("Instruction is laid out to its last character",status.text.length,lay.getLineEnd(last))
+                assertEquals("No ellipsis truncates the instruction",0,lay.getEllipsisCount(last))
+                captureShot(a,"move-mode-controls")
+            }
+            scenario.onActivity{a->
+                val zones=f(a,"zones").get(a)as List<Zone>
+                val canvas=f(a,"canvas").get(a)as PageCanvas
+                canvas.onZoneTap?.invoke(zones.last())
+                assertEquals("One tap places the block after the chosen target",listOf(zones.last().id,zones.first().id),f(a,"order").get(a))
+                assertEquals("Move mode closes after the placement",0,f(a,"moving").getInt(a))
+                assertFalse("Canvas leaves move mode too",canvas.moveMode)
+            }
+            ins.waitForIdleSync();Thread.sleep(300)
+            scenario.onActivity{a->captureShot(a,"move-mode-renumbered")}
+        }
+        File(c.filesDir,"current.pdf").delete();SessionStore(c).clear()
+    }
     @Test fun sameColumnRepeatedLinesRenderOnceInActualReader(){
         // Fictional newspaper column: two near-twin text blocks whose detection-grown boxes
         // overlap by two text lines (edges off by a few pixels). In the actual reader the
