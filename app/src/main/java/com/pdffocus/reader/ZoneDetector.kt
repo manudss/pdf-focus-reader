@@ -19,7 +19,8 @@ class ZoneDetector(private val context:Context) {
         val cancelled={stopped||obsolete()}
         val scale=min(1f,900f/bitmap.width)
         val panelRaster=if(scale<1f)Bitmap.createScaledBitmap(bitmap,(bitmap.width*scale).roundToInt(),(bitmap.height*scale).roundToInt(),true)else bitmap
-        val panels=try{if(mode==PageMode.JOURNAL||mode==PageMode.BOOK)emptyList()else run{val pixels=IntArray(panelRaster.width*panelRaster.height);panelRaster.getPixels(pixels,0,panelRaster.width,0,0,panelRaster.width,panelRaster.height);ComicGutters.panels(pixels,panelRaster.width,panelRaster.height,mode==PageMode.COMIC||mode==PageMode.MANGA,cancelled)}}finally{if(panelRaster!==bitmap)panelRaster.recycle()}
+        var rasterPixels:IntArray?=null;val rasterW=panelRaster.width;val rasterH=panelRaster.height
+        val panels=try{if(mode==PageMode.JOURNAL||mode==PageMode.BOOK)emptyList()else run{val pixels=IntArray(panelRaster.width*panelRaster.height);panelRaster.getPixels(pixels,0,panelRaster.width,0,0,panelRaster.width,panelRaster.height);rasterPixels=pixels;ComicGutters.panels(pixels,panelRaster.width,panelRaster.height,mode==PageMode.COMIC||mode==PageMode.MANGA,cancelled)}}finally{if(panelRaster!==bitmap)panelRaster.recycle()}
         if(cancelled())return emptyList()
         if(panels.isNotEmpty()||mode==PageMode.COMIC||mode==PageMode.MANGA){
             words=emptyList()
@@ -28,7 +29,7 @@ class ZoneDetector(private val context:Context) {
             return ComicPagePartition.propose(anchors,bitmap.width,bitmap.height,direction){row->
                 val y=(row*bitmap.height).toInt().coerceIn(0,bitmap.height-1);var score=0f;var last=255
                 for(x in 0 until bitmap.width step max(1,bitmap.width/400)){val color=bitmap.getPixel(x,y);val l=(((color shr 16)and 255)*299+((color shr 8)and 255)*587+(color and 255)*114)/1000;score+=abs(l-last);last=l};score
-            }.zones
+            }.zones.let{zones->ComicTrim.withoutBlankBands(zones,rasterPixels,rasterW,rasterH)}
         }
         val root=File(context.filesDir,"ocr");val data=File(root,"tessdata").apply{mkdirs()}
         for(lang in listOf("fra","eng")) {
