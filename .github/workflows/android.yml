@@ -176,7 +176,7 @@ jobs:
           APK=$(ls signed-test/pdf-focus-test-*-arm64.apk)
           test "$(ls signed-test/pdf-focus-test-*-arm64.apk | wc -l)" = 1
           "$BT/aapt" dump badging "$APK" | head -1 | tee verify.txt
-          grep -q "package: name='com.pdffocus.reader.test' versionCode='17' versionName='0.10.16-test'" verify.txt
+          grep -q "package: name='com.pdffocus.reader.test' versionCode='18' versionName='0.10.17-test'" verify.txt
           "$BT/apksigner" verify --verbose --print-certs "$APK" | tee certs.txt
           grep -q 'certificate SHA-256 digest: bbdae9f61a83de058513b89ba9e57af2ac2e29831a5c25e7445a30c7e8f0ea16' certs.txt
           (cd signed-test && sha256sum -c SHA256SUMS.txt --ignore-missing 2>/dev/null || true)
@@ -190,5 +190,5 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          gh release create v0.10.16-test --repo "$GITHUB_REPOSITORY" --target "$HEAD_SHA" --prerelease --title "PDF Focus Test 0.10.16" --notes "Test prerelease (package com.pdffocus.reader.test, in-place update over Test 0.10.15). Seam-cut panel detection for frameless comic pages in Comic and Manga modes: thin gutters and hanging speech balloons no longer fuse panels or fall back to the whole page. Built from commit $HEAD_SHA. Experimental: no diagonal panels, no old coloured scans. Stable app untouched." signed-test/pdf-focus-test-0.10.16-arm64.apk signed-test/SHA256SUMS.txt emulator-evidence.zip
-          gh release view v0.10.16-test --repo "$GITHUB_REPOSITORY" --json url,isPrerelease,isDraft,assets | tee -a "$GITHUB_STEP_SUMMARY"
+          gh release create v0.10.17-test --repo "$GITHUB_REPOSITORY" --target "$HEAD_SHA" --prerelease --title "PDF Focus Test 0.10.17" --notes "Test prerelease (package com.pdffocus.reader.test, in-place update over Test 0.10.16). Seam-cut panel detection for frameless comic pages in Comic and Manga modes: thin gutters and hanging speech balloons no longer fuse panels or fall back to the whole page. Built from commit $HEAD_SHA. Experimental: no diagonal panels, no old coloured scans. Stable app untouched." signed-test/pdf-focus-test-0.10.17-arm64.apk signed-test/SHA256SUMS.txt emulator-evidence.zip
+          gh release view v0.10.17-test --repo "$GITHUB_REPOSITORY" --json url,isPrerelease,isDraft,assets | tee -a "$GITHUB_STEP_SUMMARY"
