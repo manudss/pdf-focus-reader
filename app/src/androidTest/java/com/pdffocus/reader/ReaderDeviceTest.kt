@@ -211,6 +211,81 @@ class ReaderDeviceTest {
             Thread.sleep(900);screenshot(scenario,"comic-thin-inset-reader")
         }
     }
+    @Test fun seamCutComicThinGuttersAndHangingBalloonStayWholeOnAndroid(){
+        // Covers the seam-cut path (ComicGutters.panels -> SeamPanels) on the real Android
+        // pipeline, which the other comic tests never reach: unframed panels with paper
+        // gutters too thin for straight-corridor cutting, and a balloon hanging across a
+        // gutter. Fixtures are fictional and drawn in-test.
+        val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext
+        val rnd=kotlin.random.Random(20261119)
+        fun art(cv:Canvas,l:Float,t:Float,r:Float,b:Float,color:Int){
+            val p=Paint()
+            p.color=color;p.style=Paint.Style.FILL;cv.drawRect(l,t,r,b,p)
+            for(k in 0 until 90){
+                val dw=10f+rnd.nextInt(50);val dh=4f+rnd.nextInt(9)
+                val x=l+4+rnd.nextInt(((r-l-70).toInt()).coerceAtLeast(1))
+                val y=t+4+rnd.nextInt(((b-t-16).toInt()).coerceAtLeast(1))
+                p.color=if(rnd.nextBoolean())Color.BLACK else Color.WHITE
+                cv.drawRect(x,y,x+dw,y+dh,p)
+            }
+        }
+        fun previewShot(name:String,bmp:Bitmap,zones:List<Zone>){
+            i.runOnMainSync{
+                val preview=PageCanvas(c).apply{image=bmp;this.zones=zones;selection=zones.map{it.id}}
+                preview.measure(View.MeasureSpec.makeMeasureSpec(700,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(980,View.MeasureSpec.EXACTLY));preview.layout(0,0,700,980)
+                val shot=Bitmap.createBitmap(700,980,Bitmap.Config.ARGB_8888);preview.draw(Canvas(shot))
+                File(File(c.getExternalFilesDir(null),"screenshots").apply{mkdirs()},name).outputStream().use{shot.compress(Bitmap.CompressFormat.PNG,100,it)};shot.recycle()
+            }
+        }
+        // Phase A: 2x2 unframed panels, 3px paper gutters (mirrors the validated bench fixture).
+        val pageA=Bitmap.createBitmap(900,1260,Bitmap.Config.ARGB_8888).apply{eraseColor(Color.WHITE)}
+        val ca=Canvas(pageA)
+        art(ca,40f,40f,448f,628f,Color.rgb(191,74,54));art(ca,452f,40f,860f,628f,Color.rgb(63,84,158))
+        art(ca,40f,632f,448f,1200f,Color.rgb(91,137,84));art(ca,452f,632f,860f,1200f,Color.rgb(209,177,96))
+        val zonesA=ZoneDetector(c).detect(pageA,PageMode.COMIC){false}
+        previewShot("comic-seam-thin-gutters-android.png",pageA,zonesA)
+        assertEquals("Thin 3px gutters must yield 4 whole panels, not a merged page",4,zonesA.count{it.panel})
+        assertComicContentCovered(zonesA,pageA)
+        val orderA=PageReadingOrder.propose(zonesA,PageMode.COMIC)
+        val firstA=zonesA.single{it.id==orderA.first()}
+        assertTrue("BD reading starts top-left",(firstA.box.left+firstA.box.right)/2<.5f&&firstA.box.top<.5f)
+        val mangaA=ZoneDetector(c).detect(pageA,PageMode.MANGA){false}
+        assertEquals(zonesA.map{it.box}.toSet(),mangaA.map{it.box}.toSet())
+        // Assert on the order the reader actually consumes (MainActivity: PageReadingOrder.propose),
+        // with the full zone map in the message so a failure shows the real values.
+        val consumed=PageReadingOrder.propose(mangaA,PageMode.MANGA)
+        val diag=mangaA.map{z->"#"+z.id+"[l="+"%.6f".format(z.box.left)+" r="+"%.6f".format(z.box.right)+" t="+"%.6f".format(z.box.top)+" panel="+z.panel+"]"}
+        val firstM=mangaA.firstOrNull{it.id==consumed.firstOrNull()}
+        assertTrue("Manga consumed order must start top-right: order=$consumed zones=$diag",firstM!=null&&(firstM.box.left+firstM.box.right)/2>.5f&&firstM.box.top<.5f)
+        pageA.recycle()
+        // Phase B: balloon hanging from the top panel, tail tip in the paper gap.
+        val pageB=Bitmap.createBitmap(900,1260,Bitmap.Config.ARGB_8888).apply{eraseColor(Color.WHITE)}
+        val cb=Canvas(pageB)
+        art(cb,60f,60f,840f,520f,Color.rgb(80,100,120));art(cb,60f,640f,840f,1150f,Color.rgb(120,80,80))
+        val bp=Paint(Paint.ANTI_ALIAS_FLAG)
+        bp.color=Color.WHITE;bp.style=Paint.Style.FILL;cb.drawOval(250f,455f,650f,605f,bp)
+        bp.color=Color.BLACK;bp.style=Paint.Style.STROKE;bp.strokeWidth=4f;cb.drawOval(250f,455f,650f,605f,bp)
+        bp.style=Paint.Style.FILL
+        val tail=android.graphics.Path();tail.moveTo(430f,595f);tail.lineTo(470f,593f);tail.lineTo(465f,620f);tail.close()
+        bp.color=Color.WHITE;cb.drawPath(tail,bp);bp.color=Color.BLACK;bp.style=Paint.Style.STROKE;cb.drawPath(tail,bp);bp.style=Paint.Style.FILL
+        for(row in 0..2)for(col in 0..5){cb.drawRect(300f+col*52,500f+row*30,326f+col*52,510f+row*30,bp)}
+        val zonesB=ZoneDetector(c).detect(pageB,PageMode.COMIC){false}
+        previewShot("comic-seam-balloon-android.png",pageB,zonesB)
+        assertEquals("Balloon in the gutter must not fuse the two panels",2,zonesB.count{it.panel})
+        assertComicContentCovered(zonesB,pageB)
+        val topZone=zonesB.filter{it.panel}.minByOrNull{it.box.top}!!
+        val row=IntArray(900);var stray=0
+        for(y in 445..630){pageB.getPixels(row,0,900,0,y,900,1)
+            for(x in 240..660){val p=row[x]
+                if(((p ushr 16)and 255)<245||((p ushr 8)and 255)<245||(p and 255)<245){
+                    val xx=(x+.5f)/900f;val yy=(y+.5f)/1260f
+                    if(!(xx>=topZone.box.left&&xx<=topZone.box.right&&yy>=topZone.box.top&&yy<=topZone.box.bottom))stray++
+                }
+            }
+        }
+        assertEquals("Every balloon and tail pixel stays in the top panel zone",0,stray)
+        pageB.recycle()
+    }
     @Test fun assistedGroupsPreviewSubsetCancelApplyUndoAndFaithfulReading(){
         val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext
         File(c.filesDir,"current.pdf").delete();SessionStore(c).clear()
