@@ -104,4 +104,83 @@ class ContinuousLayoutTest {
   assertEquals(colL1.box.area,p2.sumOf{it.area.toDouble()}.toFloat(),.000001f)
   val pieces=out.flatMap{it.pieces};for(i in pieces.indices)for(j in i+1 until pieces.size)assertEquals(0f,pieces[i].intersect(pieces[j]),.000001f)
  }
+
+ // Near-twin same-column text blocks: detection-grown boxes often overlap by a few lines.
+ // The later block's leading rows are removed only up to the last line an earlier piece
+ // already shows entirely; anything else stays repeated rather than cut.
+ private fun tz(id:Int,b:Box,lines:List<Float>,manual:Boolean=false)=Zone(id,b,Kind.TEXT,lineBottoms=lines,manual=manual)
+ @Test fun sameColumnOverlapDropsLeadingLinesAlreadyFullyShownEarlier(){
+  // Block 1 shows lines ending at .30,.32,.34,.36; block 2 (same column, edges off by .0006)
+  // starts at .35 and repeats the lines ending at .36 and .38 (both fully inside block 1).
+  val a=tz(1,Box(.1f,.20f,.4f,.385f),listOf(.30f,.32f,.34f,.36f,.38f))
+  val b=tz(2,Box(.1f,.35f,.4006f,.60f),listOf(.36f,.38f,.40f,.42f,.44f))
+  val out=ContinuousLayout.bands(listOf(a,b))
+  val p1=out.filter{it.zoneId==1}.flatMap{it.pieces};val p2=out.filter{it.zoneId==2}.flatMap{it.pieces}
+  assertEquals(1,p1.size);assertEquals(a.box,p1[0])
+  // Block 2 starts just after block 1's bottom: every band line proved fully shown
+  // earlier, so the whole repeated band (blank rows included) is removed. Full width kept.
+  assertEquals(1,p2.size);assertEquals(.385f,p2[0].top,.0001f);assertEquals(b.box.bottom,p2[0].bottom,.000001f)
+  assertEquals(b.box.left,p2[0].left,.000001f);assertEquals(b.box.right,p2[0].right,.000001f)
+  val pieces=p1+p2;for(i in pieces.indices)for(j in i+1 until pieces.size)assertEquals(0f,pieces[i].intersect(pieces[j]),.000001f)
+ }
+ @Test fun lineStraddlingTheEarlierBlockBottomStaysWithTheLaterBlock(){
+  // Block 1 ends mid-line at .365: the line ending at .38 straddles its bottom edge.
+  // Only the fully-shown line ending at .36 is removed from block 2; the straddler stays.
+  val a=tz(1,Box(.1f,.20f,.4f,.365f),listOf(.30f,.32f,.34f,.36f))
+  val b=tz(2,Box(.1f,.35f,.4018f,.60f),listOf(.38f,.40f,.42f))
+  val out=ContinuousLayout.bands(listOf(a,b))
+  val p2=out.filter{it.zoneId==2}.flatMap{it.pieces}
+  // The fully-shown band goes; block 2 resumes exactly at block 1's bottom edge, so the
+  // straddling line ending at .38 loses no row: its top stays in block 1, the rest in 2.
+  assertEquals(1,p2.size);assertEquals(.365f,p2[0].top,.0001f);assertEquals(b.box.bottom,p2[0].bottom,.000001f)
+ }
+ @Test fun offsetEdgeSameColumnOverlapKeepsRepeat(){
+  // Same column but both edges are offset by more than .8% of the page: not a near-twin.
+  val a=tz(1,Box(.1f,.20f,.4f,.385f),listOf(.30f,.32f,.34f,.36f,.38f))
+  val b=tz(2,Box(.109f,.35f,.409f,.60f),listOf(.36f,.38f,.40f,.42f))
+  val out=ContinuousLayout.bands(listOf(a,b))
+  val p2=out.filter{it.zoneId==2}.flatMap{it.pieces}
+  assertEquals(b.box.area,p2.sumOf{it.area.toDouble()}.toFloat(),.000001f)
+ }
+ @Test fun narrowerSameColumnOverlapKeepsRepeat(){
+  // Width ratio .968: below the .97 near-twin threshold, so nothing is cut.
+  val a=tz(1,Box(.1f,.20f,.4f,.385f),listOf(.30f,.32f,.34f,.36f,.38f))
+  val b=tz(2,Box(.1f,.35f,.41f,.60f),listOf(.36f,.38f,.40f,.42f))
+  val out=ContinuousLayout.bands(listOf(a,b))
+  val p2=out.filter{it.zoneId==2}.flatMap{it.pieces}
+  assertEquals(b.box.area,p2.sumOf{it.area.toDouble()}.toFloat(),.000001f)
+ }
+ @Test fun differentColumnsSharingTheLineGridKeepRepeats(){
+  // Two columns on the same line grid: identical line bottoms prove nothing across columns.
+  val a=tz(1,Box(.05f,.20f,.30f,.385f),listOf(.30f,.32f,.34f,.36f,.38f))
+  val b=tz(2,Box(.55f,.35f,.80f,.60f),listOf(.36f,.38f,.40f,.42f))
+  val out=ContinuousLayout.bands(listOf(a,b))
+  val p2=out.filter{it.zoneId==2}.flatMap{it.pieces}
+  assertEquals(b.box.area,p2.sumOf{it.area.toDouble()}.toFloat(),.000001f)
+ }
+ @Test fun imageBlocksAndManualBlocksAreNeverLineCut(){
+  // Boxes wider than the earlier block so the pre-existing exact full-width rule cannot
+  // fire: only the new text-only near-twin rule could cut, and it must not.
+  val a=tz(1,Box(.1f,.20f,.4f,.385f),listOf(.30f,.32f,.34f,.36f,.38f))
+  val img=Zone(2,Box(.1f,.35f,.405f,.60f),Kind.IMAGE)
+  val man=tz(3,Box(.1f,.35f,.405f,.60f),listOf(.36f,.38f,.40f,.42f),manual=true)
+  val manFirst=tz(4,Box(.1f,.20f,.399f,.385f),listOf(.30f,.32f,.34f,.36f,.38f),manual=true)
+  val b=tz(5,Box(.1f,.35f,.4f,.60f),listOf(.36f,.38f,.40f,.42f))
+  for(pair in listOf(listOf(a,img),listOf(a,man),listOf(manFirst,b))){
+   val out=ContinuousLayout.bands(pair)
+   val p2=out.filter{it.zoneId==pair[1].id}.flatMap{it.pieces}
+   assertEquals(pair[1].box.area,p2.sumOf{it.area.toDouble()}.toFloat(),.000001f)
+  }
+ }
+ @Test fun lineVisibleInNoEarlierPieceIsNeverCut(){
+  // The earlier block was itself top-cut by a first block, so the line ending at .36 is
+  // split across two earlier pieces: no SINGLE earlier piece shows it entirely. Block 3
+  // must keep its repeat rather than cut (conservative stop at the first unproven line).
+  val first=tz(1,Box(.1f,.20f,.399f,.355f),listOf(.30f,.32f,.34f))
+  val second=tz(2,Box(.1f,.30f,.399f,.385f),listOf(.36f,.38f))
+  val third=tz(3,Box(.1f,.34f,.4f,.60f),listOf(.36f,.38f,.40f,.42f))
+  val out=ContinuousLayout.bands(listOf(first,second,third))
+  val p3=out.filter{it.zoneId==3}.flatMap{it.pieces}
+  assertEquals(third.box.area,p3.sumOf{it.area.toDouble()}.toFloat(),.000001f)
+ }
 }
