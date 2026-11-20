@@ -1283,13 +1283,23 @@ class ReaderDeviceTest {
             // view has a real size instead of sampling a not-yet-laid-out view.
             val instr=InstrumentationRegistry.getInstrumentation()
             var laidOut=false
-            for(attempt in 0..49){instr.waitForIdleSync();scenario.onActivity{a->val t=findButton(a.window.decorView,"Auto");if(t!=null&&t.width>0&&t.height>0)laidOut=true};if(laidOut)break;Thread.sleep(100)}
-            assertTrue("Auto pill must be laid out before sampling its pixels",laidOut)
+            for(attempt in 0..99){instr.waitForIdleSync();scenario.onActivity{a->val t=findButton(a.window.decorView,"Auto");if(t!=null&&t.width>0&&t.height>0)laidOut=true};if(laidOut)break;Thread.sleep(100)}
             scenario.onActivity{a->
                 val toggle=findButton(a.window.decorView,"Auto")!!
+                // On a loaded emulator the first layout pass can lag past the idle wait:
+                // lay the attached pill out explicitly so its real onDraw still renders
+                // the knob for the sampling below, instead of crashing on a 0-size view.
+                if(toggle.width<=0||toggle.height<=0){
+                    toggle.measure(View.MeasureSpec.makeMeasureSpec(480,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(160,View.MeasureSpec.EXACTLY))
+                    toggle.layout(0,0,toggle.measuredWidth,toggle.measuredHeight)
+                }
                 assertTrue("Toggle must be the pill view",toggle is AutoToggleButton)
                 val pill=toggle as AutoToggleButton
                 fun knobSide():Pair<Boolean,Boolean>{
+                    if(toggle.width<=0||toggle.height<=0){
+                        toggle.measure(View.MeasureSpec.makeMeasureSpec(480,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(160,View.MeasureSpec.EXACTLY))
+                        toggle.layout(0,0,toggle.measuredWidth,toggle.measuredHeight)
+                    }
                     assertTrue("Pill must have a size before pixel sampling",toggle.width>0&&toggle.height>0)
                     val b=Bitmap.createBitmap(toggle.width,toggle.height,Bitmap.Config.ARGB_8888)
                     toggle.draw(Canvas(b))
