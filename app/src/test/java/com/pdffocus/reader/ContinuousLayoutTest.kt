@@ -116,12 +116,38 @@ class ContinuousLayoutTest {
   val b=tz(2,Box(.1f,.35f,.4006f,.60f),listOf(.36f,.38f,.40f,.42f,.44f))
   val out=ContinuousLayout.bands(listOf(a,b))
   val p1=out.filter{it.zoneId==1}.flatMap{it.pieces};val p2=out.filter{it.zoneId==2}.flatMap{it.pieces}
-  assertEquals(1,p1.size);assertEquals(a.box,p1[0])
-  // Block 2 starts just after block 1's bottom: every band line proved fully shown
-  // earlier, so the whole repeated band (blank rows included) is removed. Full width kept.
-  assertEquals(1,p2.size);assertEquals(.385f,p2[0].top,.0001f);assertEquals(b.box.bottom,p2[0].bottom,.000001f)
+  assertEquals(1,p1.size)
+  // Block 1 is trimmed to the straddling line's top: no sliver of it renders twice.
+  assertEquals(Box(.1f,.20f,.4f,.38f),p1[0])
+  // The repeated lines go, but the cut never severs the line starting at .38, which
+  // straddles block 1's bottom: block 2 resumes at that line's top and keeps it whole.
+  assertEquals(1,p2.size);assertEquals(.38f,p2[0].top,.0001f);assertEquals(b.box.bottom,p2[0].bottom,.000001f)
   assertEquals(b.box.left,p2[0].left,.000001f);assertEquals(b.box.right,p2[0].right,.000001f)
+  // No line repeats or splits: every line sits entirely in exactly one piece, and the
+  // pieces tile the column with zero intersection at the seam.
+  val seq=(a.lineBottoms+b.lineBottoms).distinct().sorted()
+  for(i in 0 until seq.lastIndex){val t=seq[i];val bo=seq[i+1]
+      val owners=(p1+p2).count{it.top<=t+.001f&&it.bottom>=bo-.001f}
+      assertEquals("line $t..$bo must live whole in exactly one piece",1,owners)}
   val pieces=p1+p2;for(i in pieces.indices)for(j in i+1 until pieces.size)assertEquals(0f,pieces[i].intersect(pieces[j]),.000001f)
+ }
+ @Test fun sameColumnSeamNeverSeversANumberedLine(){
+  // Numbered distinct lines, block 1 ending mid-line (.392 inside the line .38..40):
+  // the seam must keep every line readable whole in exactly one piece, with no split
+  // and no full repeat, whatever the block geometry.
+  val a=tz(1,Box(.1f,.20f,.4f,.392f),listOf(.30f,.32f,.34f,.36f,.38f))
+  val b=tz(2,Box(.1f,.35f,.4006f,.60f),listOf(.36f,.38f,.40f,.42f,.44f))
+  val out=ContinuousLayout.bands(listOf(a,b))
+  val pieces=out.flatMap{it.pieces}
+  val seq=(a.lineBottoms+b.lineBottoms).distinct().sorted()
+  for(i in 0 until seq.lastIndex){val t=seq[i];val bo=seq[i+1]
+      val owners=pieces.count{it.top<=t+.001f&&it.bottom>=bo-.001f}
+      assertEquals("numbered line $t..$bo must live whole in exactly one piece",1,owners)}
+  val later=out.filter{it.zoneId==2}.flatMap{it.pieces}
+  assertEquals("later block resumes at the straddling line's top",.38f,later[0].top,.0001f)
+  val earlier=out.filter{it.zoneId==1}.flatMap{it.pieces}
+  assertEquals("earlier piece is trimmed to the straddling line's top",.38f,earlier[0].bottom,.0001f)
+  for(i in pieces.indices)for(j in i+1 until pieces.size)assertEquals(0f,pieces[i].intersect(pieces[j]),.000001f)
  }
  @Test fun lineStraddlingTheEarlierBlockBottomStaysWithTheLaterBlock(){
   // Block 1 ends mid-line at .365: the line ending at .38 straddles its bottom edge.
@@ -129,10 +155,13 @@ class ContinuousLayoutTest {
   val a=tz(1,Box(.1f,.20f,.4f,.365f),listOf(.30f,.32f,.34f,.36f))
   val b=tz(2,Box(.1f,.35f,.4018f,.60f),listOf(.38f,.40f,.42f))
   val out=ContinuousLayout.bands(listOf(a,b))
+  val p1=out.filter{it.zoneId==1}.flatMap{it.pieces}
   val p2=out.filter{it.zoneId==2}.flatMap{it.pieces}
-  // The fully-shown band goes; block 2 resumes exactly at block 1's bottom edge, so the
-  // straddling line ending at .38 loses no row: its top stays in block 1, the rest in 2.
-  assertEquals(1,p2.size);assertEquals(.365f,p2[0].top,.0001f);assertEquals(b.box.bottom,p2[0].bottom,.000001f)
+  // The fully-shown band goes, and the cut never severs the straddling line: block 2
+  // resumes at the straddler's top (.36) and keeps the whole line. Block 1 is trimmed
+  // to the straddler's top too: no sliver of the line renders twice at the seam.
+  assertEquals(1,p1.size);assertEquals(Box(.1f,.20f,.4f,.36f),p1[0])
+  assertEquals(1,p2.size);assertEquals(.36f,p2[0].top,.0001f);assertEquals(b.box.bottom,p2[0].bottom,.000001f)
  }
  @Test fun offsetEdgeSameColumnOverlapKeepsRepeat(){
   // Same column but both edges are offset by more than .8% of the page: not a near-twin.
