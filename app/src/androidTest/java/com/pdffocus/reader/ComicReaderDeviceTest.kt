@@ -62,9 +62,13 @@ class ComicReaderDeviceTest {
     if(bars!=null)root.setPadding(bars.left,bars.top,bars.right,bars.bottom)
     root.addView(reader,android.widget.FrameLayout.LayoutParams(-1,-1));a.setContentView(root)
     reader.onRequest={t,r->reader.accept(t,r,doc.readingRegion(0,t.source,ceil(t.rect.width()).toInt().coerceAtLeast(1),ceil(t.rect.height()).toInt().coerceAtLeast(1),false))};reader.setDocument(listOf(Zone(1,Box(0f,0f,1f,.35f),Kind.IMAGE,panel=true),Zone(2,Box(0f,.35f,.5f,1f),Kind.IMAGE,panel=true),Zone(3,Box(.5f,.35f,1f,1f),Kind.IMAGE,panel=true)),1200,1800,comicDirection=if(rtl)-1 else 1)}
-   var ready=false
-   for(attempt in 0 until 100){ins.waitForIdleSync();ins.runOnMainSync{ready=reader.width>0&&reader.height>0&&reader.isShown&&reader.hasWindowFocus()};if(ready)break;SystemClock.sleep(100)}
-   assertTrue("Reader must be laid out in the focused Activity window before injecting input",ready)
+   // Synchronize on observable states, not on a fixed delay: layout and window focus are
+   // separate conditions, and a loaded CI emulator may take long to deliver either.
+   var laidOut=false;var focused=false
+   val focusDeadline=SystemClock.uptimeMillis()+30000
+   while(SystemClock.uptimeMillis()<focusDeadline){ins.waitForIdleSync();ins.runOnMainSync{laidOut=reader.width>0&&reader.height>0&&reader.isShown;focused=reader.hasWindowFocus()};if(laidOut&&focused)break;SystemClock.sleep(100)}
+   assertTrue("Reader must be laid out before injecting input (focused=$focused)",laidOut)
+   assertTrue("Activity window must be focused before injecting input (laidOut=$laidOut)",focused)
    val d=context.resources.displayMetrics.density;val w=reader.width.toFloat();val y=150*d
    capture(reader,"comic-native-${if(rtl)"manga" else "bd"}-01-entire")
    ins.runOnMainSync{assertTrue(states(reader).isEmpty());assertTrue(tiles(reader).all{it.rect.left>=0&&it.rect.right<=w})}
