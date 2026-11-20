@@ -1483,7 +1483,10 @@ class ReaderDeviceTest {
             assertTrue("Full width is kept",kotlin.math.abs(later[0].left-b.box.left)<.000001f&&kotlin.math.abs(later[0].right-b.box.right)<.000001f)
             val tiles=ContinuousReaderView::class.java.getDeclaredField("tiles").apply{isAccessible=true}.get(reader)as List<ContinuousReaderView.Tile>
             assertEquals("Reader tile uses the trimmed source",.38f,tiles.first{it.chunkKey==11}.source.top,.001f)
-            assertEquals("Earlier tile is trimmed to the straddling line's top",.38f,tiles.first{it.chunkKey==10}.source.bottom,.001f)
+            // Tiles slice each band into ~512px rows: check the band's extreme tiles.
+            val earlierTiles=tiles.filter{it.chunkKey==10}
+            assertEquals("Earlier tile band starts at the block's top",.20f,earlierTiles.minOf{it.source.top},.001f)
+            assertEquals("Earlier tile band is trimmed to the straddling line's top",.38f,earlierTiles.maxOf{it.source.bottom},.001f)
             reader.clear();source.recycle()
         }
     }
