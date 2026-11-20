@@ -9,7 +9,9 @@ object ContinuousLayout {
      * last text line that an earlier piece already shows ENTIRELY (line top and bottom
      * inside that piece, which must also span this block's width within .2%). A line not
      * proven fully visible earlier stays repeated: partial lines, offset edges and
-     * neighbouring columns are never cut.
+     * neighbouring columns are never cut. A cut never lands inside a text line either:
+     * a line straddling the cut stays whole with the later block, and the earlier piece
+     * is trimmed to the line's top so no fragment of it renders twice at the seam.
      * Partial side overlaps intentionally remain repeated: cutting them would sever words.
      * Nested fragments retain their container's width and the caller's order is unchanged.
      */
@@ -67,6 +69,27 @@ object ContinuousLayout {
                 // Every band line proved fully shown earlier: the whole band is a repeat,
                 // trailing blank rows included. A blocked cut stops at the last proven line.
                 if(!blocked&&cut>b.top)cut=bandBottom
+                // Never sever a line between tiles: when the cut lands strictly inside a
+                // text line, that line stays whole with this block and the cut retreats to
+                // the line's top. The earlier piece is then trimmed to the line's top as
+                // well, because its sliver would render as a faint repeated fragment at
+                // the seam: the line renders whole, exactly once, in the later block.
+                // The trim only happens when this block shows the whole line. Adjacent
+                // lines sharing an exact boundary are not severed by the .001 epsilon.
+                if(cut>b.top){
+                    val crossed=seq.zipWithNext().firstOrNull{(lineTop,lineBottom)->lineTop<cut-.002f&&lineBottom>cut}
+                    if(crossed!=null){
+                        cut=crossed.first
+                        if(crossed.second<=b.bottom+.001f){
+                            val si=seen.indexOf(s)
+                            seen[si]=s.copy(pieces=s.pieces.map{piece->if(piece.top<cut-.0005f&&piece.bottom>cut+.0005f)piece.copy(bottom=cut)else piece})
+                            for(ri in result.indices){
+                                val rb=result[ri]
+                                if(rb.zoneId==s.zone.id&&rb.top<cut-.0005f&&rb.bottom>cut+.0005f)result[ri]=rb.copy(bottom=cut,pieces=listOf(rb.pieces.first().copy(bottom=cut)))
+                            }
+                        }
+                    }
+                }
                 if(cut>b.top)overlaps+=Box(s.box.left,bandTop,s.box.right,min(bandBottom,cut))
             }
             val cuts=(listOf(b.top,b.bottom)+overlaps.flatMap{listOf(it.top.coerceIn(b.top,b.bottom),it.bottom.coerceIn(b.top,b.bottom))}).distinct().sorted()
