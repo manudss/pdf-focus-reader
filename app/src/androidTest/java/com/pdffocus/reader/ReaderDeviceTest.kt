@@ -1186,7 +1186,7 @@ class ReaderDeviceTest {
             }
             inject(MotionEvent.ACTION_DOWN,left);Thread.sleep(80)
             inject(MotionEvent.ACTION_POINTER_DOWN or (1 shl 8),left,right)
-            var armed=false;val holdDeadline=android.os.SystemClock.uptimeMillis()+3000;var k=0
+            var armed=false;val holdDeadline=android.os.SystemClock.uptimeMillis()+10000;var k=0
             while(!armed&&android.os.SystemClock.uptimeMillis()<holdDeadline){Thread.sleep(90);val jitter=if(k++%2==0)2f else -2f;inject(MotionEvent.ACTION_MOVE,PointF(left.x+jitter,left.y+1),PointF(right.x+jitter,right.y-1));scenario.onActivity{a->val view=findCanvas(a.window.decorView)!!;armed=PageCanvas::class.java.getDeclaredField("twoSweeping").apply{isAccessible=true}.getBoolean(view)}}
             assertTrue("Physical two-finger hold must activate before sweep",armed)
             for(k in 1..18){val dy=(end.y-left.y)*k/18;inject(MotionEvent.ACTION_MOVE,PointF(left.x,left.y+dy),PointF(right.x,right.y+dy));Thread.sleep(18)}
@@ -1233,7 +1233,11 @@ class ReaderDeviceTest {
             scenario.onActivity{a->val v=findCanvas(a.window.decorView)!!;down=android.os.SystemClock.uptimeMillis();val e=MotionEvent.obtain(down,down,MotionEvent.ACTION_DOWN,from.x-40,from.y,0);v.dispatchTouchEvent(e);e.recycle()}
             Thread.sleep(60)
             twoFingerEvent(MotionEvent.ACTION_POINTER_DOWN or (1 shl 8),from.x-40,from.y,from.x+40,from.y)
-            Thread.sleep(800) // hold: the removal sweep activates
+            // Hold until the removal sweep arms: poll the observable state instead of a
+            // fixed sleep, a loaded emulator can delay the long-press runnable.
+            var armed1=false;val armDeadline1=android.os.SystemClock.uptimeMillis()+10000
+            while(!armed1&&android.os.SystemClock.uptimeMillis()<armDeadline1){Thread.sleep(80);scenario.onActivity{a->armed1=PageCanvas::class.java.getDeclaredField("twoSweeping").apply{isAccessible=true}.getBoolean(findCanvas(a.window.decorView)!!)}}
+            assertTrue("Two-finger hold must arm the removal sweep before the drag",armed1)
             val mx=(to.x-from.x)/2;val my=(to.y-from.y)/2
             twoFingerEvent(MotionEvent.ACTION_MOVE,from.x-40+mx,from.y+my,from.x+40+mx,from.y+my)
             twoFingerEvent(MotionEvent.ACTION_MOVE,to.x-40,to.y,to.x+40,to.y)
@@ -1246,7 +1250,9 @@ class ReaderDeviceTest {
             scenario.onActivity{a->val v=findCanvas(a.window.decorView)!!;down=android.os.SystemClock.uptimeMillis();val e=MotionEvent.obtain(down,down,MotionEvent.ACTION_DOWN,top.x-40,top.y,0);v.dispatchTouchEvent(e);e.recycle()}
             Thread.sleep(60)
             twoFingerEvent(MotionEvent.ACTION_POINTER_DOWN or (1 shl 8),top.x-40,top.y,top.x+40,top.y)
-            Thread.sleep(800)
+            var armed2=false;val armDeadline2=android.os.SystemClock.uptimeMillis()+10000
+            while(!armed2&&android.os.SystemClock.uptimeMillis()<armDeadline2){Thread.sleep(80);scenario.onActivity{a->armed2=PageCanvas::class.java.getDeclaredField("twoSweeping").apply{isAccessible=true}.getBoolean(findCanvas(a.window.decorView)!!)}}
+            assertTrue("Two-finger hold must re-arm the removal sweep for the second pass",armed2)
             twoFingerEvent(MotionEvent.ACTION_MOVE,bottom.x-40,bottom.y,bottom.x+40,bottom.y)
             twoFingerEvent(MotionEvent.ACTION_POINTER_UP or (1 shl 8),bottom.x-40,bottom.y,bottom.x+40,bottom.y)
             Thread.sleep(300)
@@ -1519,9 +1525,9 @@ class ReaderDeviceTest {
         ins.runOnMainSync{
             val c=ins.targetContext;val source=Bitmap.createBitmap(700,1400,Bitmap.Config.ARGB_8888);source.eraseColor(Color.WHITE)
             val canvas=Canvas(source);val paint=Paint(Paint.ANTI_ALIAS_FLAG).apply{color=Color.BLACK;textSize=13f}
-            var n=0;val words=listOf("conseil","municipal","invente","une","deliberation","complete","pour","ce","test","fictif","du","journal")
+            var n=1
             var y=.20f*1400+13f
-            while(y<.60f*1400){canvas.drawText("${words[n%12]} ${words[(n+3)%12]} ${words[(n+5)%12]} ${words[(n+7)%12]} fictifs",.1f*700,y,paint);y+=.02f*1400;n++}
+            while(y<.60f*1400){canvas.drawText("ligne-%02d alpha bravo charlie delta echo".format(n),.1f*700,y,paint);y+=.02f*1400;n++}
             val a=Zone(10,Box(.1f,.20f,.4f,.385f),Kind.TEXT,listOf(.30f,.32f,.34f,.36f,.38f))
             val b=Zone(11,Box(.1f,.35f,.4006f,.60f),Kind.TEXT,listOf(.36f,.38f,.40f,.42f,.44f))
             val zones=listOf(a,b)
@@ -1530,13 +1536,27 @@ class ReaderDeviceTest {
             reader.setDocument(zones,700,1400)
             repeat(3){val bitmap=Bitmap.createBitmap(700,1000,Bitmap.Config.ARGB_8888);reader.draw(Canvas(bitmap));File(File(c.getExternalFilesDir(null),"screenshots").apply{mkdirs()},"same-column-overlap-dedupe.png").outputStream().use{bitmap.compress(Bitmap.CompressFormat.PNG,100,it)};bitmap.recycle()}
             val pieces=ContinuousLayout.bands(zones)
-            val repeated=pieces.flatMap{it.pieces};for(i in repeated.indices)for(j in i+1 until repeated.size)assertEquals("No source row renders twice",0f,repeated[i].intersect(repeated[j]),.000001f)
+            // Every numbered line must live whole in exactly one piece: no split at the
+            // seam and no repeated fragment. The earlier piece is trimmed to the
+            // straddling line's top, so the pieces tile the column with zero overlap.
+            val seq=(a.lineBottoms+b.lineBottoms).distinct().sorted()
+            val allPieces=pieces.flatMap{it.pieces}
+            for(i in 0 until seq.lastIndex){val t=seq[i];val bo=seq[i+1]
+                val owners=allPieces.count{it.top<=t+.001f&&it.bottom>=bo-.001f}
+                assertEquals("numbered line $t..$bo must live whole in exactly one piece",1,owners)}
+            for(i in allPieces.indices)for(j in i+1 until allPieces.size)assertEquals("No source row renders twice",0f,allPieces[i].intersect(allPieces[j]),.000001f)
             val later=pieces.filter{it.zoneId==11}.flatMap{it.pieces}
             assertEquals(1,later.size)
-            assertEquals("Later block resumes after the earlier block bottom",.385f,later[0].top,.001f)
+            assertEquals("Later block resumes at the straddling line's top, keeping it whole",.38f,later[0].top,.001f)
+            val earlier=pieces.filter{it.zoneId==10}.flatMap{it.pieces}
+            assertEquals("Earlier piece is trimmed to the straddling line's top",.38f,earlier[0].bottom,.001f)
             assertTrue("Full width is kept",kotlin.math.abs(later[0].left-b.box.left)<.000001f&&kotlin.math.abs(later[0].right-b.box.right)<.000001f)
             val tiles=ContinuousReaderView::class.java.getDeclaredField("tiles").apply{isAccessible=true}.get(reader)as List<ContinuousReaderView.Tile>
-            assertEquals("Reader tile uses the trimmed source",.385f,tiles.first{it.chunkKey==11}.source.top,.001f)
+            assertEquals("Reader tile uses the trimmed source",.38f,tiles.first{it.chunkKey==11}.source.top,.001f)
+            // Tiles slice each band into ~512px rows: check the band's extreme tiles.
+            val earlierTiles=tiles.filter{it.chunkKey==10}
+            assertEquals("Earlier tile band starts at the block's top",.20f,earlierTiles.minOf{it.source.top},.001f)
+            assertEquals("Earlier tile band is trimmed to the straddling line's top",.38f,earlierTiles.maxOf{it.source.bottom},.001f)
             reader.clear();source.recycle()
         }
     }
