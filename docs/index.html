@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PDF Focus — Lire un journal ou une BD en PDF, bloc par bloc</title>
+<meta name="description" content="Application Android libre et hors ligne : découpe chaque page PDF en blocs et les enchaîne dans un ruban de lecture confortable. Sans compte, sans publicité, sans Internet.">
+<style>
+:root{--vert:#256a5c;--vert-fonce:#1b4f45;--violet:#7c5aa7;--creme:#f7f5ef;--encre:#26251f;--doux:#6b685f;--carte:#ffffff;--rayon:22px}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--creme);color:var(--encre);line-height:1.6;overflow-x:hidden}
+h1,h2,h3,.serif{font-family:Georgia,"Times New Roman",serif;font-weight:600;line-height:1.2}
+.wrap{max-width:1060px;margin:0 auto;padding:0 22px}
+section{padding:72px 0}
+/* apparition au defilement */
+.rev{opacity:1}
+.js .rev{opacity:0;transform:translateY(26px);transition:opacity .7s ease,transform .7s ease}
+.js .rev.vu{opacity:1;transform:none}
+.js .rev.force{transition:none}
+@media (prefers-reduced-motion:reduce){.js .rev{transition:none;opacity:1;transform:none}html{scroll-behavior:auto}}
+/* hero */
+.hero{padding:88px 0 64px;background:linear-gradient(160deg,var(--vert) 0%,var(--vert-fonce) 58%,#143a33 100%);color:#f3f1e8;position:relative;overflow:hidden}
+.hero::after{content:"";position:absolute;inset:0;background:radial-gradient(60% 45% at 82% 18%,rgba(255,255,255,.14),transparent 70%);pointer-events:none}
+.hero .wrap{display:grid;grid-template-columns:1.15fr .85fr;gap:44px;align-items:center;position:relative;z-index:1}
+.badge{display:inline-block;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.35);padding:5px 14px;border-radius:999px;font-size:.82rem;letter-spacing:.06em;text-transform:uppercase}
+.hero h1{font-size:clamp(2rem,5vw,3.1rem);margin:.55em 0 .35em}
+.hero p.lead{font-size:1.12rem;max-width:34em;color:#e6e3d6}
+.cta{display:inline-flex;gap:12px;margin-top:26px;flex-wrap:wrap}
+.cta a{text-decoration:none;font-weight:600;padding:13px 22px;border-radius:14px;transition:transform .2s ease,box-shadow .2s ease}
+.cta a:hover{transform:translateY(-2px)}
+.cta .princ{background:#fff;color:var(--vert-fonce);box-shadow:0 6px 18px rgba(0,0,0,.22)}
+.cta .sec{border:1.5px solid rgba(255,255,255,.55);color:#fff}
+.phone{border-radius:26px;box-shadow:0 18px 44px rgba(0,0,0,.38);width:100%;max-width:330px;margin:0 auto;display:block;animation:flotte 6s ease-in-out infinite}
+@keyframes flotte{0%,100%{transform:translateY(0) rotate(-1deg)}50%{transform:translateY(-12px) rotate(1deg)}}
+@media (prefers-reduced-motion:reduce){.phone{animation:none}}
+/* etapes */
+.etapes{display:grid;grid-template-columns:repeat(4,1fr);gap:18px;counter-reset:e}
+.etape{background:var(--carte);border-radius:var(--rayon);padding:22px 20px;box-shadow:0 3px 14px rgba(30,30,20,.07);position:relative}
+.etape::before{counter-increment:e;content:counter(e);display:inline-grid;place-items:center;width:34px;height:34px;border-radius:50%;background:var(--vert);color:#fff;font-weight:700;margin-bottom:10px}
+.etape h3{font-size:1.05rem;margin-bottom:6px}
+.etape p{font-size:.92rem;color:var(--doux)}
+/* fonctionnalites */
+.grille{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+.carte{background:var(--carte);border-radius:var(--rayon);padding:24px;box-shadow:0 3px 14px rgba(30,30,20,.07);transition:transform .25s ease,box-shadow .25s ease}
+.carte:hover{transform:translateY(-5px);box-shadow:0 12px 26px rgba(30,30,20,.12)}
+.carte h3{font-size:1.08rem;margin-bottom:8px}
+.carte p{font-size:.93rem;color:var(--doux)}
+.carte .ico{display:block;margin-bottom:10px}
+.ico svg{width:26px;height:26px;stroke:var(--vert)}
+.prive .ico svg{stroke:#bcd6c9}
+/* galerie */
+.galerie{display:grid;grid-template-columns:repeat(2,1fr);gap:18px;align-items:start}
+.galerie figure{background:var(--carte);border-radius:var(--rayon);padding:14px;box-shadow:0 3px 14px rgba(30,30,20,.07)}
+.galerie img{width:100%;border-radius:14px;display:block}
+.galerie figcaption{font-size:.85rem;color:var(--doux);margin-top:10px;text-align:center}
+/* rendus */
+.rendus{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+.rendu{border-radius:var(--rayon);padding:24px;background:var(--carte);box-shadow:0 3px 14px rgba(30,30,20,.07);border-top:5px solid var(--vert)}
+.rendu:nth-child(2){border-top-color:#3f7f6f}
+.rendu:nth-child(3){border-top-color:var(--violet)}
+/* vie privee */
+.prive{background:var(--vert-fonce);color:#eef0e6;border-radius:30px;padding:54px 0}
+.prive .grille{grid-template-columns:repeat(3,1fr)}
+.prive .carte{background:rgba(255,255,255,.07);box-shadow:none;color:#eef0e6}
+.prive .carte p{color:#cfd4c6}
+/* etat */
+/* bas */
+footer{padding:44px 0 60px;text-align:center;color:var(--doux);font-size:.9rem}
+footer a{color:var(--vert)}
+.titre-section{font-size:clamp(1.5rem,3.4vw,2.1rem);margin-bottom:8px}
+.sous{color:var(--doux);margin-bottom:34px;max-width:46em}
+/* animations enrichies */
+.js .etapes .rev:nth-child(2){transition-delay:.08s}
+.js .etapes .rev:nth-child(3){transition-delay:.16s}
+.js .etapes .rev:nth-child(4){transition-delay:.24s}
+.js .grille .rev:nth-child(3n+2){transition-delay:.08s}
+.js .grille .rev:nth-child(3n+3){transition-delay:.16s}
+.js .galerie .rev:nth-child(odd){transform:translateX(-30px)}
+.js .galerie .rev:nth-child(even){transform:translateX(30px)}
+.js .galerie .rev.vu{transform:none}
+.titre-section{position:relative;padding-bottom:12px}
+.titre-section::after{content:"";position:absolute;left:0;bottom:0;width:56px;height:4px;border-radius:2px;background:var(--vert);transform:scaleX(0);transform-origin:left;transition:transform .8s ease .25s}
+.titre-section.vu::after{transform:scaleX(1)}
+.prive .titre-section::after{background:#bcd6c9}
+@media (prefers-reduced-motion:reduce){.titre-section::after{transition:none;transform:scaleX(1)}}
+.vers{margin-top:16px;font-size:.9rem;color:#cfd4c6}
+.vers a{color:#fff}
+.stable{background:#edf5ef;border:1.5px solid #b9d4c3;border-radius:var(--rayon);padding:26px 28px}
+.stable h3{margin-bottom:8px}
+.stable p{font-size:.95rem;color:var(--doux);margin-bottom:8px}
+.stable a{color:var(--vert)}
+@media (max-width:840px){
+  .hero .wrap{grid-template-columns:1fr;text-align:center}
+  .hero p.lead{margin:0 auto}.cta{justify-content:center}
+  .etapes,.grille,.galerie,.rendus,.prive .grille{grid-template-columns:1fr 1fr}
+}
+@media (max-width:520px){
+  section{padding:52px 0}
+  .etapes,.grille,.galerie,.rendus,.prive .grille{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <div>
+      <span class="badge">Android · libre · hors ligne</span>
+      <h1>PDF Focus</h1>
+      <p class="lead">Lisez un journal ou une BD en PDF sur votre téléphone, bloc par bloc&nbsp;: chaque page est découpée localement, vous choisissez votre parcours, et la lecture défile dans un ruban cadré à votre écran. Sans compte, sans publicité, sans Internet.</p>
+      <div class="cta">
+        <a class="princ" href="https://github.com/manudss/pdf-focus-reader/releases/latest">Télécharger la dernière version</a>
+        <a class="sec" href="#fonctions">Découvrir les fonctions</a>
+      </div>
+      <p class="vers">Version stable 1.0 · APK arm64 et x86_64 · code source sur <a href="https://github.com/manudss/pdf-focus-reader">GitHub</a></p>
+    </div>
+    <div><img class="phone" src="img/hero-preparation.png" alt="Préparation d'une page : blocs proposés et parcours numéroté"></div>
+  </div>
+</header>
+
+<section id="etapes">
+  <div class="wrap">
+    <h2 class="titre-section rev">Quatre gestes suffisent</h2>
+    <p class="sous rev">Du PDF au ruban de lecture, sans quitter l'appareil.</p>
+    <div class="etapes">
+      <div class="etape rev"><h3>Ouvrez</h3><p>Votre PDF, ou l'exemple fictif intégré pour essayer sans fichier.</p></div>
+      <div class="etape rev"><h3>Les blocs sont proposés</h3><p>L'analyse locale adapte le découpage au document : Auto, Journal, Livre, BD, Manga ou Manuel.</p></div>
+      <div class="etape rev"><h3>Choisissez l'ordre</h3><p>Touchez les blocs, ils se numérotent. Corrigez, fusionnez, séparez ou recadrez au besoin.</p></div>
+      <div class="etape rev"><h3>Lisez</h3><p>Le ruban défile : texte cadré à la largeur, images entières, aucune zone affichée deux fois.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="fonctions" style="background:#fff">
+  <div class="wrap">
+    <h2 class="titre-section rev">Pensé pour les vrais documents</h2>
+    <p class="sous rev">Multi-colonnes, cases de BD, scans irréguliers : gardez la main sur chaque bloc.</p>
+    <div class="grille">
+      <div class="carte rev"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="14" height="16" rx="2"/><path d="M17 8h2.5A1.5 1.5 0 0 1 21 9.5V18a2 2 0 0 1-2 2H5"/><path d="M6.5 8.5h7M6.5 12h7M6.5 15.5h4.5"/></svg></span><h3>Six modes de page</h3><p>Auto, Journal, Livre, BD, Manga ou entièrement Manuel, avec aperçu avant application : rien n'est remplacé sans votre accord.</p></div>
+      <div class="carte rev"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3.5H4.5V8"/><path d="M16 3.5h3.5V8"/><path d="M8 20.5H4.5V16"/><path d="M16 20.5h3.5V16"/><path d="M8.5 8.5l7 7M15.5 8.5l-7 7" stroke-dasharray="2.4 2.4"/></svg></span><h3>Édition complète</h3><p>Ajuster ou redessiner un cadre, séparer en deux, fusionner des blocs, déplacer un bloc dans le parcours, proposer l'article autour d'un bloc, cadrage manuel des zones manquées.</p></div>
+      <div class="carte rev"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.5 6H20M9.5 12H20M9.5 18H20"/><circle cx="5" cy="6" r="1.7"/><circle cx="5" cy="12" r="1.7"/><circle cx="5" cy="18" r="1.7"/></svg></span><h3>Votre parcours</h3><p>Ordre choisi à votre main, annulation du dernier choix, regroupement automatique possible, renumérotation immédiate.</p></div>
+      <div class="carte rev"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M8.5 6.5h7.5"/></svg></span><h3>Lecture continue</h3><p>Les blocs défilent à la suite avec progression, numérotation et changement de page libre, même pendant une détection.</p></div>
+      <div class="carte rev"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 7V5h14v2"/><path d="M12 5v14"/><path d="M9 19h6"/></svg></span><h3>Trois rendus</h3><p>Original, Nettoyé (renforcement léger des lettres) ou Texte OCR à la taille réglable, recomposé avec une vraie police.</p></div>
+      <div class="carte rev"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.4 9.2a2.6 2.6 0 1 1 3.5 2.4c-.8.3-.9 1-.9 1.7"/><path d="M12 16.8h.01"/></svg></span><h3>Prise en main guidée</h3><p>Un didacticiel explique les gestes au premier lancement, et un exemple fictif permet d'essayer sans document personnel.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="bd">
+  <div class="wrap">
+    <h2 class="titre-section rev">Pensé pour les BD et les mangas</h2>
+    <p class="sous rev">Une page entière sur un petit écran se lit case par case : la découpe suit les cases, vous validez l'ordre, puis chaque case défile cadrée à la largeur.</p>
+    <div class="grille">
+      <div class="carte rev"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="11" height="8" rx="1.5"/><rect x="16" y="3" width="5" height="18" rx="1.5"/><rect x="3" y="13" width="11" height="8" rx="1.5"/></svg></span><h3>Découpe en cases</h3><p>Les modes BD et Manga adaptent la détection aux cases et à leur ordre de lecture, avec aperçu avant application.</p></div>
+      <div class="carte rev"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21"/><path d="M8 10.5h5M10.5 8v5"/></svg></span><h3>Agrandir d'un geste</h3><p>Appui bref pour lire plus grand, zoom pincé conservé pendant l'exploration, retour au ruban d'un toucher.</p></div>
+      <div class="carte rev"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.8"/><path d="M3 17l5-4 4 3 4-4 5 5"/></svg></span><h3>Cases entières</h3><p>Chaque case s'affiche en entier, jamais deux fois : les raccords entre cases restent propres, y compris aux bords.</p></div>
+    </div>
+    <div class="galerie" style="margin-top:18px">
+      <figure class="rev"><img src="img/bd-preparation.png" alt="Page de BD fictive découpée en sept cases numérotées"><figcaption>Une page de BD fictive : sept cases proposées, parcours numéroté</figcaption></figure>
+      <figure class="rev"><img src="img/bd-lecture.png" alt="Lecture d'une case de BD en vue entière, bouton Agrandir"><figcaption>Chaque case défile cadrée à l'écran ; « Agrandir » pour lire de près</figcaption></figure>
+    </div>
+  </div>
+</section>
+
+<section id="captures">
+  <div class="wrap">
+    <h2 class="titre-section rev">L'application en images</h2>
+    <p class="sous rev">Captures réelles de l'application, sur des documents entièrement fictifs.</p>
+    <div class="galerie">
+      <figure class="rev"><img src="img/galerie-detection.png" alt="Blocs détectés sur une page de journal fictive"><figcaption>Détection locale des blocs, parcours numéroté</figcaption></figure>
+      <figure class="rev"><img src="img/galerie-lecture.png" alt="Ruban de lecture continu"><figcaption>Ruban de lecture continu, cadré à l'écran</figcaption></figure>
+      <figure class="rev"><img src="img/galerie-menu.png" alt="Menu de correction d'un bloc"><figcaption>Corriger un bloc : ajuster, séparer, fusionner…</figcaption></figure>
+      <figure class="rev"><img src="img/galerie-deplacement.png" alt="Déplacement d'un bloc : parcours violet, consigne complète"><figcaption>Déplacer un bloc : le parcours passe en violet, un toucher suffit</figcaption></figure>
+    </div>
+  </div>
+</section>
+
+<section id="ocr" style="background:#fff">
+  <div class="wrap">
+    <h2 class="titre-section rev">Une OCR embarquée, honnête et réversible</h2>
+    <p class="sous rev">Deux moteurs locaux comparent leurs lectures ; vous gardez la décision, passage par passage.</p>
+    <div class="rendus">
+      <div class="rendu rev"><h3>Original</h3><p>Le PDF tel quel, rendu à la demande. Rien n'est modifié : la source reste intacte.</p></div>
+      <div class="rendu rev"><h3>Nettoyé</h3><p>Un nettoyage local et un léger renforcement des lettres pour les scans ternes.</p></div>
+      <div class="rendu rev"><h3>Texte OCR</h3><p>Tesseract français et PP-OCRv5 (ONNX) embarqués. Les corrections sont prudentes : chiffres, noms propres et mots attestés protégés, brut consultable et rétabli d'un toucher.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="privee" class="prive">
+  <div class="wrap">
+    <h2 class="titre-section rev">Vos documents restent chez vous</h2>
+    <p class="sous rev" style="color:#cfd4c6">Aucune permission Internet n'est demandée. Tout se passe sur l'appareil.</p>
+    <div class="grille">
+      <div class="carte rev"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9.5" rx="2"/><path d="M8 11V7.5a4 4 0 0 1 8 0V11"/></svg></span><h3>Zéro envoi</h3><p>Pas de compte, pas de publicité, pas d'API distante, pas de journal du contenu.</p></div>
+      <div class="carte rev"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/></svg></span><h3>Stockage privé</h3><p>La copie de travail et les parcours restent dans l'espace privé de l'application, hors sauvegarde Android, et se suppriment d'un geste.</p></div>
+      <div class="carte rev"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.5 3h5"/><path d="M10.5 3v5.5l-5 8.4A2.4 2.4 0 0 0 7.6 21h8.8a2.4 2.4 0 0 0 2.1-3.6l-5-8.9V3"/><path d="M7.3 15h9.4"/></svg></span><h3>Preuves fictives</h3><p>Tests et captures utilisent des documents inventés : aucun journal réel dans le dépôt.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="etat">
+  <div class="wrap">
+    <div class="stable rev">
+      <h3>Version stable 1.0, téléchargement direct</h3>
+      <p>L'APK (arm64 et x86_64) et ses sommes de contrôle SHA-256 se téléchargent depuis les <a href="https://github.com/manudss/pdf-focus-reader/releases">releases GitHub</a>. L'installation est manuelle, sans magasin d'applications.</p>
+      <p>Limites connues, en toute transparence : scans très flous ou mises en page très irrégulières (cases très fines ou imbriquées dans certaines BD) peuvent demander un cadrage manuel ; le Texte OCR reste une aide à la lecture, pas une transcription garantie, et le retour au brut est immédiat.</p>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p><strong>PDF Focus</strong> — code, tests et notices : <a href="https://github.com/manudss/pdf-focus-reader">github.com/manudss/pdf-focus-reader</a></p>
+    <p>Application gratuite et open source. Documents d'exemple entièrement fictifs.</p>
+  </div>
+</footer>
+
+<script>
+document.documentElement.classList.add('js');
+if('IntersectionObserver' in window&&!matchMedia('(prefers-reduced-motion: reduce)').matches){
+  var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){e.target.classList.add('vu');io.unobserve(e.target)}})},{threshold:.15});
+  document.querySelectorAll('.rev').forEach(function(el){io.observe(el)});
+  setTimeout(function(){document.querySelectorAll('.rev:not(.vu)').forEach(function(el){el.classList.add('vu','force')})},1600);
+}else{document.querySelectorAll('.rev').forEach(function(el){el.classList.add('vu')})}
+</script>
+</body>
+</html>
