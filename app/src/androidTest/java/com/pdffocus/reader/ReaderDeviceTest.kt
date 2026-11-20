@@ -1506,13 +1506,29 @@ class ReaderDeviceTest {
                 MainActivity::class.java.getDeclaredMethod("editZoneAction",Zone::class.java,Int::class.javaPrimitiveType).apply{isAccessible=true}.invoke(a,zones.first(),8)
                 assertEquals("The menu action enters move mode on the chosen block",zones.first().id,f(a,"moving").getInt(a))
                 val canvas=f(a,"canvas").get(a)as PageCanvas;assertTrue(canvas.moveMode);assertEquals(zones.first().id,canvas.moveId)
+            }
+            // Views added by updateControls only render after a layout pass: capture once idle.
+            ins.waitForIdleSync();Thread.sleep(300)
+            scenario.onActivity{a->
+                val status=f(a,"status").get(a)as android.widget.TextView
+                assertEquals("Instruction band spans the full width so it can wrap",android.view.ViewGroup.LayoutParams.MATCH_PARENT,status.layoutParams.width)
+                val lay=status.layout;assertTrue("Instruction is laid out",lay!=null);lay!!
+                val last=lay.lineCount-1
+                assertTrue("Instruction wraps over several lines",lay.lineCount>=2)
+                assertEquals("Instruction is laid out to its last character",status.text.length,lay.getLineEnd(last))
+                assertEquals("No ellipsis truncates the instruction",0,lay.getEllipsisCount(last))
                 captureShot(a,"move-mode-controls")
+            }
+            scenario.onActivity{a->
+                val zones=f(a,"zones").get(a)as List<Zone>
+                val canvas=f(a,"canvas").get(a)as PageCanvas
                 canvas.onZoneTap?.invoke(zones.last())
                 assertEquals("One tap places the block after the chosen target",listOf(zones.last().id,zones.first().id),f(a,"order").get(a))
                 assertEquals("Move mode closes after the placement",0,f(a,"moving").getInt(a))
                 assertFalse("Canvas leaves move mode too",canvas.moveMode)
-                captureShot(a,"move-mode-renumbered")
             }
+            ins.waitForIdleSync();Thread.sleep(300)
+            scenario.onActivity{a->captureShot(a,"move-mode-renumbered")}
         }
         File(c.filesDir,"current.pdf").delete();SessionStore(c).clear()
     }
