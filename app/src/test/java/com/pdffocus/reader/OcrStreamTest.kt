@@ -6,7 +6,10 @@ import org.junit.Test
 import org.junit.Assert.*
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
-@RunWith(RobolectricTestRunner::class)
+import org.robolectric.annotation.Config
+// Robolectric 4.15.1 supports up to SDK 35; pin these SDK-agnostic tests. API 36 behavior is
+// covered by the instrumented device tests on the emulator.
+@RunWith(RobolectricTestRunner::class) @Config(sdk=[35])
 class OcrStreamTest {
  private fun view():ContinuousReaderView {val v=ContinuousReaderView(RuntimeEnvironment.getApplication());v.measure(View.MeasureSpec.makeMeasureSpec(400,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(500,View.MeasureSpec.EXACTLY));v.layout(0,0,400,500);return v}
  private fun plan(n:Int)=(1..n).map{OcrChunk(it,1,0,Box(0f,(it-1f)/n,1f,it.toFloat()/n),Kind.TEXT)}
