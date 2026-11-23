@@ -838,9 +838,13 @@ class MainActivity:Activity() {
         return false
     }
     @Deprecated("Activity back callback")
-    // API 26-32 fallback: from API 33 the registered OnBackInvokedCallback handles system back,
-    // and on Android 16 (target 36) this method is never called at all.
+    // API 26-32 fallback only. With targetSdk 36 the framework dispatches system back
+    // (gesture or button) through OnBackInvokedDispatcher on API 33+, where the callback
+    // registered in onCreate (and unregistered in onDestroy) runs; this override is
+    // bypassed there and cannot intercept the gesture. On API 26-32 legacy dispatch still
+    // routes back to this method, so it intentionally applies the same leaveCurrentMode()
+    // contract. On Android 16 (target 36) it is never called at all.
     @android.annotation.SuppressLint("GestureBackNavigation")
     override fun onBackPressed(){if(!leaveCurrentMode())super.onBackPressed()}
-    override fun onDestroy(){modePreviewDialog?.dismiss();articleShareDialog?.dismiss();canvas.finishSelectionReveal();pageSummary?.dismiss();editDialog?.dismiss();main.removeCallbacks(saveProgress);if(pageReady)saveSession();reader.clear();++generation;detector?.cancel();detectionWorker.shutdown();super.onDestroy();worker.execute{document?.close();document=null};worker.shutdown()}
+    override fun onDestroy(){if(Build.VERSION.SDK_INT>=33){systemBackCallback?.let{onBackInvokedDispatcher.unregisterOnBackInvokedCallback(it)};systemBackCallback=null};modePreviewDialog?.dismiss();articleShareDialog?.dismiss();canvas.finishSelectionReveal();pageSummary?.dismiss();editDialog?.dismiss();main.removeCallbacks(saveProgress);if(pageReady)saveSession();reader.clear();++generation;detector?.cancel();detectionWorker.shutdown();super.onDestroy();worker.execute{document?.close();document=null};worker.shutdown()}
 }

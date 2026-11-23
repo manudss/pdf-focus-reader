@@ -1277,7 +1277,12 @@ class ReaderDeviceTest {
     }
     private fun pressBackWhenFocused(device:UiDevice,scenario:ActivityScenario<MainActivity>){
         awaitWindowFocus(scenario)
-        try{device.pressBack()}catch(e:Throwable){if(!e.toString().contains("focused"))throw e;awaitWindowFocus(scenario);device.pressBack()}
+        // UiDevice.pressBack() returns false when UiAutomation rejects the event before
+        // dispatch (typically no focused window on a loaded emulator); a rejected event is
+        // never partially delivered, so one retry after re-awaiting focus cannot produce a
+        // double back. A true return is never retried, and any exception propagates: the
+        // functional assertions after the call stay the only judges of the back's effect.
+        if(!device.pressBack()){awaitWindowFocus(scenario);assertTrue("Back key injection rejected twice (harness focus issue)",device.pressBack())}
     }
     private fun findButton(v:View,label:String):Button? {if(v is Button&&v.text.toString().startsWith(label))return v;if(v is ViewGroup)for(i in 0 until v.childCount)findButton(v.getChildAt(i),label)?.let{return it};return null}
     private fun findReader(v:View):ContinuousReaderView?{if(v is ContinuousReaderView)return v;if(v is ViewGroup)for(i in 0 until v.childCount)findReader(v.getChildAt(i))?.let{return it};return null}
