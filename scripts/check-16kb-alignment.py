@@ -8,7 +8,12 @@ and fails if any LOAD segment has p_align below 16384.
 
 Static check only: it does not replace a runtime test on a 16 KB device image.
 
-Usage: check-16kb-alignment.py APK [APK ...]
+App Bundles also pass through here: they still carry 32-bit splits (armeabi-v7a, x86)
+for legacy devices, and Google Play's 16 KB page-size requirement applies to 64-bit
+native code only, so 32-bit libraries inside an .aab are skipped with a note. APK
+inputs stay strict: a 32-bit library there means the wrong artifact is under test.
+
+Usage: check-16kb-alignment.py APK_OR_AAB [APK_OR_AAB ...]
 """
 import io, struct, sys, zipfile
 
@@ -39,7 +44,11 @@ def check_apk(path):
         if not libs:
             print(f'{path}: no native library')
         for entry in libs:
-            aligns = load_alignments(zf.read(entry), entry)
+            data = zf.read(entry)
+            if str(path).endswith('.aab') and data[:4] == b'\x7fELF' and data[4] == 1:
+                print(f'SKIP {path} :: {entry} (32-bit split, no 16 KB page requirement)')
+                continue
+            aligns = load_alignments(data, entry)
             worst = min(aligns)
             status = 'OK  ' if worst >= REQUIRED else 'FAIL'
             print(f'{status} {path} :: {entry} (min LOAD p_align={worst})')

@@ -21,6 +21,10 @@ jobs:
           java-version: '17'
       - name: Test automatic release version planning
         run: python3 scripts/test-release-plan.py
+      - name: Test App Bundle signing path (jarsigner, pinned identity)
+        run: python3 scripts/test-sign-aab.py
+      - name: Test 16 KB check on bundle inputs (32-bit splits skipped)
+        run: python3 scripts/test-16kb-aab.py
       - name: Build stable release identity without signing
         run: ./gradlew --no-daemon assembleRelease -PreleasePackage=com.pdffocus.reader -PreleaseLabel="PDF Focus Reader" -PreleaseVersion=1.0.0 -PreleaseCode=100000
       - name: Verify 16 KB native library alignment
