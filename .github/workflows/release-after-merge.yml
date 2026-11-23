@@ -86,16 +86,17 @@ jobs:
           java-version: '17'
       - uses: android-actions/setup-android@v3
         with:
-          packages: platform-tools platforms;android-35 build-tools;35.0.0
+          packages: platform-tools platforms;android-36 build-tools;36.0.0
         if: steps.gate.outputs.allowed == 'true' && steps.existing.outputs.found != 'true'
-      - name: Build versioned APKs and repeat unit checks
+      - name: Build versioned APKs and App Bundle, repeat unit checks
         if: steps.gate.outputs.allowed == 'true' && steps.existing.outputs.found != 'true'
         env:
           APP_VERSION: ${{ steps.version.outputs.version }}
           APP_CODE: ${{ steps.version.outputs.code }}
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon testDebugUnitTest lintRelease assembleRelease -PreleaseVersion="$APP_VERSION" -PreleaseCode="$APP_CODE" -PreleasePackage=com.pdffocus.reader -PreleaseLabel="PDF Focus Reader"
+          ./gradlew --no-daemon testDebugUnitTest lintRelease assembleRelease bundleRelease -PreleaseVersion="$APP_VERSION" -PreleaseCode="$APP_CODE" -PreleasePackage=com.pdffocus.reader -PreleaseLabel="PDF Focus Reader"
+          python3 scripts/check-16kb-alignment.py app/build/outputs/apk/release/app-*-release-unsigned.apk app/build/outputs/bundle/release/app-release.aab
       - name: Sign APKs with the stable pinned app identity
         if: steps.gate.outputs.allowed == 'true' && steps.existing.outputs.found != 'true'
         env:

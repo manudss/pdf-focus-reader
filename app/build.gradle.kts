@@ -1,13 +1,13 @@
 plugins { id("com.android.application"); id("org.jetbrains.kotlin.android") }
 android {
     namespace = "com.pdffocus.reader"
-    compileSdk = 35
+    compileSdk = 36
     defaultConfig {
         applicationId = providers.gradleProperty("releasePackage").orNull ?: "com.pdffocus.reader.test"
         manifestPlaceholders["appLabel"] = providers.gradleProperty("releaseLabel").orNull ?: "PDF Focus Test"
         manifestPlaceholders["appIcon"] = if (providers.gradleProperty("releasePackage").orNull == "com.pdffocus.reader") "@drawable/ic_reader_app" else "@drawable/ic_test_app"
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 36
         versionCode = providers.gradleProperty("releaseCode").orNull?.toInt() ?: 18
         versionName = providers.gradleProperty("releaseVersion").orNull ?: "0.10.17-test"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -26,6 +26,7 @@ dependencies {
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test:core:1.6.1")
+    androidTestImplementation("androidx.test.uiautomator:uiautomator:2.3.0")
     testImplementation("junit:junit:4.13.2")
-    testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation("org.robolectric:robolectric:4.15.1")
 }

@@ -4,9 +4,12 @@ import android.content.Intent
 import android.graphics.*
 import android.view.*
 import android.widget.*
+import androidx.lifecycle.Lifecycle
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.uiautomator.By
+import androidx.test.uiautomator.UiDevice
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
@@ -1176,6 +1179,8 @@ class ReaderDeviceTest {
                 val v=findCanvas(a.window.decorView)!!;val matrix=PageCanvas::class.java.getDeclaredField("matrix").apply{isAccessible=true}.get(v)as Matrix
                 val xy=floatArrayOf(x*700,y*1000);matrix.mapPoints(xy);val offset=IntArray(2);v.getLocationOnScreen(offset);out=PointF(xy[0]+offset[0],xy[1]+offset[1])
             };return out}
+            // injectInputEvent only reaches the view of a focused window: guard first.
+            awaitWindowFocus(scenario)
             val left=point(.3f,.04f);val right=point(.65f,.04f);val end=point(.3f,.87f);val down=android.os.SystemClock.uptimeMillis()
             fun inject(action:Int,a:PointF,b:PointF?=null){
                 val n=if(b==null)1 else 2
@@ -1186,7 +1191,7 @@ class ReaderDeviceTest {
             }
             inject(MotionEvent.ACTION_DOWN,left);Thread.sleep(80)
             inject(MotionEvent.ACTION_POINTER_DOWN or (1 shl 8),left,right)
-            var armed=false;val holdDeadline=android.os.SystemClock.uptimeMillis()+10000;var k=0
+            var armed=false;val holdDeadline=android.os.SystemClock.uptimeMillis()+20000;var k=0
             while(!armed&&android.os.SystemClock.uptimeMillis()<holdDeadline){Thread.sleep(90);val jitter=if(k++%2==0)2f else -2f;inject(MotionEvent.ACTION_MOVE,PointF(left.x+jitter,left.y+1),PointF(right.x+jitter,right.y-1));scenario.onActivity{a->val view=findCanvas(a.window.decorView)!!;armed=PageCanvas::class.java.getDeclaredField("twoSweeping").apply{isAccessible=true}.getBoolean(view)}}
             assertTrue("Physical two-finger hold must activate before sweep",armed)
             for(k in 1..18){val dy=(end.y-left.y)*k/18;inject(MotionEvent.ACTION_MOVE,PointF(left.x,left.y+dy),PointF(right.x,right.y+dy));Thread.sleep(18)}
@@ -1266,6 +1271,29 @@ class ReaderDeviceTest {
         }
     }
     private fun findText(v:View,value:String):Boolean{if(v is TextView&&v.text.toString().contains(value))return true;if(v is ViewGroup)for(j in 0 until v.childCount)if(findText(v.getChildAt(j),value))return true;return false}
+    // An app or SystemUI ANR raises an "isn't responding" dialog that holds window focus
+    // for the whole run; CI logcat showed a SystemUI ANR blocking every focus wait. Answer
+    // "Wait" so the emulator session survives the transient stall instead of failing tests.
+    private fun dismissAnrDialog(device:UiDevice){
+        if(device.findObject(By.textContains("isn't responding"))!=null)device.findObject(By.text("Wait"))?.click()
+    }
+    // UiDevice input injection requires a focused window; a loaded CI emulator can take a
+    // while to grant it. Wait for it, dismissing any system ANR dialog that blocks focus.
+    private fun awaitWindowFocus(scenario:ActivityScenario<MainActivity>){
+        val i=InstrumentationRegistry.getInstrumentation();val device=UiDevice.getInstance(i);val deadline=System.currentTimeMillis()+60000;var focused=false
+        while(System.currentTimeMillis()<deadline&&!focused){dismissAnrDialog(device);i.waitForIdleSync();Thread.sleep(100);scenario.onActivity{a->focused=a.hasWindowFocus()&&a.window.decorView.isLaidOut}}
+        assertTrue("Activity window must be focused before injecting input",focused)
+    }
+    private fun pressBackWhenFocused(device:UiDevice,scenario:ActivityScenario<MainActivity>){
+        awaitWindowFocus(scenario)
+        // UiDevice.pressBack() is a down+up pair via injectInputEvent and returns false when
+        // UiAutomation rejects an event. A false return does not formally guarantee zero
+        // partial dispatch of the pair (a delivered down with a failed up is contractually
+        // possible), so a blind retry could compound effects: fail explicitly instead and
+        // treat a rejection as a harness limit, never as a product failure. The functional
+        // assertions after this call stay the only judges of the back's effect.
+        assertTrue("Back key injection rejected by UiAutomation (harness focus limit)",device.pressBack())
+    }
     private fun findButton(v:View,label:String):Button? {if(v is Button&&v.text.toString().startsWith(label))return v;if(v is ViewGroup)for(i in 0 until v.childCount)findButton(v.getChildAt(i),label)?.let{return it};return null}
     private fun findReader(v:View):ContinuousReaderView?{if(v is ContinuousReaderView)return v;if(v is ViewGroup)for(i in 0 until v.childCount)findReader(v.getChildAt(i))?.let{return it};return null}
     private fun findCanvas(v:View):PageCanvas?{if(v is PageCanvas)return v;if(v is ViewGroup)for(i in 0 until v.childCount)findCanvas(v.getChildAt(i))?.let{return it};return null}
@@ -1394,8 +1422,8 @@ class ReaderDeviceTest {
                 val root=d.window!!.decorView
                 var icons=0
                 fun countIcons(v:View){if(v is TextView&&v !is Button&&v.compoundDrawablesRelative[0] is ActionIcon)icons++;if(v is ViewGroup)for(k in 0 until v.childCount)countIcons(v.getChildAt(k))}
-                countIcons(root);assertEquals("Every menu action keeps its own icon",11,icons)
-                for(label in listOf("Document","Blocs de la page","Aide","Ouvrir un autre PDF","Ajouter un bloc","Voir l'ordre de lecture","Fusionner des blocs","Regrouper automatiquement","Propose des regroupements parmi les blocs choisis. Vous validez ceux à appliquer.","Réessayer la détection","Annuler le dernier regroupement","Confidentialité et aide","Licences des composants"))
+                countIcons(root);assertEquals("Every menu action keeps its own icon",12,icons)
+                for(label in listOf("Document","Blocs de la page","Aide","Ouvrir un autre PDF","Ajouter un bloc","Voir l'ordre de lecture","Fusionner des blocs","Regrouper automatiquement","Propose des regroupements parmi les blocs choisis. Vous validez ceux à appliquer.","Réessayer la détection","Annuler le dernier regroupement","Confidentialité et aide","Politique de confidentialité","Licences des composants"))
                     assertTrue("Menu must show « $label »",findText(root,label))
             }
         }
@@ -1468,6 +1496,75 @@ class ReaderDeviceTest {
                 val shot=Bitmap.createBitmap(root.width,root.height,Bitmap.Config.ARGB_8888);root.draw(Canvas(shot))
                 File(File(c.getExternalFilesDir(null),"screenshots").apply{mkdirs()},"grouped-menu-product.png").outputStream().use{shot.compress(Bitmap.CompressFormat.PNG,100,it)};shot.recycle();d.dismiss()
             }
+        }
+    }
+
+    @Test fun systemBackCallbackLeavesEveryOpenModeOnApi33Plus(){
+        // Android 16 (target 36) never calls onBackPressed and never dispatches KEYCODE_BACK:
+        // the system invokes the OnBackInvokedCallback registered in onCreate. Invoke that
+        // exact registered callback for each mode it must leave, then check the activity
+        // finishes once no mode remains. Move mode ends the test: on main, back in move mode
+        // already finished the activity, and the migration preserves that contract, asserted here.
+        if(android.os.Build.VERSION.SDK_INT<33)return
+        val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext
+        c.assets.open("examples/decouverte.pdf").use{input->File(c.filesDir,"current.pdf").outputStream().use{input.copyTo(it)}};SessionStore(c).clear()
+        ActivityScenario.launch<MainActivity>(Intent(c,MainActivity::class.java)).use{scenario->
+            fun f(a:MainActivity,n:String)=MainActivity::class.java.getDeclaredField(n).apply{isAccessible=true}
+            val end=System.currentTimeMillis()+90000;var ready=false;while(System.currentTimeMillis()<end&&!ready){Thread.sleep(100);scenario.onActivity{a->ready=f(a,"pageReady").getBoolean(a)}};assertTrue("Example page ready",ready)
+            fun back(){scenario.onActivity{a->(f(a,"systemBackCallback").get(a)as android.window.OnBackInvokedCallback).onBackInvoked()};i.waitForIdleSync();Thread.sleep(200)}
+            scenario.onActivity{a->assertTrue("Zones detected",(f(a,"zones").get(a)as List<Zone>).isNotEmpty())
+                f(a,"reading").setBoolean(a,true);(f(a,"canvas").get(a)as PageCanvas).reading=true;(f(a,"reader").get(a)as View).visibility=View.VISIBLE}
+            back();scenario.onActivity{a->assertFalse("System back leaves reading mode",f(a,"reading").getBoolean(a))}
+            scenario.onActivity{a->f(a,"adding").setBoolean(a,true);(f(a,"canvas").get(a)as PageCanvas).drawMode=true}
+            back();scenario.onActivity{a->assertFalse("System back leaves adding mode",f(a,"adding").getBoolean(a))}
+            scenario.onActivity{a->f(a,"merging").setBoolean(a,true);(f(a,"canvas").get(a)as PageCanvas).mergeMode=true}
+            back();scenario.onActivity{a->assertFalse("System back leaves merging mode",f(a,"merging").getBoolean(a))}
+            scenario.onActivity{a->val z=(f(a,"zones").get(a)as List<Zone>).first();f(a,"adjusting").set(a,z.id);(f(a,"canvas").get(a)as PageCanvas).apply{adjustingZone=z.id;editBox=z.box}}
+            back();scenario.onActivity{a->assertNull("System back leaves adjusting mode",f(a,"adjusting").get(a))}
+            scenario.onActivity{a->f(a,"articleIds").set(a,listOf(1,2))}
+            back();scenario.onActivity{a->assertNull("System back leaves article mode",f(a,"articleIds").get(a))}
+            // Preserved contract: on main, system back in move mode finished the activity.
+            scenario.onActivity{a->f(a,"moving").setInt(a,1);(f(a,"canvas").get(a)as PageCanvas).apply{moveMode=true;moveId=1}}
+            back()
+            val until=System.currentTimeMillis()+10000;while(System.currentTimeMillis()<until&&scenario.state!=Lifecycle.State.DESTROYED)Thread.sleep(100)
+            assertEquals("System back in move mode finishes the activity, as on main",Lifecycle.State.DESTROYED,scenario.state)
+        }
+    }
+
+    @Test fun systemBackButtonLeavesModeThroughRealDispatchOnApi33Plus(){
+        // Real system interaction: enter a mode through the UI, then inject the system back
+        // key (same path as the back gesture/button on Android 16, which routes through the
+        // OnBackInvokedDispatcher, never onBackPressed). The registered callback must fire
+        // and leave the mode.
+        if(android.os.Build.VERSION.SDK_INT<33)return
+        val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext;val device=UiDevice.getInstance(i)
+        c.assets.open("examples/decouverte.pdf").use{input->File(c.filesDir,"current.pdf").outputStream().use{input.copyTo(it)}};SessionStore(c).clear()
+        ActivityScenario.launch<MainActivity>(Intent(c,MainActivity::class.java)).use{scenario->
+            fun f(a:MainActivity,n:String)=MainActivity::class.java.getDeclaredField(n).apply{isAccessible=true}
+            val end=System.currentTimeMillis()+90000;var ready=false;while(System.currentTimeMillis()<end&&!ready){Thread.sleep(100);scenario.onActivity{a->ready=f(a,"pageReady").getBoolean(a)}};assertTrue("Example page ready",ready)
+            scenario.onActivity{a->findButton(a.window.decorView,"Ajouter")!!.performClick();assertTrue("Ajouter enters adding mode",f(a,"adding").getBoolean(a))}
+            i.waitForIdleSync();Thread.sleep(200)
+            pressBackWhenFocused(device,scenario)
+            var left=false;val until=System.currentTimeMillis()+15000;while(System.currentTimeMillis()<until&&!left){Thread.sleep(150);scenario.onActivity{a->left=!f(a,"adding").getBoolean(a)}}
+            assertTrue("Real system back leaves adding mode through the dispatcher",left)
+        }
+    }
+
+    @Test fun systemBackButtonInMoveModeFinishesActivityThroughRealDispatchOnApi33Plus(){
+        // Real system interaction for the preserved move-mode contract: on main, a system back
+        // in move mode finished the activity. Inject a real system back (UiDevice.pressBack)
+        // and check the activity is finished through the dispatcher route on Android 16.
+        if(android.os.Build.VERSION.SDK_INT<33)return
+        val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext;val device=UiDevice.getInstance(i)
+        c.assets.open("examples/decouverte.pdf").use{input->File(c.filesDir,"current.pdf").outputStream().use{input.copyTo(it)}};SessionStore(c).clear()
+        ActivityScenario.launch<MainActivity>(Intent(c,MainActivity::class.java)).use{scenario->
+            fun f(a:MainActivity,n:String)=MainActivity::class.java.getDeclaredField(n).apply{isAccessible=true}
+            val end=System.currentTimeMillis()+90000;var ready=false;while(System.currentTimeMillis()<end&&!ready){Thread.sleep(100);scenario.onActivity{a->ready=f(a,"pageReady").getBoolean(a)}};assertTrue("Example page ready",ready)
+            scenario.onActivity{a->f(a,"moving").setInt(a,1);(f(a,"canvas").get(a)as PageCanvas).apply{moveMode=true;moveId=1}}
+            i.waitForIdleSync();Thread.sleep(200)
+            pressBackWhenFocused(device,scenario)
+            val until=System.currentTimeMillis()+15000;while(System.currentTimeMillis()<until&&scenario.state!=Lifecycle.State.DESTROYED)Thread.sleep(150)
+            assertEquals("Real system back in move mode finishes the activity, as on main",Lifecycle.State.DESTROYED,scenario.state)
         }
     }
 

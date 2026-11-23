@@ -21,8 +21,14 @@ jobs:
           java-version: '17'
       - name: Test automatic release version planning
         run: python3 scripts/test-release-plan.py
+      - name: Test App Bundle signing path (jarsigner, pinned identity)
+        run: python3 scripts/test-sign-aab.py
+      - name: Test 16 KB check on bundle inputs (32-bit splits skipped)
+        run: python3 scripts/test-16kb-aab.py
       - name: Build stable release identity without signing
         run: ./gradlew --no-daemon assembleRelease -PreleasePackage=com.pdffocus.reader -PreleaseLabel="PDF Focus Reader" -PreleaseVersion=1.0.0 -PreleaseCode=100000
+      - name: Verify 16 KB native library alignment
+        run: python3 scripts/check-16kb-alignment.py app/build/outputs/apk/release/app-*-release-unsigned.apk
       - name: Build, unit tests and lint
         run: chmod +x gradlew && ./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug assembleDebugAndroidTest
       - uses: actions/upload-artifact@v5
@@ -49,7 +55,7 @@ jobs:
           sudo udevadm trigger --name-match=kvm
       - uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 35
+          api-level: 36
           arch: x86_64
           profile: pixel_6
           disable-animations: true
@@ -61,7 +67,7 @@ jobs:
             adb shell am instrument -w -r com.pdffocus.reader.test.test/androidx.test.runner.AndroidJUnitRunner | tee device-tests.txt
             adb logcat -d > device-logcat.txt
             adb pull /sdcard/Android/data/com.pdffocus.reader.test/files/screenshots app/build/device-screenshots || true
-            grep -q 'OK (46 tests)' device-tests.txt
+            grep -q 'OK (49 tests)' device-tests.txt
       - uses: actions/upload-artifact@v5
         if: always()
         with:
@@ -112,7 +118,7 @@ jobs:
           java-version: '17'
       - uses: android-actions/setup-android@v3
         with:
-          packages: platform-tools platforms;android-35 build-tools;35.0.0
+          packages: platform-tools platforms;android-36 build-tools;36.0.0
       - name: Build stable 1.0.0 release candidate
         run: ./gradlew --no-daemon testDebugUnitTest lintRelease assembleRelease -PreleasePackage=com.pdffocus.reader -PreleaseLabel="PDF Focus Reader" -PreleaseVersion=1.0.0 -PreleaseCode=100000
       - name: Sign with dedicated stable certificate and verify final metadata
@@ -133,7 +139,7 @@ jobs:
           sudo udevadm trigger --name-match=kvm
       - uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 35
+          api-level: 36
           arch: x86_64
           profile: pixel_6
           disable-animations: true
@@ -172,7 +178,7 @@ jobs:
       - name: Verify package, version, certificate and checksum before publishing
         run: |
           set -euo pipefail
-          BT="$ANDROID_HOME/build-tools/35.0.0"
+          BT="$ANDROID_HOME/build-tools/36.0.0"
           APK=$(ls signed-test/pdf-focus-test-*-arm64.apk)
           test "$(ls signed-test/pdf-focus-test-*-arm64.apk | wc -l)" = 1
           "$BT/aapt" dump badging "$APK" | head -1 | tee verify.txt

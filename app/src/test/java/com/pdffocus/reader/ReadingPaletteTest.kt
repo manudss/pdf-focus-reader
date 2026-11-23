@@ -5,7 +5,10 @@ import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
-@RunWith(RobolectricTestRunner::class)
+import org.robolectric.annotation.Config
+// Robolectric 4.15.1 supports up to SDK 35; pin these SDK-agnostic tests. API 36 behavior is
+// covered by the instrumented device tests on the emulator.
+@RunWith(RobolectricTestRunner::class) @Config(sdk=[35])
 class ReadingPaletteTest {
  @Test fun paperAndInverseBackgroundsKeepReadableContrast(){
   for(color in listOf(Color.rgb(247,241,223),Color.rgb(31,76,59))){

@@ -199,11 +199,6 @@ class TutorialActivity : Activity() {
         status.text = "Page ${page + 1} sur 9"
     }
 
-    @Deprecated("Activity back callback")
-    override fun onBackPressed() {
-        super.onBackPressed()
-    }
-
     override fun onDestroy() {
         ended = true; detector?.cancel(); main.removeCallbacksAndMessages(null); reader.clear()
         canvas.image?.recycle(); canvas.image = null

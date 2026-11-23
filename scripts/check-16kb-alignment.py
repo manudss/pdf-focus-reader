@@ -1,0 +1,83 @@
+#!/usr/bin/env python3
+"""Static 16 KB page-size readiness check for native libraries in built outputs.
+
+Google Play requires 16 KB page-size compatibility for native code. A shared
+library is compatible when every ELF LOAD segment is aligned to at least 16384
+bytes. This script inspects every .so inside the given APKs (zip archives),
+and fails if any LOAD segment has p_align below 16384.
+
+Static check only: it does not replace a runtime test on a 16 KB device image.
+
+App Bundles also pass through here: they still carry 32-bit splits (armeabi-v7a, x86)
+for legacy devices, and Google Play's 16 KB page-size requirement applies to 64-bit
+native code only, so 32-bit libraries inside an .aab are skipped with a note. APK
+inputs stay strict: a 32-bit library there means the wrong artifact is under test.
+
+Usage: check-16kb-alignment.py APK_OR_AAB [APK_OR_AAB ...]
+"""
+import io, struct, sys, zipfile
+
+REQUIRED = 16384
+
+def load_alignments(data, name):
+    """Return the p_align of every PT_LOAD segment of a 64-bit ELF."""
+    if data[:4] != b'\x7fELF':
+        raise ValueError(f'{name}: not an ELF file')
+    if data[4] != 2:
+        raise ValueError(f'{name}: 32-bit ELF, expected 64-bit')
+    e_phoff = struct.unpack_from('<Q', data, 32)[0]
+    e_phentsize = struct.unpack_from('<H', data, 54)[0]
+    e_phnum = struct.unpack_from('<H', data, 56)[0]
+    aligns = []
+    for i in range(e_phnum):
+        p_type = struct.unpack_from('<I', data, e_phoff + i * e_phentsize)[0]
+        if p_type == 1:  # PT_LOAD
+            aligns.append(struct.unpack_from('<Q', data, e_phoff + i * e_phentsize + 48)[0])
+    if not aligns:
+        raise ValueError(f'{name}: no LOAD segment')
+    return aligns
+
+def so_data_offset(zf, entry):
+    """Absolute offset of a .so entry's data inside the archive (local header + name + extra)."""
+    info = zf.getinfo(entry)
+    return info.header_offset + 30 + len(info.filename.encode('utf-8')) + len(info.extra)
+
+def check_apk(path):
+    failures = []
+    with zipfile.ZipFile(path) as zf:
+        libs = [n for n in zf.namelist() if n.endswith('.so')]
+        if not libs:
+            print(f'{path}: no native library')
+        for entry in libs:
+            data = zf.read(entry)
+            if str(path).endswith('.aab') and data[:4] == b'\x7fELF' and data[4] == 1:
+                print(f'SKIP {path} :: {entry} (32-bit split, no 16 KB page requirement)')
+                continue
+            aligns = load_alignments(data, entry)
+            worst = min(aligns)
+            # Placement only matters when the runtime mmaps the library in place: a 64-bit
+            # .so STORED uncompressed must be 16 KB aligned inside the archive. Compressed
+            # entries (this app's deliberate useLegacyPackaging=true, extraction on install)
+            # are unpacked first, so ELF p_align is the only control that applies to them.
+            info = zf.getinfo(entry)
+            stored = info.compress_type == zipfile.ZIP_STORED
+            offset = so_data_offset(zf, entry)
+            misplaced = stored and offset % REQUIRED != 0
+            status = 'OK  ' if worst >= REQUIRED and not misplaced else 'FAIL'
+            print(f'{status} {path} :: {entry} (min LOAD p_align={worst}, stored={stored}, data_offset%16384={offset % REQUIRED})')
+            if worst < REQUIRED or misplaced:
+                failures.append(entry)
+    return failures
+
+def main():
+    if len(sys.argv) < 2:
+        raise SystemExit('Usage: check-16kb-alignment.py APK [APK ...]')
+    failures = []
+    for path in sys.argv[1:]:
+        failures.extend(check_apk(path))
+    if failures:
+        raise SystemExit(f'{len(failures)} native librar(ies) below {REQUIRED}-byte LOAD alignment')
+    print(f'All native libraries align to at least {REQUIRED} bytes.')
+
+if __name__ == '__main__':
+    main()

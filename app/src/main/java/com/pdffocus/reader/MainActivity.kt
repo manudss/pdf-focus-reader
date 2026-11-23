@@ -80,12 +80,19 @@ class MainActivity:Activity() {
     private var autoProposed=false
     private var orderTouched=false
     private val green=Color.rgb(50,109,93);private val ink=Color.rgb(37,31,33)
+    // The callback the system invokes for a system back gesture/button on API 33+ (mandatory
+    // on Android 16 / target 36). Kept in a field so tests can invoke the exact registered route.
+    private var systemBackCallback:android.window.OnBackInvokedCallback?=null
     private fun dp(v:Int)=(v*resources.displayMetrics.density).roundToInt()
 
     private val spelling by lazy { FrenchSpelling(applicationContext) }
     private fun loadRepair()=OcrEnhancer(emptyList(),spelling::valid)
     override fun onCreate(savedInstanceState:Bundle?) {
-        super.onCreate(savedInstanceState);store=SessionStore(this);cleanReading=getPreferences(0).getBoolean("cleanReading",true);autoSelect=getPreferences(0).getBoolean("autoSelect",true)
+        super.onCreate(savedInstanceState);store=SessionStore(this)
+        // Android 16 (target 36) no longer calls onBackPressed: predictive back is enforced.
+        // Register the same mode-leaving handling with the platform dispatcher on API 33+.
+        if(Build.VERSION.SDK_INT>=33){val cb=android.window.OnBackInvokedCallback{if(!leaveCurrentMode())finish()};systemBackCallback=cb;onBackInvokedDispatcher.registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT,cb)}
+        cleanReading=getPreferences(0).getBoolean("cleanReading",true);autoSelect=getPreferences(0).getBoolean("autoSelect",true)
         val root=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setBackgroundColor(Color.rgb(250,249,246))}
         root.setOnApplyWindowInsetsListener{v,insets->v.setPadding(insets.systemWindowInsetLeft,insets.systemWindowInsetTop,insets.systemWindowInsetRight,insets.systemWindowInsetBottom);insets}
         header=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL;setBackgroundColor(Color.WHITE);setPadding(dp(16),dp(4),dp(12),dp(2))}
@@ -791,6 +798,7 @@ class MainActivity:Activity() {
         section("Aide")
         entry("help","Revoir le didacticiel","Les quatre gestes à essayer sur le document d'exemple."){startTutorial()}
         entry("info","Confidentialité et aide",null){AlertDialog.Builder(this).setTitle(applicationInfo.loadLabel(packageManager).toString()).setMessage("Le PDF, les zones et les parcours restent sur cet appareil. Aucune permission Internet, publicité ou compte. Une copie privée du dernier PDF est conservée pour reprendre la lecture.\n\nLa détection peut manquer ou fusionner des zones. + Bloc permet de cadrer à la main ; un double tap ouvre la correction. Maintenez et glissez pour choisir plusieurs blocs. Pincez pour zoomer et faites glisser la page agrandie.\n\nLe zoom ne recrée pas les détails d'un scan flou. Le résultat dépend du document et des capacités de votre téléphone.").setPositiveButton("Fermer",null).show()}
+        entry("document","Politique de confidentialité","La politique complète, hébergée en ligne, ouverte dans le navigateur."){openPrivacyPolicy()}
         entry("license","Licences des composants",null){showLicenses()}
         val scroll=ScrollView(this).apply{addView(list)}
         sheet.addView(scroll,LinearLayout.LayoutParams(-1,0,1f))
@@ -811,11 +819,32 @@ class MainActivity:Activity() {
     }
 
     private fun clearDocument(){if(busy){toast("Attendez la fin de l’analyse avant de supprimer.");return};AlertDialog.Builder(this).setTitle("Supprimer la copie locale ?").setMessage("Le fichier original n'est pas modifié. Le parcours enregistré sera effacé.").setPositiveButton("Supprimer"){_,_->++generation;main.removeCallbacks(saveProgress);reader.clear();reader.visibility=View.GONE;canvas.visibility=View.VISIBLE;pageReady=false;worker.execute{document?.close();document=null;File(filesDir,"current.pdf").delete()};count=0;store.clear();preview?.recycle();preview=null;readingBitmap?.recycle();readingBitmap=null;canvas.image=null;canvas.zones=emptyList();canvas.selection=emptyList();reading=false;busy=false;title.text=applicationInfo.loadLabel(packageManager).toString();info.text="Sans compte et hors ligne";status.text="Document local supprimé.";updateControls()}.setNegativeButton("Annuler",null).show()}
+    /** Full privacy policy on the project's public page, opened in the browser: the app itself
+     *  keeps no Internet permission. */
+    private fun openPrivacyPolicy()=startActivity(Intent(Intent.ACTION_VIEW,Uri.parse("https://manudss.github.io/pdf-focus-reader/confidentialite.html")))
     private fun showLicenses(){val names=assets.list("licenses").orEmpty();AlertDialog.Builder(this).setTitle("Licences").setItems(names){_,which->val view=TextView(this).apply{text=assets.open("licenses/"+names[which]).bufferedReader().use{it.readText()};setPadding(dp(16),dp(12),dp(16),dp(12));textSize=12f};val scroll=ScrollView(this).apply{addView(view)};AlertDialog.Builder(this).setTitle(names[which]).setView(scroll).setPositiveButton("Fermer",null).show()}.setNegativeButton("Fermer",null).show()}
     private fun toast(message:String)=Toast.makeText(this,message,Toast.LENGTH_SHORT).show()
     /** Original tutorial bundled for explicit offline discovery; never replaces a resumed document. */
     private fun demo(){openDocument("PDF Focus - Découverte"){target->assets.open("examples/decouverte.pdf").use{input->target.outputStream().use{output->input.copyTo(output)}}}}
+    /** Back pressed: leave the current mode first (article, merge, adjustment, reader, block
+     *  adding); only leave the activity when no mode is open. Called by the platform through
+     *  OnBackInvokedCallback on API 33+ and through the deprecated override below before that. */
+    private fun leaveCurrentMode():Boolean{
+        if(articleIds!=null){finishArticle(false);return true}
+        if(merging){finishMerge(false);return true}
+        if(adjusting!=null){finishAdjustment(false);return true}
+        if(reading){exitReader();return true}
+        if(adding){adding=false;replaceId=null;canvas.drawMode=false;sync();return true}
+        return false
+    }
     @Deprecated("Activity back callback")
-    override fun onBackPressed(){if(articleIds!=null)finishArticle(false)else if(merging)finishMerge(false)else if(adjusting!=null)finishAdjustment(false)else if(reading)exitReader()else if(adding){adding=false;replaceId=null;canvas.drawMode=false;sync()}else super.onBackPressed()}
-    override fun onDestroy(){modePreviewDialog?.dismiss();articleShareDialog?.dismiss();canvas.finishSelectionReveal();pageSummary?.dismiss();editDialog?.dismiss();main.removeCallbacks(saveProgress);if(pageReady)saveSession();reader.clear();++generation;detector?.cancel();detectionWorker.shutdown();super.onDestroy();worker.execute{document?.close();document=null};worker.shutdown()}
+    // API 26-32 fallback only. With targetSdk 36 the framework dispatches system back
+    // (gesture or button) through OnBackInvokedDispatcher on API 33+, where the callback
+    // registered in onCreate (and unregistered in onDestroy) runs; this override is
+    // bypassed there and cannot intercept the gesture. On API 26-32 legacy dispatch still
+    // routes back to this method, so it intentionally applies the same leaveCurrentMode()
+    // contract. On Android 16 (target 36) it is never called at all.
+    @android.annotation.SuppressLint("GestureBackNavigation")
+    override fun onBackPressed(){if(!leaveCurrentMode())super.onBackPressed()}
+    override fun onDestroy(){if(Build.VERSION.SDK_INT>=33){systemBackCallback?.let{onBackInvokedDispatcher.unregisterOnBackInvokedCallback(it)};systemBackCallback=null};modePreviewDialog?.dismiss();articleShareDialog?.dismiss();canvas.finishSelectionReveal();pageSummary?.dismiss();editDialog?.dismiss();main.removeCallbacks(saveProgress);if(pageReady)saveSession();reader.clear();++generation;detector?.cancel();detectionWorker.shutdown();super.onDestroy();worker.execute{document?.close();document=null};worker.shutdown()}
 }
