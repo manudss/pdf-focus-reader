@@ -795,6 +795,7 @@ class MainActivity:Activity() {
         section("Aide")
         entry("help","Revoir le didacticiel","Les quatre gestes à essayer sur le document d'exemple."){startTutorial()}
         entry("info","Confidentialité et aide",null){AlertDialog.Builder(this).setTitle(applicationInfo.loadLabel(packageManager).toString()).setMessage("Le PDF, les zones et les parcours restent sur cet appareil. Aucune permission Internet, publicité ou compte. Une copie privée du dernier PDF est conservée pour reprendre la lecture.\n\nLa détection peut manquer ou fusionner des zones. + Bloc permet de cadrer à la main ; un double tap ouvre la correction. Maintenez et glissez pour choisir plusieurs blocs. Pincez pour zoomer et faites glisser la page agrandie.\n\nLe zoom ne recrée pas les détails d'un scan flou. Le résultat dépend du document et des capacités de votre téléphone.").setPositiveButton("Fermer",null).show()}
+        entry("document","Politique de confidentialité","La politique complète, hébergée en ligne, ouverte dans le navigateur."){openPrivacyPolicy()}
         entry("license","Licences des composants",null){showLicenses()}
         val scroll=ScrollView(this).apply{addView(list)}
         sheet.addView(scroll,LinearLayout.LayoutParams(-1,0,1f))
@@ -815,6 +816,9 @@ class MainActivity:Activity() {
     }
 
     private fun clearDocument(){if(busy){toast("Attendez la fin de l’analyse avant de supprimer.");return};AlertDialog.Builder(this).setTitle("Supprimer la copie locale ?").setMessage("Le fichier original n'est pas modifié. Le parcours enregistré sera effacé.").setPositiveButton("Supprimer"){_,_->++generation;main.removeCallbacks(saveProgress);reader.clear();reader.visibility=View.GONE;canvas.visibility=View.VISIBLE;pageReady=false;worker.execute{document?.close();document=null;File(filesDir,"current.pdf").delete()};count=0;store.clear();preview?.recycle();preview=null;readingBitmap?.recycle();readingBitmap=null;canvas.image=null;canvas.zones=emptyList();canvas.selection=emptyList();reading=false;busy=false;title.text=applicationInfo.loadLabel(packageManager).toString();info.text="Sans compte et hors ligne";status.text="Document local supprimé.";updateControls()}.setNegativeButton("Annuler",null).show()}
+    /** Full privacy policy on the project's public page, opened in the browser: the app itself
+     *  keeps no Internet permission. */
+    private fun openPrivacyPolicy()=startActivity(Intent(Intent.ACTION_VIEW,Uri.parse("https://manudss.github.io/pdf-focus-reader/confidentialite.html")))
     private fun showLicenses(){val names=assets.list("licenses").orEmpty();AlertDialog.Builder(this).setTitle("Licences").setItems(names){_,which->val view=TextView(this).apply{text=assets.open("licenses/"+names[which]).bufferedReader().use{it.readText()};setPadding(dp(16),dp(12),dp(16),dp(12));textSize=12f};val scroll=ScrollView(this).apply{addView(view)};AlertDialog.Builder(this).setTitle(names[which]).setView(scroll).setPositiveButton("Fermer",null).show()}.setNegativeButton("Fermer",null).show()}
     private fun toast(message:String)=Toast.makeText(this,message,Toast.LENGTH_SHORT).show()
     /** Original tutorial bundled for explicit offline discovery; never replaces a resumed document. */
