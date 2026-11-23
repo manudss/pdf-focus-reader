@@ -838,6 +838,9 @@ class MainActivity:Activity() {
         return false
     }
     @Deprecated("Activity back callback")
+    // API 26-32 fallback: from API 33 the registered OnBackInvokedCallback handles system back,
+    // and on Android 16 (target 36) this method is never called at all.
+    @android.annotation.SuppressLint("GestureBackNavigation")
     override fun onBackPressed(){if(!leaveCurrentMode())super.onBackPressed()}
     override fun onDestroy(){modePreviewDialog?.dismiss();articleShareDialog?.dismiss();canvas.finishSelectionReveal();pageSummary?.dismiss();editDialog?.dismiss();main.removeCallbacks(saveProgress);if(pageReady)saveSession();reader.clear();++generation;detector?.cancel();detectionWorker.shutdown();super.onDestroy();worker.execute{document?.close();document=null};worker.shutdown()}
 }

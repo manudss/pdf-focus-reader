@@ -1268,6 +1268,17 @@ class ReaderDeviceTest {
         }
     }
     private fun findText(v:View,value:String):Boolean{if(v is TextView&&v.text.toString().contains(value))return true;if(v is ViewGroup)for(j in 0 until v.childCount)if(findText(v.getChildAt(j),value))return true;return false}
+    // UiDevice input injection requires a focused window; a loaded CI emulator can take a
+    // while to grant it. Wait for it, then retry the injection once if it still fails.
+    private fun awaitWindowFocus(scenario:ActivityScenario<MainActivity>){
+        val i=InstrumentationRegistry.getInstrumentation();val deadline=System.currentTimeMillis()+30000;var focused=false
+        while(System.currentTimeMillis()<deadline&&!focused){i.waitForIdleSync();Thread.sleep(100);scenario.onActivity{a->focused=a.hasWindowFocus()&&a.window.decorView.isLaidOut}}
+        assertTrue("Activity window must be focused before injecting input",focused)
+    }
+    private fun pressBackWhenFocused(device:UiDevice,scenario:ActivityScenario<MainActivity>){
+        awaitWindowFocus(scenario)
+        try{device.pressBack()}catch(e:Throwable){if(!e.toString().contains("focused"))throw e;awaitWindowFocus(scenario);device.pressBack()}
+    }
     private fun findButton(v:View,label:String):Button? {if(v is Button&&v.text.toString().startsWith(label))return v;if(v is ViewGroup)for(i in 0 until v.childCount)findButton(v.getChildAt(i),label)?.let{return it};return null}
     private fun findReader(v:View):ContinuousReaderView?{if(v is ContinuousReaderView)return v;if(v is ViewGroup)for(i in 0 until v.childCount)findReader(v.getChildAt(i))?.let{return it};return null}
     private fun findCanvas(v:View):PageCanvas?{if(v is PageCanvas)return v;if(v is ViewGroup)for(i in 0 until v.childCount)findCanvas(v.getChildAt(i))?.let{return it};return null}
@@ -1518,7 +1529,7 @@ class ReaderDeviceTest {
             val end=System.currentTimeMillis()+90000;var ready=false;while(System.currentTimeMillis()<end&&!ready){Thread.sleep(100);scenario.onActivity{a->ready=f(a,"pageReady").getBoolean(a)}};assertTrue("Example page ready",ready)
             scenario.onActivity{a->findButton(a.window.decorView,"Ajouter")!!.performClick();assertTrue("Ajouter enters adding mode",f(a,"adding").getBoolean(a))}
             i.waitForIdleSync();Thread.sleep(200)
-            device.pressBack()
+            pressBackWhenFocused(device,scenario)
             var left=false;val until=System.currentTimeMillis()+15000;while(System.currentTimeMillis()<until&&!left){Thread.sleep(150);scenario.onActivity{a->left=!f(a,"adding").getBoolean(a)}}
             assertTrue("Real system back leaves adding mode through the dispatcher",left)
         }
@@ -1536,7 +1547,7 @@ class ReaderDeviceTest {
             val end=System.currentTimeMillis()+90000;var ready=false;while(System.currentTimeMillis()<end&&!ready){Thread.sleep(100);scenario.onActivity{a->ready=f(a,"pageReady").getBoolean(a)}};assertTrue("Example page ready",ready)
             scenario.onActivity{a->f(a,"moving").setInt(a,1);(f(a,"canvas").get(a)as PageCanvas).apply{moveMode=true;moveId=1}}
             i.waitForIdleSync();Thread.sleep(200)
-            device.pressBack()
+            pressBackWhenFocused(device,scenario)
             val until=System.currentTimeMillis()+15000;while(System.currentTimeMillis()<until&&scenario.state!=Lifecycle.State.DESTROYED)Thread.sleep(150)
             assertEquals("Real system back in move mode finishes the activity, as on main",Lifecycle.State.DESTROYED,scenario.state)
         }
