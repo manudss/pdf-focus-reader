@@ -8,6 +8,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
 import org.junit.Assert.*
 import org.junit.Before
@@ -1178,6 +1179,8 @@ class ReaderDeviceTest {
                 val v=findCanvas(a.window.decorView)!!;val matrix=PageCanvas::class.java.getDeclaredField("matrix").apply{isAccessible=true}.get(v)as Matrix
                 val xy=floatArrayOf(x*700,y*1000);matrix.mapPoints(xy);val offset=IntArray(2);v.getLocationOnScreen(offset);out=PointF(xy[0]+offset[0],xy[1]+offset[1])
             };return out}
+            // injectInputEvent only reaches the view of a focused window: guard first.
+            awaitWindowFocus(scenario)
             val left=point(.3f,.04f);val right=point(.65f,.04f);val end=point(.3f,.87f);val down=android.os.SystemClock.uptimeMillis()
             fun inject(action:Int,a:PointF,b:PointF?=null){
                 val n=if(b==null)1 else 2
@@ -1188,7 +1191,7 @@ class ReaderDeviceTest {
             }
             inject(MotionEvent.ACTION_DOWN,left);Thread.sleep(80)
             inject(MotionEvent.ACTION_POINTER_DOWN or (1 shl 8),left,right)
-            var armed=false;val holdDeadline=android.os.SystemClock.uptimeMillis()+10000;var k=0
+            var armed=false;val holdDeadline=android.os.SystemClock.uptimeMillis()+20000;var k=0
             while(!armed&&android.os.SystemClock.uptimeMillis()<holdDeadline){Thread.sleep(90);val jitter=if(k++%2==0)2f else -2f;inject(MotionEvent.ACTION_MOVE,PointF(left.x+jitter,left.y+1),PointF(right.x+jitter,right.y-1));scenario.onActivity{a->val view=findCanvas(a.window.decorView)!!;armed=PageCanvas::class.java.getDeclaredField("twoSweeping").apply{isAccessible=true}.getBoolean(view)}}
             assertTrue("Physical two-finger hold must activate before sweep",armed)
             for(k in 1..18){val dy=(end.y-left.y)*k/18;inject(MotionEvent.ACTION_MOVE,PointF(left.x,left.y+dy),PointF(right.x,right.y+dy));Thread.sleep(18)}
@@ -1268,11 +1271,17 @@ class ReaderDeviceTest {
         }
     }
     private fun findText(v:View,value:String):Boolean{if(v is TextView&&v.text.toString().contains(value))return true;if(v is ViewGroup)for(j in 0 until v.childCount)if(findText(v.getChildAt(j),value))return true;return false}
+    // An app or SystemUI ANR raises an "isn't responding" dialog that holds window focus
+    // for the whole run; CI logcat showed a SystemUI ANR blocking every focus wait. Answer
+    // "Wait" so the emulator session survives the transient stall instead of failing tests.
+    private fun dismissAnrDialog(device:UiDevice){
+        if(device.findObject(By.textContains("isn't responding"))!=null)device.findObject(By.text("Wait"))?.click()
+    }
     // UiDevice input injection requires a focused window; a loaded CI emulator can take a
-    // while to grant it. Wait for it, then retry the injection once if it still fails.
+    // while to grant it. Wait for it, dismissing any system ANR dialog that blocks focus.
     private fun awaitWindowFocus(scenario:ActivityScenario<MainActivity>){
-        val i=InstrumentationRegistry.getInstrumentation();val deadline=System.currentTimeMillis()+30000;var focused=false
-        while(System.currentTimeMillis()<deadline&&!focused){i.waitForIdleSync();Thread.sleep(100);scenario.onActivity{a->focused=a.hasWindowFocus()&&a.window.decorView.isLaidOut}}
+        val i=InstrumentationRegistry.getInstrumentation();val device=UiDevice.getInstance(i);val deadline=System.currentTimeMillis()+60000;var focused=false
+        while(System.currentTimeMillis()<deadline&&!focused){dismissAnrDialog(device);i.waitForIdleSync();Thread.sleep(100);scenario.onActivity{a->focused=a.hasWindowFocus()&&a.window.decorView.isLaidOut}}
         assertTrue("Activity window must be focused before injecting input",focused)
     }
     private fun pressBackWhenFocused(device:UiDevice,scenario:ActivityScenario<MainActivity>){

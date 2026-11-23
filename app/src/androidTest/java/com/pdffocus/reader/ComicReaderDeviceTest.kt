@@ -7,6 +7,8 @@ import android.view.*
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.uiautomator.By
+import androidx.test.uiautomator.UiDevice
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -65,8 +67,11 @@ class ComicReaderDeviceTest {
    // Synchronize on observable states, not on a fixed delay: layout and window focus are
    // separate conditions, and a loaded CI emulator may take long to deliver either.
    var laidOut=false;var focused=false
-   val focusDeadline=SystemClock.uptimeMillis()+30000
-   while(SystemClock.uptimeMillis()<focusDeadline){ins.waitForIdleSync();ins.runOnMainSync{laidOut=reader.width>0&&reader.height>0&&reader.isShown;focused=reader.hasWindowFocus()};if(laidOut&&focused)break;SystemClock.sleep(100)}
+   // A SystemUI/app ANR dialog holds window focus for the whole run (seen on CI logcat);
+   // answer "Wait" so the session survives the stall, and give a slow emulator more time.
+   val device=UiDevice.getInstance(ins)
+   val focusDeadline=SystemClock.uptimeMillis()+60000
+   while(SystemClock.uptimeMillis()<focusDeadline){if(device.findObject(By.textContains("isn't responding"))!=null)device.findObject(By.text("Wait"))?.click();ins.waitForIdleSync();ins.runOnMainSync{laidOut=reader.width>0&&reader.height>0&&reader.isShown;focused=reader.hasWindowFocus()};if(laidOut&&focused)break;SystemClock.sleep(100)}
    assertTrue("Reader must be laid out before injecting input (focused=$focused)",laidOut)
    assertTrue("Activity window must be focused before injecting input (laidOut=$laidOut)",focused)
    val d=context.resources.displayMetrics.density;val w=reader.width.toFloat();val y=150*d
