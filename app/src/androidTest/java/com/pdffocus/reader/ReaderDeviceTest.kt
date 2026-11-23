@@ -1477,8 +1477,8 @@ class ReaderDeviceTest {
         // Android 16 (target 36) never calls onBackPressed and never dispatches KEYCODE_BACK:
         // the system invokes the OnBackInvokedCallback registered in onCreate. Invoke that
         // exact registered callback for each mode it must leave, then check the activity
-        // finishes once no mode remains. Move mode is intentionally absent: on main, back
-        // in move mode already finished the activity, and the migration preserves that.
+        // finishes once no mode remains. Move mode ends the test: on main, back in move mode
+        // already finished the activity, and the migration preserves that contract, asserted here.
         if(android.os.Build.VERSION.SDK_INT<33)return
         val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext
         c.assets.open("examples/decouverte.pdf").use{input->File(c.filesDir,"current.pdf").outputStream().use{input.copyTo(it)}};SessionStore(c).clear()
@@ -1497,9 +1497,11 @@ class ReaderDeviceTest {
             back();scenario.onActivity{a->assertNull("System back leaves adjusting mode",f(a,"adjusting").get(a))}
             scenario.onActivity{a->f(a,"articleIds").set(a,listOf(1,2))}
             back();scenario.onActivity{a->assertNull("System back leaves article mode",f(a,"articleIds").get(a))}
+            // Preserved contract: on main, system back in move mode finished the activity.
+            scenario.onActivity{a->f(a,"moving").setInt(a,1);(f(a,"canvas").get(a)as PageCanvas).apply{moveMode=true;moveId=1}}
             back()
             val until=System.currentTimeMillis()+10000;while(System.currentTimeMillis()<until&&scenario.state!=Lifecycle.State.DESTROYED)Thread.sleep(100)
-            assertEquals("System back with no open mode finishes the activity",Lifecycle.State.DESTROYED,scenario.state)
+            assertEquals("System back in move mode finishes the activity, as on main",Lifecycle.State.DESTROYED,scenario.state)
         }
     }
 
@@ -1519,6 +1521,24 @@ class ReaderDeviceTest {
             device.pressBack()
             var left=false;val until=System.currentTimeMillis()+15000;while(System.currentTimeMillis()<until&&!left){Thread.sleep(150);scenario.onActivity{a->left=!f(a,"adding").getBoolean(a)}}
             assertTrue("Real system back leaves adding mode through the dispatcher",left)
+        }
+    }
+
+    @Test fun systemBackButtonInMoveModeFinishesActivityThroughRealDispatchOnApi33Plus(){
+        // Real system interaction for the preserved move-mode contract: on main, a system back
+        // in move mode finished the activity. Inject a real system back (UiDevice.pressBack)
+        // and check the activity is finished through the dispatcher route on Android 16.
+        if(android.os.Build.VERSION.SDK_INT<33)return
+        val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext;val device=UiDevice.getInstance(i)
+        c.assets.open("examples/decouverte.pdf").use{input->File(c.filesDir,"current.pdf").outputStream().use{input.copyTo(it)}};SessionStore(c).clear()
+        ActivityScenario.launch<MainActivity>(Intent(c,MainActivity::class.java)).use{scenario->
+            fun f(a:MainActivity,n:String)=MainActivity::class.java.getDeclaredField(n).apply{isAccessible=true}
+            val end=System.currentTimeMillis()+90000;var ready=false;while(System.currentTimeMillis()<end&&!ready){Thread.sleep(100);scenario.onActivity{a->ready=f(a,"pageReady").getBoolean(a)}};assertTrue("Example page ready",ready)
+            scenario.onActivity{a->f(a,"moving").setInt(a,1);(f(a,"canvas").get(a)as PageCanvas).apply{moveMode=true;moveId=1}}
+            i.waitForIdleSync();Thread.sleep(200)
+            device.pressBack()
+            val until=System.currentTimeMillis()+15000;while(System.currentTimeMillis()<until&&scenario.state!=Lifecycle.State.DESTROYED)Thread.sleep(150)
+            assertEquals("Real system back in move mode finishes the activity, as on main",Lifecycle.State.DESTROYED,scenario.state)
         }
     }
 
