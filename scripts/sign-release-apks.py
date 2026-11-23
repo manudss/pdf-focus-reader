@@ -26,6 +26,13 @@ try:
   assert "name='com.pdffocus.reader'" in metadata, 'Package identity changed'
   assert "application-debuggable" not in metadata, 'Debuggable APK cannot be a stable release'
   checks.append(hashlib.sha256(dest.read_bytes()).hexdigest()+'  '+dest.name)
+ # Google Play uploads an Android App Bundle, signed with the same pinned stable identity.
+ aab_src=pathlib.Path('app/build/outputs/bundle/release/app-release.aab')
+ assert aab_src.is_file(), 'App Bundle missing: run bundleRelease in the same Gradle invocation'
+ aab=out/f'pdf-focus-reader-{version}.aab'
+ subprocess.run([str(bt/'apksigner'),'sign','--ks',str(key),'--ks-pass','file:'+str(password),'--key-pass','file:'+str(keypassword),'--ks-key-alias',bundle['alias'],'--out',str(aab),str(aab_src)],check=True,capture_output=True)
+ subprocess.run([str(bt/'apksigner'),'verify','--verbose',str(aab)],check=True,capture_output=True)
+ checks.append(hashlib.sha256(aab.read_bytes()).hexdigest()+'  '+aab.name)
  (out/'SHA256SUMS.txt').write_text('\n'.join(checks)+'\nCertificate SHA256 '+digest+'\n')
  print('Signed stable PDF Focus Reader APK verified with pinned public certificate.')
 except subprocess.CalledProcessError as error:
