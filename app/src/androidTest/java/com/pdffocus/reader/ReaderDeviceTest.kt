@@ -8,6 +8,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.uiautomator.UiDevice
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
@@ -1500,6 +1501,25 @@ class ReaderDeviceTest {
             back()
             val until=System.currentTimeMillis()+10000;while(System.currentTimeMillis()<until&&scenario.state!=Lifecycle.State.DESTROYED)Thread.sleep(100)
             assertEquals("System back with no open mode finishes the activity",Lifecycle.State.DESTROYED,scenario.state)
+        }
+    }
+
+    @Test fun systemBackButtonLeavesModeThroughRealDispatchOnApi33Plus(){
+        // Real system interaction: enter a mode through the UI, then inject the system back
+        // key (same path as the back gesture/button on Android 16, which routes through the
+        // OnBackInvokedDispatcher, never onBackPressed). The registered callback must fire
+        // and leave the mode.
+        if(android.os.Build.VERSION.SDK_INT<33)return
+        val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext;val device=UiDevice.getInstance(i)
+        c.assets.open("examples/decouverte.pdf").use{input->File(c.filesDir,"current.pdf").outputStream().use{input.copyTo(it)}};SessionStore(c).clear()
+        ActivityScenario.launch<MainActivity>(Intent(c,MainActivity::class.java)).use{scenario->
+            fun f(a:MainActivity,n:String)=MainActivity::class.java.getDeclaredField(n).apply{isAccessible=true}
+            val end=System.currentTimeMillis()+90000;var ready=false;while(System.currentTimeMillis()<end&&!ready){Thread.sleep(100);scenario.onActivity{a->ready=f(a,"pageReady").getBoolean(a)}};assertTrue("Example page ready",ready)
+            scenario.onActivity{a->findButton(a.window.decorView,"Ajouter")!!.performClick();assertTrue("Ajouter enters adding mode",f(a,"adding").getBoolean(a))}
+            i.waitForIdleSync();Thread.sleep(200)
+            device.pressBack()
+            var left=false;val until=System.currentTimeMillis()+15000;while(System.currentTimeMillis()<until&&!left){Thread.sleep(150);scenario.onActivity{a->left=!f(a,"adding").getBoolean(a)}}
+            assertTrue("Real system back leaves adding mode through the dispatcher",left)
         }
     }
 
