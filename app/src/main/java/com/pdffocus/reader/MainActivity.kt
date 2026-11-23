@@ -85,7 +85,11 @@ class MainActivity:Activity() {
     private val spelling by lazy { FrenchSpelling(applicationContext) }
     private fun loadRepair()=OcrEnhancer(emptyList(),spelling::valid)
     override fun onCreate(savedInstanceState:Bundle?) {
-        super.onCreate(savedInstanceState);store=SessionStore(this);cleanReading=getPreferences(0).getBoolean("cleanReading",true);autoSelect=getPreferences(0).getBoolean("autoSelect",true)
+        super.onCreate(savedInstanceState);store=SessionStore(this)
+        // Android 16 (target 36) no longer calls onBackPressed: predictive back is enforced.
+        // Register the same mode-leaving handling with the platform dispatcher on API 33+.
+        if(Build.VERSION.SDK_INT>=33)onBackInvokedDispatcher.registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT,android.window.OnBackInvokedCallback{if(!leaveCurrentMode())finish()})
+        cleanReading=getPreferences(0).getBoolean("cleanReading",true);autoSelect=getPreferences(0).getBoolean("autoSelect",true)
         val root=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setBackgroundColor(Color.rgb(250,249,246))}
         root.setOnApplyWindowInsetsListener{v,insets->v.setPadding(insets.systemWindowInsetLeft,insets.systemWindowInsetTop,insets.systemWindowInsetRight,insets.systemWindowInsetBottom);insets}
         header=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL;setBackgroundColor(Color.WHITE);setPadding(dp(16),dp(4),dp(12),dp(2))}
@@ -815,7 +819,18 @@ class MainActivity:Activity() {
     private fun toast(message:String)=Toast.makeText(this,message,Toast.LENGTH_SHORT).show()
     /** Original tutorial bundled for explicit offline discovery; never replaces a resumed document. */
     private fun demo(){openDocument("PDF Focus - Découverte"){target->assets.open("examples/decouverte.pdf").use{input->target.outputStream().use{output->input.copyTo(output)}}}}
+    /** Back pressed: leave the current mode first (article, merge, adjustment, reader, block
+     *  adding); only leave the activity when no mode is open. Called by the platform through
+     *  OnBackInvokedCallback on API 33+ and through the deprecated override below before that. */
+    private fun leaveCurrentMode():Boolean{
+        if(articleIds!=null){finishArticle(false);return true}
+        if(merging){finishMerge(false);return true}
+        if(adjusting!=null){finishAdjustment(false);return true}
+        if(reading){exitReader();return true}
+        if(adding){adding=false;replaceId=null;canvas.drawMode=false;sync();return true}
+        return false
+    }
     @Deprecated("Activity back callback")
-    override fun onBackPressed(){if(articleIds!=null)finishArticle(false)else if(merging)finishMerge(false)else if(adjusting!=null)finishAdjustment(false)else if(reading)exitReader()else if(adding){adding=false;replaceId=null;canvas.drawMode=false;sync()}else super.onBackPressed()}
+    override fun onBackPressed(){if(!leaveCurrentMode())super.onBackPressed()}
     override fun onDestroy(){modePreviewDialog?.dismiss();articleShareDialog?.dismiss();canvas.finishSelectionReveal();pageSummary?.dismiss();editDialog?.dismiss();main.removeCallbacks(saveProgress);if(pageReady)saveSession();reader.clear();++generation;detector?.cancel();detectionWorker.shutdown();super.onDestroy();worker.execute{document?.close();document=null};worker.shutdown()}
 }
