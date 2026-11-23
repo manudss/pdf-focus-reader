@@ -4,6 +4,7 @@ import android.content.Intent
 import android.graphics.*
 import android.view.*
 import android.widget.*
+import androidx.lifecycle.Lifecycle
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -1468,6 +1469,37 @@ class ReaderDeviceTest {
                 val shot=Bitmap.createBitmap(root.width,root.height,Bitmap.Config.ARGB_8888);root.draw(Canvas(shot))
                 File(File(c.getExternalFilesDir(null),"screenshots").apply{mkdirs()},"grouped-menu-product.png").outputStream().use{shot.compress(Bitmap.CompressFormat.PNG,100,it)};shot.recycle();d.dismiss()
             }
+        }
+    }
+
+    @Test fun systemBackCallbackLeavesEveryOpenModeOnApi33Plus(){
+        // Android 16 (target 36) never calls onBackPressed and never dispatches KEYCODE_BACK:
+        // the system invokes the OnBackInvokedCallback registered in onCreate. Invoke that
+        // exact registered callback for each mode it must leave, then check the activity
+        // finishes once no mode remains.
+        if(android.os.Build.VERSION.SDK_INT<33)return
+        val i=InstrumentationRegistry.getInstrumentation();val c=i.targetContext
+        c.assets.open("examples/decouverte.pdf").use{input->File(c.filesDir,"current.pdf").outputStream().use{input.copyTo(it)}};SessionStore(c).clear()
+        ActivityScenario.launch<MainActivity>(Intent(c,MainActivity::class.java)).use{scenario->
+            fun f(a:MainActivity,n:String)=MainActivity::class.java.getDeclaredField(n).apply{isAccessible=true}
+            val end=System.currentTimeMillis()+90000;var ready=false;while(System.currentTimeMillis()<end&&!ready){Thread.sleep(100);scenario.onActivity{a->ready=f(a,"pageReady").getBoolean(a)}};assertTrue("Example page ready",ready)
+            fun back(){scenario.onActivity{a->(f(a,"systemBackCallback").get(a)as android.window.OnBackInvokedCallback).onBackInvoked()};i.waitForIdleSync();Thread.sleep(200)}
+            scenario.onActivity{a->assertTrue("Zones detected",(f(a,"zones").get(a)as List<Zone>).isNotEmpty())
+                f(a,"reading").setBoolean(a,true);(f(a,"canvas").get(a)as PageCanvas).reading=true;(f(a,"reader").get(a)as View).visibility=View.VISIBLE}
+            back();scenario.onActivity{a->assertFalse("System back leaves reading mode",f(a,"reading").getBoolean(a))}
+            scenario.onActivity{a->f(a,"adding").setBoolean(a,true);(f(a,"canvas").get(a)as PageCanvas).drawMode=true}
+            back();scenario.onActivity{a->assertFalse("System back leaves adding mode",f(a,"adding").getBoolean(a))}
+            scenario.onActivity{a->f(a,"merging").setBoolean(a,true);(f(a,"canvas").get(a)as PageCanvas).mergeMode=true}
+            back();scenario.onActivity{a->assertFalse("System back leaves merging mode",f(a,"merging").getBoolean(a))}
+            scenario.onActivity{a->f(a,"moving").setInt(a,1);(f(a,"canvas").get(a)as PageCanvas).apply{moveMode=true;moveId=1}}
+            back();scenario.onActivity{a->assertEquals("System back leaves moving mode",0,f(a,"moving").getInt(a))}
+            scenario.onActivity{a->val z=(f(a,"zones").get(a)as List<Zone>).first();f(a,"adjusting").set(a,z.id);(f(a,"canvas").get(a)as PageCanvas).apply{adjustingZone=z.id;editBox=z.box}}
+            back();scenario.onActivity{a->assertNull("System back leaves adjusting mode",f(a,"adjusting").get(a))}
+            scenario.onActivity{a->f(a,"articleIds").set(a,listOf(1,2))}
+            back();scenario.onActivity{a->assertNull("System back leaves article mode",f(a,"articleIds").get(a))}
+            back()
+            val until=System.currentTimeMillis()+10000;while(System.currentTimeMillis()<until&&scenario.state!=Lifecycle.State.DESTROYED)Thread.sleep(100)
+            assertEquals("System back with no open mode finishes the activity",Lifecycle.State.DESTROYED,scenario.state)
         }
     }
 

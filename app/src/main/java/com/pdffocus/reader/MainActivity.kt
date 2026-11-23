@@ -80,6 +80,9 @@ class MainActivity:Activity() {
     private var autoProposed=false
     private var orderTouched=false
     private val green=Color.rgb(50,109,93);private val ink=Color.rgb(37,31,33)
+    // The callback the system invokes for a system back gesture/button on API 33+ (mandatory
+    // on Android 16 / target 36). Kept in a field so tests can invoke the exact registered route.
+    private var systemBackCallback:android.window.OnBackInvokedCallback?=null
     private fun dp(v:Int)=(v*resources.displayMetrics.density).roundToInt()
 
     private val spelling by lazy { FrenchSpelling(applicationContext) }
@@ -88,7 +91,7 @@ class MainActivity:Activity() {
         super.onCreate(savedInstanceState);store=SessionStore(this)
         // Android 16 (target 36) no longer calls onBackPressed: predictive back is enforced.
         // Register the same mode-leaving handling with the platform dispatcher on API 33+.
-        if(Build.VERSION.SDK_INT>=33)onBackInvokedDispatcher.registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT,android.window.OnBackInvokedCallback{if(!leaveCurrentMode())finish()})
+        if(Build.VERSION.SDK_INT>=33){val cb=android.window.OnBackInvokedCallback{if(!leaveCurrentMode())finish()};systemBackCallback=cb;onBackInvokedDispatcher.registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT,cb)}
         cleanReading=getPreferences(0).getBoolean("cleanReading",true);autoSelect=getPreferences(0).getBoolean("autoSelect",true)
         val root=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setBackgroundColor(Color.rgb(250,249,246))}
         root.setOnApplyWindowInsetsListener{v,insets->v.setPadding(insets.systemWindowInsetLeft,insets.systemWindowInsetTop,insets.systemWindowInsetRight,insets.systemWindowInsetBottom);insets}
