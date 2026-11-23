@@ -48,6 +48,11 @@ def main():
         except AssertionError:
             pass
     text=SCRIPT.read_text()
+    assert module.PINNED_CERT_SHA256=='6580f2f9c1ae282d4fa05a20415c001eaa80e0d187ae8099ce1043c378dd0cb9','pinned stable identity changed unexpectedly'
+    assert 'PDF_FOCUS_STABLE_CERT_SHA256' not in text,'the pinned release identity must never be overridable by the environment'
+    workflows=pathlib.Path(__file__).parent.parent/'.github'/'workflows'
+    for workflow in workflows.glob('*.yml'):
+        assert 'PDF_FOCUS_STABLE_CERT_SHA256' not in workflow.read_text(),f'{workflow.name} must not override the pinned release identity'
     for line in text.splitlines():
         if 'subprocess.run' in line:
             assert not ('apksigner' in line and re.search(r'\baab\b',line,re.IGNORECASE)),'apksigner must never be invoked on the App Bundle: '+line

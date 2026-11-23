@@ -24,7 +24,9 @@ def main():
     bundle=json.loads(os.environ.pop('PDF_FOCUS_STABLE_SIGNING_BUNDLE'))
     tmp=pathlib.Path(os.environ['RUNNER_TEMP'])/'pdf-focus-stable-signing';tmp.mkdir(mode=0o700,exist_ok=True)
     key=tmp/'key.p12';password=tmp/'password';keypassword=tmp/'key-password';key.write_bytes(base64.b64decode(bundle['keystore']));password.write_text(bundle['password']);key.chmod(0o600);password.chmod(0o600);keypassword.write_text(bundle['password']);keypassword.chmod(0o600)
-    expected=os.environ.get('PDF_FOCUS_STABLE_CERT_SHA256',PINNED_CERT_SHA256)
+    # The pinned stable identity is a constant, never an environment override: no CI
+    # misconfiguration can silently substitute another signing identity for a release.
+    expected=PINNED_CERT_SHA256
     try:
      sdk=pathlib.Path(os.environ['ANDROID_HOME']);bt=sdk/'build-tools'/'36.0.0'
      cert=subprocess.run(['keytool','-exportcert','-keystore',str(key),'-storepass:file',str(password),'-alias',bundle['alias']],check=True,capture_output=True).stdout

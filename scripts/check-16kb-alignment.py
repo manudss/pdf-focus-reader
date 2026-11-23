@@ -37,6 +37,11 @@ def load_alignments(data, name):
         raise ValueError(f'{name}: no LOAD segment')
     return aligns
 
+def so_data_offset(zf, entry):
+    """Absolute offset of a .so entry's data inside the archive (local header + name + extra)."""
+    info = zf.getinfo(entry)
+    return info.header_offset + 30 + len(info.filename.encode('utf-8')) + len(info.extra)
+
 def check_apk(path):
     failures = []
     with zipfile.ZipFile(path) as zf:
@@ -50,9 +55,17 @@ def check_apk(path):
                 continue
             aligns = load_alignments(data, entry)
             worst = min(aligns)
-            status = 'OK  ' if worst >= REQUIRED else 'FAIL'
-            print(f'{status} {path} :: {entry} (min LOAD p_align={worst})')
-            if worst < REQUIRED:
+            # Placement only matters when the runtime mmaps the library in place: a 64-bit
+            # .so STORED uncompressed must be 16 KB aligned inside the archive. Compressed
+            # entries (this app's deliberate useLegacyPackaging=true, extraction on install)
+            # are unpacked first, so ELF p_align is the only control that applies to them.
+            info = zf.getinfo(entry)
+            stored = info.compress_type == zipfile.ZIP_STORED
+            offset = so_data_offset(zf, entry)
+            misplaced = stored and offset % REQUIRED != 0
+            status = 'OK  ' if worst >= REQUIRED and not misplaced else 'FAIL'
+            print(f'{status} {path} :: {entry} (min LOAD p_align={worst}, stored={stored}, data_offset%16384={offset % REQUIRED})')
+            if worst < REQUIRED or misplaced:
                 failures.append(entry)
     return failures
 

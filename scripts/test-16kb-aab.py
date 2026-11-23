@@ -29,7 +29,17 @@ def elf32():
 def fixture(path,entries):
     with zipfile.ZipFile(path,'w') as archive:
         for name,blob in entries.items():
-            archive.writestr(name,blob)
+            # Real bundles and this app's APKs store .so compressed (useLegacyPackaging=true).
+            archive.writestr(name,blob,zipfile.ZIP_DEFLATED)
+
+def stored_fixture(path,name,blob,align_in_zip):
+    with zipfile.ZipFile(path,'w') as archive:
+        info=zipfile.ZipInfo(name);info.compress_type=zipfile.ZIP_STORED
+        if align_in_zip:
+            pad=(16384-(30+len(info.filename.encode('utf-8'))))%16384
+            # A zip extra field must be well-formed: 2-byte id, 2-byte size, payload.
+            info.extra=struct.pack('<HH',0xFFFF,pad-4)+b'X'*(pad-4)
+        archive.writestr(info,blob)
 
 def main():
     spec=importlib.util.spec_from_file_location('check16',SCRIPT)
@@ -46,7 +56,13 @@ def main():
             raise SystemExit('32-bit library inside an APK under test must stay an error')
         except ValueError:
             pass
-    print('16kb-aab regression: 32-bit bundle splits skipped, 64-bit alignment enforced, APK inputs stay strict')
+        packed=tmp/'packed.apk';fixture(packed,{'lib/arm64-v8a/liba.so':elf64(16384)})
+        assert module.check_apk(str(packed))==[],'compressed 64-bit library (extract-on-install) must pass on ELF alignment alone'
+        mis=tmp/'mis.apk';stored_fixture(mis,'lib/arm64-v8a/liba.so',elf64(16384),False)
+        assert module.check_apk(str(mis)),'stored but not 16 KB-placed 64-bit library must be reported'
+        placed=tmp/'placed.apk';stored_fixture(placed,'lib/arm64-v8a/liba.so',elf64(16384),True)
+        assert module.check_apk(str(placed))==[],'stored 16 KB-placed 64-bit library must pass'
+    print('16kb-aab regression: 32-bit bundle splits skipped, 64-bit alignment enforced, stored placement enforced, APK inputs stay strict')
 
 if __name__=='__main__':
     main()
